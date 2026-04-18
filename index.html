@@ -472,6 +472,53 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<!-- ════ EDIT INVOICE MODAL ════ -->
+<div class="modal-bg" id="edit-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeEditModal()">✕</button>
+    <div class="modal-title">✏️ Edit Invoice</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px;" id="edit-modal-subtitle"></div>
+
+    <div class="fg"><label>Cost Price paid for suits (₹) <span style="font-weight:400;color:#aaa;">excl. GST — for P&L</span></label>
+      <input type="number" id="edit-cost" placeholder="Total cost you paid for all suits in this order"/></div>
+
+    <div class="fg"><label>Actual Shipping Cost — India Post (₹)</label>
+      <input type="number" id="edit-ship-cost" placeholder="What India Post charged you"/></div>
+
+    <div class="fg"><label>Shipping Charged to Customer (₹)</label>
+      <input type="number" id="edit-ship-charged" oninput="recalcEditTotal()"/></div>
+
+    <div class="fg"><label>Discount Given (₹)</label>
+      <input type="number" id="edit-discount" oninput="recalcEditTotal()"/></div>
+
+    <div class="fg"><label>Sale Channel <span style="font-weight:400;color:#aaa;">(optional)</span></label>
+      <select id="edit-channel">
+        <option value="">— Not specified —</option>
+        <option value="WhatsApp">WhatsApp</option>
+        <option value="Instagram">Instagram</option>
+        <option value="Facebook">Facebook</option>
+        <option value="Website">Website</option>
+        <option value="Offline">Offline / In-person</option>
+      </select></div>
+
+    <div class="fg"><label>India Post Tracking No.</label>
+      <input id="edit-tracking" placeholder="EE123456789IN"/></div>
+
+    <div class="fg"><label>Customer Phone</label>
+      <input id="edit-phone" placeholder="Mobile number"/></div>
+
+    <div class="fg"><label>Customer Address</label>
+      <textarea id="edit-address" rows="2" placeholder="Full address"></textarea></div>
+
+    <div style="background:var(--goldp);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--brown);margin-bottom:14px;" id="edit-total-preview"></div>
+
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="saveInvoiceEdit()">💾 Save Changes</button>
+      <button class="btn btn-o" onclick="closeEditModal()" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ════ SUB-PAGES (slide in from right) ════ -->
 <div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;overflow-y:auto;padding-bottom:80px;">
   <div style="background:var(--brown);color:#fff;height:var(--header-h);display:flex;align-items:center;padding:0 16px;gap:12px;position:sticky;top:0;z-index:10;">
@@ -1322,6 +1369,7 @@ function renderSales(){
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
             <button class="btn btn-o btn-sm" onclick="viewInvoiceByIdx(${idx})">👁 View</button>
             <button class="btn btn-o btn-sm" onclick="printInvoiceByIdx(${idx})">🖨️ Print</button>
+            <button class="btn btn-o btn-sm" onclick="editInvoiceByIdx(${idx})">✏️ Edit</button>
             <button class="btn btn-sm ${isShipped?'btn-o':'btn-g'}" onclick="toggleShippedByIdx(${idx})">${isShipped?'↩ Unship':'🚚 Shipped'}</button>
             <button class="btn btn-d btn-sm" onclick="deleteInvoiceByIdx(${idx})">🗑</button>
           </div>
@@ -1440,6 +1488,70 @@ function viewInvoice(id){const inv=invoices.find(i=>String(i.id)===String(id));i
 function printInvoice(id){const inv=invoices.find(i=>String(i.id)===String(id));if(!inv)return;const html=inv.html||buildInvoiceHTML({...inv,itemsArr:tryParse(inv.itemsArr)||[],logoB64});document.getElementById('print-area').innerHTML=`<div class="print-page">${html}</div>`;window.print();}
 function toggleShipped(id){const inv=invoices.find(i=>String(i.id)===String(id));if(!inv)return;inv.isShipped=!inv.isShipped;inv.status=inv.isShipped?'Shipped':'Pending';save();gsWrite(SHEETS.invoices,flattenInvoice(inv));renderSales();}
 function tryParse(v){try{return typeof v==='string'?JSON.parse(v):v;}catch{return v;}}
+
+// ── EDIT INVOICE ──
+let editingInvId=null;
+function editInvoiceByIdx(idx){
+  const inv=salesFiltered[idx];if(!inv)return;
+  editingInvId=String(inv.id);
+  document.getElementById('edit-modal-subtitle').textContent=inv.invNo+' · '+inv.custName+' · '+fmtDate(inv.invDate);
+  document.getElementById('edit-cost').value=inv.costPrice||'';
+  document.getElementById('edit-ship-cost').value=inv.shippingCost||'';
+  document.getElementById('edit-ship-charged').value=inv.shipping||0;
+  document.getElementById('edit-discount').value=inv.discount||0;
+  document.getElementById('edit-channel').value=inv.channel||'';
+  document.getElementById('edit-tracking').value=inv.tracking||'';
+  document.getElementById('edit-phone').value=inv.custPhone||'';
+  document.getElementById('edit-address').value=inv.custAddress||'';
+  recalcEditTotal();
+  document.getElementById('edit-modal').classList.add('open');
+}
+function closeEditModal(){
+  document.getElementById('edit-modal').classList.remove('open');
+  editingInvId=null;
+}
+function recalcEditTotal(){
+  const shipCharged=parseFloat(document.getElementById('edit-ship-charged')?.value)||0;
+  const disc=parseFloat(document.getElementById('edit-discount')?.value)||0;
+  const cost=parseFloat(document.getElementById('edit-cost')?.value)||0;
+  const shipCost=parseFloat(document.getElementById('edit-ship-cost')?.value)||0;
+  const inv=invoices.find(i=>String(i.id)===editingInvId);
+  if(!inv)return;
+  // Recalculate grand total from suits + new shipping - new discount
+  const suitsTotal=parseFloat(inv.suitsTotal)||0;
+  const newGrand=suitsTotal+shipCharged-disc;
+  const{taxableExcl,gstAmt}=calcTotals(tryParse(inv.itemsArr)||[],shipCharged,disc);
+  const shipPL=parseFloat((shipCharged/1.05).toFixed(2))-shipCost;
+  const el=document.getElementById('edit-total-preview');
+  if(el)el.innerHTML=`
+    <strong>Grand Total:</strong> ₹${newGrand.toLocaleString('en-IN',{minimumFractionDigits:2})}
+    ${cost>0?` · <strong>Cost:</strong> ₹${cost.toLocaleString('en-IN')}`:' · Cost: not set'}
+    ${shipCost>0?` · <strong>Ship P&L:</strong> <span style="color:${shipPL>=0?'#27ae60':'#c0392b'};">₹${shipPL.toFixed(2)}</span>`:''}`;
+}
+function saveInvoiceEdit(){
+  const inv=invoices.find(i=>String(i.id)===editingInvId);if(!inv)return;
+  const shipCharged=parseFloat(document.getElementById('edit-ship-charged').value)||0;
+  const disc=parseFloat(document.getElementById('edit-discount').value)||0;
+  const{grandIncl,gstAmt,taxableExcl}=calcTotals(tryParse(inv.itemsArr)||[],shipCharged,disc);
+  inv.shipping=shipCharged;
+  inv.shippingCost=parseFloat(document.getElementById('edit-ship-cost').value)||0;
+  inv.discount=disc;
+  inv.costPrice=parseFloat(document.getElementById('edit-cost').value)||0;
+  inv.channel=document.getElementById('edit-channel').value;
+  inv.tracking=document.getElementById('edit-tracking').value;
+  inv.custPhone=document.getElementById('edit-phone').value;
+  inv.custAddress=document.getElementById('edit-address').value;
+  inv.grandTotal=grandIncl;
+  inv.gstAmt=gstAmt;
+  inv.taxableExcl=taxableExcl;
+  // Regenerate invoice HTML with updated values
+  inv.html=buildInvoiceHTML({...inv,itemsArr:tryParse(inv.itemsArr)||[],logoB64});
+  save();
+  gsWrite(SHEETS.invoices,flattenInvoice(inv));
+  closeEditModal();
+  renderSales();
+  toast('✅ Invoice updated!');
+}
 
 // ═══════════════════════════════════════════════════════
 // DASHBOARD
@@ -1920,25 +2032,48 @@ function bulkSaveOnly(){
   const rows=window._bulkRows;
   if(!rows||!rows.length){toast('⚠️ No rows to import');return;}
 
-  let count=0,skipped=0;
+  let added=0,updated=0;
   const ts=Date.now();
   rows.forEach((r,ri)=>{
-    // Dedup check — same date + customer name + suits total = duplicate
     const suitsTotal=r.itemsArr.reduce((s,i)=>s+(i.qty||1)*(i.unitPrice||0),0);
     const stableKey=`${r.invDate||''}|${(r.custName||'').trim().toLowerCase()}|${suitsTotal}`;
-    const already=invoices.some(i=>{
+
+    // Check if this row already exists
+    const existingIdx=invoices.findIndex(i=>{
       const k=`${i.invDate||''}|${(i.custName||'').trim().toLowerCase()}|${parseFloat(i.suitsTotal||0)}`;
       return k===stableKey;
     });
-    if(already){skipped++;return;}
 
-    invCtr++;
-    const invNo='INV-'+String(invCtr).padStart(3,'0');
-    const isIntra=r.custState==='Punjab';
+    const isIntra=(r.custState||'')==='Punjab';
     const{grandIncl,gstAmt,taxableExcl}=calcTotals(r.itemsArr,r.shipping,r.discount);
     const validItems=r.itemsArr.filter(i=>i.unitPrice>0);
+
+    if(existingIdx>=0){
+      // UPDATE existing invoice — only fill in fields that are blank or newly provided
+      const existing=invoices[existingIdx];
+      let changed=false;
+      // Update cost/shipping cost if newly provided in CSV
+      if(r.shippingCost&&!existing.shippingCost){existing.shippingCost=r.shippingCost;changed=true;}
+      if(r.channel&&!existing.channel){existing.channel=r.channel;changed=true;}
+      if(r.tracking&&!existing.tracking){existing.tracking=r.tracking;changed=true;}
+      if(r.custPhone&&!existing.custPhone){existing.custPhone=r.custPhone;changed=true;}
+      if(r.custAddress&&!existing.custAddress){existing.custAddress=r.custAddress;changed=true;}
+      // Update cost prices from suit cost columns
+      const costTotal=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0),0);
+      if(costTotal>0&&!existing.costPrice){existing.costPrice=costTotal;changed=true;}
+      if(changed){
+        existing.html=buildInvoiceHTML({...existing,itemsArr:tryParse(existing.itemsArr)||validItems,logoB64});
+        gsWrite(SHEETS.invoices,flattenInvoice(existing));
+        updated++;
+      }
+      return;
+    }
+
+    // NEW row — add it
+    invCtr++;
+    const invNo='INV-'+String(invCtr).padStart(3,'0');
+    const costTotal=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0),0);
     const html=buildInvoiceHTML({invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),custName:r.custName,custPhone:r.custPhone,custAddress:r.custAddress,custState:r.custState,isIntra,itemsArr:validItems,shipping:r.shipping,discount:r.discount,tracking:r.tracking,gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,logoB64});
-    // Safe integer ID — no floats, no Math.random
     const saved={
       id:ts*1000+ri,
       invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),
@@ -1950,23 +2085,25 @@ function bulkSaveOnly(){
       html,shipping:r.shipping,shippingCost:r.shippingCost||0,
       discount:r.discount,tracking:r.tracking,
       channel:r.channel||'',isShipped:false,status:'Pending',
+      costPrice:costTotal||0,
     };
     invoices.push(saved);
     gsWrite(SHEETS.invoices,flattenInvoice(saved));
-    count++;
+    added++;
   });
 
   save();localStorage.setItem('vc_ctr',invCtr);
   const el=document.getElementById('bulk-preview');
   if(el)el.innerHTML=`<div class="card" style="text-align:center;padding:20px;">
     <div style="font-size:32px;margin-bottom:10px;">✅</div>
-    <div style="font-size:16px;font-weight:600;color:var(--brown);">${count} invoices imported!</div>
-    ${skipped>0?`<div style="font-size:13px;color:#f39c12;margin-top:4px;">⚠️ ${skipped} skipped — already existed</div>`:''}
-    <div style="font-size:13px;color:#888;margin-top:6px;">Saved to Sales tab and syncing to Google Sheets</div>
+    ${added>0?`<div style="font-size:16px;font-weight:600;color:var(--brown);">${added} new invoice${added!==1?'s':''} imported</div>`:''}
+    ${updated>0?`<div style="font-size:14px;font-weight:500;color:#27ae60;margin-top:4px;">✏️ ${updated} existing invoice${updated!==1?'s':''} updated with new data</div>`:''}
+    ${added===0&&updated===0?`<div style="font-size:14px;color:#888;">No changes — all rows already up to date</div>`:''}
+    <div style="font-size:13px;color:#888;margin-top:8px;">Syncing to Google Sheets…</div>
     <button class="btn btn-o" style="margin-top:14px;" onclick="showPage('sales',document.getElementById('bnav-sales'));closeSubPage()">View in Sales →</button>
   </div>`;
   window._bulkRows=null;
-  toast('✅ '+count+' imported'+(skipped?' · '+skipped+' skipped':''),4000);
+  toast('✅ '+(added+updated)+' invoice(s) processed',4000);
 }
 
 function bulkSaveAndPrint(){
