@@ -382,12 +382,43 @@ tbody tr:last-child td{border-bottom:none;}
 <!-- ════ SALES/SAVED PAGE ════ -->
 <div class="page" id="page-sales">
   <div class="sec-title">Sales</div>
-  <div class="row2" style="margin-bottom:14px;">
-    <input type="text" id="sales-search" placeholder="🔍 Search…" oninput="renderSales()" style="padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:14px;width:100%;"/>
+
+  <!-- Search + filter -->
+  <div class="row2" style="margin-bottom:10px;">
+    <input type="text" id="sales-search" placeholder="🔍 Search name, invoice…" oninput="renderSales()" style="padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:14px;width:100%;"/>
     <select id="sales-filter" onchange="renderSales()" style="padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:14px;">
       <option value="">All</option><option value="Shipped">Shipped</option><option value="Pending">Pending</option>
     </select>
   </div>
+
+  <!-- Bulk actions bar -->
+  <div class="card" style="padding:12px 14px;margin-bottom:10px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="sel-all-cb" onchange="toggleSelectAll(this)" style="width:18px;height:18px;cursor:pointer;"/>
+        <span style="font-size:13px;color:#888;" id="sel-count">Select all</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-g btn-sm" onclick="bulkMarkShipped(true)">🚚 Mark Shipped</button>
+        <button class="btn btn-o btn-sm" onclick="bulkMarkShipped(false)">↩ Mark Pending</button>
+        <button class="btn btn-d btn-sm" onclick="bulkDelete()">🗑 Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Danger zone -->
+  <div id="sales-danger" style="display:none;background:#fde8e8;border:1px solid #e74c3c;border-radius:10px;padding:12px 14px;margin-bottom:10px;font-size:13px;">
+    <strong style="color:#c0392b;">⚠️ Reset all sales data</strong>
+    <div style="color:#666;margin:6px 0;">This will delete ALL invoices from this device and Google Sheets. Cannot be undone.</div>
+    <button class="btn btn-d btn-sm" onclick="clearAllInvoices()">🗑 Yes, delete all invoices</button>
+    <button class="btn btn-o btn-sm" onclick="document.getElementById('sales-danger').style.display='none'">Cancel</button>
+  </div>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <span id="sales-count" style="font-size:13px;color:#888;"></span>
+    <button class="btn btn-d btn-sm" onclick="document.getElementById('sales-danger').style.display=document.getElementById('sales-danger').style.display==='none'?'block':'none'">⚠️ Reset All</button>
+  </div>
+
   <div id="sales-list"></div>
 </div>
 
@@ -1214,63 +1245,148 @@ function updateInventoryStats(){
 // ═══════════════════════════════════════════════════════
 // SALES LIST
 // ═══════════════════════════════════════════════════════
+let salesFiltered=[];
+
 function renderSales(){
   const q=(document.getElementById('sales-search')?.value||'').toLowerCase();
   const sf=document.getElementById('sales-filter')?.value||'';
-  let filtered=[...invoices].reverse().filter(inv=>{
-    if(sf&&inv.status!==sf&&!(sf==='Shipped'&&inv.isShipped)&&!(sf==='Pending'&&!inv.isShipped))return false;
+
+  // Deduplicate by invNo — keep latest entry if duplicates exist
+  const seen={};
+  [...invoices].forEach(inv=>{
+    const key=inv.invNo||String(inv.id);
+    if(!seen[key]||inv.id>seen[key].id)seen[key]=inv;
+  });
+  const deduped=Object.values(seen).sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:(b.invDate||'')<(a.invDate||'')?-1:0).reverse();
+
+  salesFiltered=deduped.filter(inv=>{
+    const isShipped=inv.isShipped||inv.status==='Shipped';
+    if(sf==='Shipped'&&!isShipped)return false;
+    if(sf==='Pending'&&isShipped)return false;
     if(q&&!inv.custName?.toLowerCase().includes(q)&&!inv.invNo?.toLowerCase().includes(q)&&!inv.itemsSummary?.toLowerCase().includes(q))return false;
     return true;
   });
+
+  const countEl=document.getElementById('sales-count');
+  if(countEl)countEl.textContent=salesFiltered.length+' invoice'+(salesFiltered.length!==1?'s':'');
+  updateSelCount();
+
   const el=document.getElementById('sales-list');if(!el)return;
-  if(!filtered.length){el.innerHTML='<div style="color:#aaa;text-align:center;padding:30px;font-size:13px;">No invoices found</div>';return;}
-  el.innerHTML=filtered.map(inv=>{
+  if(!salesFiltered.length){
+    el.innerHTML='<div style="color:#aaa;text-align:center;padding:30px;font-size:13px;">No invoices found</div>';
+    return;
+  }
+
+  const chIcon={WhatsApp:'💬',Instagram:'📸',Facebook:'👍',Website:'🌐',Offline:'🏪'};
+  // Use array index as safe identifier in onclick to avoid float/special char issues
+  el.innerHTML=salesFiltered.map((inv,idx)=>{
     const isShipped=inv.isShipped||inv.status==='Shipped';
     const badge=isShipped?'<span class="badge b-green">Shipped</span>':'<span class="badge b-yellow">Pending</span>';
-    const chIcon={WhatsApp:'💬',Instagram:'📸',Facebook:'👍',Website:'🌐',Offline:'🏪'};
-    return`<div class="card" style="margin-bottom:12px;">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
-        <div>
-          <div style="font-weight:700;font-size:15px;color:var(--brown);">${inv.invNo}</div>
-          <div style="font-size:12px;color:#888;">${fmtDate(inv.invDate)} · ${inv.custState}</div>
+    return`<div class="card" style="margin-bottom:10px;" id="scard-${idx}">
+      <div style="display:flex;align-items:flex-start;gap:10px;">
+        <input type="checkbox" class="sale-cb" data-idx="${idx}" onchange="updateSelCount()" style="width:18px;height:18px;margin-top:3px;flex-shrink:0;cursor:pointer;"/>
+        <div style="flex:1;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+            <div>
+              <div style="font-weight:700;font-size:15px;color:var(--brown);">${inv.invNo||'—'}</div>
+              <div style="font-size:12px;color:#888;">${fmtDate(inv.invDate)} · ${inv.custState||'—'}</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-weight:700;font-size:16px;color:var(--brown);">₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}</div>
+              ${badge}
+            </div>
+          </div>
+          <div style="font-size:14px;font-weight:500;">${inv.custName||'—'}</div>
+          <div style="font-size:12px;color:#888;margin-top:2px;">${inv.itemsSummary||''}</div>
+          ${inv.channel?`<div style="font-size:12px;color:#888;margin-top:2px;">${chIcon[inv.channel]||''} ${inv.channel}</div>`:''}
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+            <button class="btn btn-o btn-sm" onclick="viewInvoiceByIdx(${idx})">👁 View</button>
+            <button class="btn btn-o btn-sm" onclick="printInvoiceByIdx(${idx})">🖨️ Print</button>
+            <button class="btn btn-sm ${isShipped?'btn-o':'btn-g'}" onclick="toggleShippedByIdx(${idx})">${isShipped?'↩ Unship':'🚚 Shipped'}</button>
+            <button class="btn btn-d btn-sm" onclick="deleteInvoiceByIdx(${idx})">🗑</button>
+          </div>
         </div>
-        <div style="text-align:right;">
-          <div style="font-weight:700;font-size:16px;color:var(--brown);">₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}</div>
-          ${badge}
-        </div>
-      </div>
-      <div style="font-size:13px;font-weight:500;">${inv.custName}</div>
-      <div style="font-size:12px;color:#888;margin-top:3px;">${inv.itemsSummary||''}</div>
-      ${inv.channel?`<div style="font-size:12px;color:#888;margin-top:3px;">${chIcon[inv.channel]||''} ${inv.channel}</div>`:''}
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-        <button class="btn btn-o btn-sm" onclick="viewInvoice(${inv.id})">👁 View</button>
-        <button class="btn btn-o btn-sm" onclick="printInvoice(${inv.id})">🖨️ Print</button>
-        <button class="btn btn-sm ${isShipped?'btn-o':'btn-g'}" onclick="toggleShipped(${inv.id})">${isShipped?'↩ Unship':'🚚 Mark Shipped'}</button>
       </div>
     </div>`;
   }).join('');
 }
-function viewInvoice(id){
-  const inv=invoices.find(i=>i.id===id);if(!inv)return;
+
+function updateSelCount(){
+  const cbs=document.querySelectorAll('.sale-cb:checked');
+  const total=document.querySelectorAll('.sale-cb').length;
+  const el=document.getElementById('sel-count');
+  if(el)el.textContent=cbs.length>0?cbs.length+' selected':'Select all ('+total+')';
+  const allCb=document.getElementById('sel-all-cb');
+  if(allCb)allCb.checked=cbs.length>0&&cbs.length===total;
+}
+function toggleSelectAll(cb){
+  document.querySelectorAll('.sale-cb').forEach(c=>c.checked=cb.checked);
+  updateSelCount();
+}
+function getSelectedInvoices(){
+  const idxs=[...document.querySelectorAll('.sale-cb:checked')].map(c=>parseInt(c.dataset.idx));
+  return idxs.map(i=>salesFiltered[i]).filter(Boolean);
+}
+function bulkMarkShipped(shipped){
+  const sel=getSelectedInvoices();
+  if(!sel.length){toast('⚠️ Select at least one invoice');return;}
+  sel.forEach(inv=>{
+    inv.isShipped=shipped;inv.status=shipped?'Shipped':'Pending';
+    gsWrite(SHEETS.invoices,flattenInvoice(inv));
+  });
+  save();renderSales();
+  toast((shipped?'🚚 Marked shipped: ':'↩ Marked pending: ')+sel.length+' invoice(s)');
+}
+function bulkDelete(){
+  const sel=getSelectedInvoices();
+  if(!sel.length){toast('⚠️ Select at least one invoice');return;}
+  if(!confirm('Delete '+sel.length+' selected invoice(s)? This cannot be undone.'))return;
+  const ids=new Set(sel.map(i=>String(i.id)));
+  invoices=invoices.filter(i=>!ids.has(String(i.id)));
+  save();renderSales();renderDashboard();
+  toast('🗑 Deleted '+sel.length+' invoice(s)');
+}
+function clearAllInvoices(){
+  if(!confirm('FINAL WARNING: Delete ALL '+invoices.length+' invoices? This cannot be undone.'))return;
+  invoices=[];invCtr=0;save();localStorage.setItem('vc_ctr','0');
+  document.getElementById('sales-danger').style.display='none';
+  renderSales();renderDashboard();
+  toast('🗑 All invoices deleted. Ready for fresh import.',4000);
+}
+
+function viewInvoiceByIdx(idx){
+  const inv=salesFiltered[idx];if(!inv)return;
   showPage('invoice',document.getElementById('bnav-invoice'));
   const html=inv.html||buildInvoiceHTML({...inv,itemsArr:tryParse(inv.itemsArr)||[],logoB64});
   document.getElementById('inv-preview-html').innerHTML=html;
   document.getElementById('inv-preview-section').style.display='block';
   currentInv={...inv,html};
-  document.getElementById('scroll-area').scrollTop=99999;
+  setTimeout(()=>document.getElementById('inv-preview-section').scrollIntoView({behavior:'smooth'}),100);
 }
-function printInvoice(id){
-  const inv=invoices.find(i=>i.id===id);if(!inv)return;
+function printInvoiceByIdx(idx){
+  const inv=salesFiltered[idx];if(!inv)return;
   const html=inv.html||buildInvoiceHTML({...inv,itemsArr:tryParse(inv.itemsArr)||[],logoB64});
   document.getElementById('print-area').innerHTML=`<div class="print-page">${html}</div>`;
   window.print();
 }
-function toggleShipped(id){
-  const inv=invoices.find(i=>i.id===id);if(!inv)return;
+function toggleShippedByIdx(idx){
+  const inv=salesFiltered[idx];if(!inv)return;
   inv.isShipped=!inv.isShipped;inv.status=inv.isShipped?'Shipped':'Pending';
   save();gsWrite(SHEETS.invoices,flattenInvoice(inv));
   renderSales();toast(inv.isShipped?'🚚 Marked shipped':'↩ Marked pending');
 }
+function deleteInvoiceByIdx(idx){
+  const inv=salesFiltered[idx];if(!inv)return;
+  if(!confirm('Delete invoice '+inv.invNo+'?'))return;
+  invoices=invoices.filter(i=>String(i.id)!==String(inv.id));
+  save();renderSales();renderDashboard();
+  toast('🗑 Invoice deleted');
+}
+
+// Legacy functions (keep for any existing calls)
+function viewInvoice(id){const inv=invoices.find(i=>String(i.id)===String(id));if(!inv)return;const idx=salesFiltered.findIndex(i=>String(i.id)===String(id));if(idx>=0)viewInvoiceByIdx(idx);}
+function printInvoice(id){const inv=invoices.find(i=>String(i.id)===String(id));if(!inv)return;const html=inv.html||buildInvoiceHTML({...inv,itemsArr:tryParse(inv.itemsArr)||[],logoB64});document.getElementById('print-area').innerHTML=`<div class="print-page">${html}</div>`;window.print();}
+function toggleShipped(id){const inv=invoices.find(i=>String(i.id)===String(id));if(!inv)return;inv.isShipped=!inv.isShipped;inv.status=inv.isShipped?'Shipped':'Pending';save();gsWrite(SHEETS.invoices,flattenInvoice(inv));renderSales();}
 function tryParse(v){try{return typeof v==='string'?JSON.parse(v):v;}catch{return v;}}
 
 // ═══════════════════════════════════════════════════════
@@ -1751,43 +1867,54 @@ function bulkSaveOnly(){
   if(!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
   const rows=window._bulkRows;
   if(!rows||!rows.length){toast('⚠️ No rows to import');return;}
-  let count=0;
-  rows.forEach(r=>{
+
+  let count=0,skipped=0;
+  const ts=Date.now();
+  rows.forEach((r,ri)=>{
+    // Dedup check — same date + customer name + suits total = duplicate
+    const suitsTotal=r.itemsArr.reduce((s,i)=>s+(i.qty||1)*(i.unitPrice||0),0);
+    const stableKey=`${r.invDate||''}|${(r.custName||'').trim().toLowerCase()}|${suitsTotal}`;
+    const already=invoices.some(i=>{
+      const k=`${i.invDate||''}|${(i.custName||'').trim().toLowerCase()}|${parseFloat(i.suitsTotal||0)}`;
+      return k===stableKey;
+    });
+    if(already){skipped++;return;}
+
     invCtr++;
     const invNo='INV-'+String(invCtr).padStart(3,'0');
     const isIntra=r.custState==='Punjab';
     const{grandIncl,gstAmt,taxableExcl}=calcTotals(r.itemsArr,r.shipping,r.discount);
     const validItems=r.itemsArr.filter(i=>i.unitPrice>0);
     const html=buildInvoiceHTML({invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),custName:r.custName,custPhone:r.custPhone,custAddress:r.custAddress,custState:r.custState,isIntra,itemsArr:validItems,shipping:r.shipping,discount:r.discount,tracking:r.tracking,gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,logoB64});
+    // Safe integer ID — no floats, no Math.random
     const saved={
-      id:Date.now()+invCtr+Math.random(),
+      id:ts*1000+ri,
       invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),
       custName:r.custName,custPhone:r.custPhone,custAddress:r.custAddress,
       custState:r.custState,isIntra,
-      grandTotal:grandIncl,gstAmt,taxableExcl,
+      grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
       itemCount:validItems.length,
       itemsSummary:validItems.map(i=>i.desc).join(', '),
       html,shipping:r.shipping,shippingCost:r.shippingCost||0,
       discount:r.discount,tracking:r.tracking,
-      channel:r.channel||'',
-      suitsTotal:validItems.reduce((s,i)=>s+(i.qty||1)*(i.unitPrice||0),0),
+      channel:r.channel||'',isShipped:false,status:'Pending',
     };
     invoices.push(saved);
-    // Sync to Google Sheets
     gsWrite(SHEETS.invoices,flattenInvoice(saved));
     count++;
   });
-  save();
-  localStorage.setItem('vc_ctr',invCtr);
-  // Clear preview
+
+  save();localStorage.setItem('vc_ctr',invCtr);
   const el=document.getElementById('bulk-preview');
   if(el)el.innerHTML=`<div class="card" style="text-align:center;padding:20px;">
     <div style="font-size:32px;margin-bottom:10px;">✅</div>
     <div style="font-size:16px;font-weight:600;color:var(--brown);">${count} invoices imported!</div>
-    <div style="font-size:13px;color:#888;margin-top:6px;">All saved to Sales tab and syncing to Google Sheets</div>
+    ${skipped>0?`<div style="font-size:13px;color:#f39c12;margin-top:4px;">⚠️ ${skipped} skipped — already existed</div>`:''}
+    <div style="font-size:13px;color:#888;margin-top:6px;">Saved to Sales tab and syncing to Google Sheets</div>
+    <button class="btn btn-o" style="margin-top:14px;" onclick="showPage('sales',document.getElementById('bnav-sales'));closeSubPage()">View in Sales →</button>
   </div>`;
   window._bulkRows=null;
-  toast('✅ '+count+' invoices saved!',4000);
+  toast('✅ '+count+' imported'+(skipped?' · '+skipped+' skipped':''),4000);
 }
 
 function bulkSaveAndPrint(){
