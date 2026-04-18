@@ -407,16 +407,21 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 
   <!-- Danger zone -->
-  <div id="sales-danger" style="display:none;background:#fde8e8;border:1px solid #e74c3c;border-radius:10px;padding:12px 14px;margin-bottom:10px;font-size:13px;">
-    <strong style="color:#c0392b;">⚠️ Reset all sales data</strong>
-    <div style="color:#666;margin:6px 0;">This will delete ALL invoices from this device and Google Sheets. Cannot be undone.</div>
-    <button class="btn btn-d btn-sm" onclick="clearAllInvoices()">🗑 Yes, delete all invoices</button>
-    <button class="btn btn-o btn-sm" onclick="document.getElementById('sales-danger').style.display='none'">Cancel</button>
+  <div id="sales-danger" style="display:none;background:#fde8e8;border:2px solid #e74c3c;border-radius:12px;padding:16px;margin-bottom:10px;">
+    <div style="font-size:15px;font-weight:700;color:#c0392b;margin-bottom:8px;">⚠️ Delete All Invoices</div>
+    <div style="font-size:13px;color:#666;margin-bottom:12px;line-height:1.6;">This will permanently delete <strong>all invoices</strong> from this device and your Google Sheet. This <strong>cannot be undone</strong>.<br/><br/>To confirm, type <strong>DELETE ALL</strong> in the box below:</div>
+    <input type="text" id="reset-confirm-input" placeholder="Type DELETE ALL here" oninput="checkResetConfirm()"
+      style="width:100%;padding:12px 14px;border-radius:8px;border:2px solid #e74c3c;font-size:15px;background:#fff;margin-bottom:10px;font-family:'DM Sans',sans-serif;"/>
+    <div style="display:flex;gap:10px;">
+      <button id="reset-confirm-btn" class="btn btn-d" disabled onclick="clearAllInvoices()"
+        style="flex:1;opacity:.4;cursor:not-allowed;">🗑 Delete All Invoices</button>
+      <button class="btn btn-o" onclick="closeDangerZone()" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
   </div>
 
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
     <span id="sales-count" style="font-size:13px;color:#888;"></span>
-    <button class="btn btn-d btn-sm" onclick="document.getElementById('sales-danger').style.display=document.getElementById('sales-danger').style.display==='none'?'block':'none'">⚠️ Reset All</button>
+    <button class="btn btn-d btn-sm" onclick="toggleDangerZone()">⚠️ Reset All</button>
   </div>
 
   <div id="sales-list"></div>
@@ -587,38 +592,53 @@ function gsDelete(sheet,id){
 async function syncAll(){
   if(syncing)return;syncing=true;setSyncStatus('busy');
   try{
+    const wasCleared=localStorage.getItem('vc_inv_cleared')==='1';
+
     // Pull all data from Sheets via JSONP
     const [remInv,remStk,remPur,remSet]=await Promise.all([
       gsRead(SHEETS.invoices),gsRead(SHEETS.inventory),
       gsRead(SHEETS.purchases),gsRead(SHEETS.settings)
     ]);
-    // Merge invoices — remote wins for existing IDs, keep local-only
-    const remInvMap={};remInv.forEach(r=>{if(r.id)remInvMap[String(r.id)]=r;});
-    invoices.forEach(l=>{if(!remInvMap[String(l.id)])remInvMap[String(l.id)]=l;});
-    invoices=Object.values(remInvMap).sort((a,b)=>(a.invDate||'')>(b.invDate||'')?1:-1);
-    // Merge inventory
-    const remStkMap={};remStk.forEach(r=>{if(r.prodNo)remStkMap[String(r.prodNo)]=parseInventoryRow(r);});
-    inventory.forEach(l=>{if(!remStkMap[String(l.prodNo)])remStkMap[String(l.prodNo)]=l;});
-    inventory=Object.values(remStkMap).sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
-    // Merge purchases
-    const remPurMap={};remPur.forEach(r=>{if(r.id)remPurMap[String(r.id)]=r;});
-    purchases.forEach(l=>{if(!remPurMap[String(l.id)])remPurMap[String(l.id)]=l;});
-    purchases=Object.values(remPurMap).sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
-    // Settings
+
+    // INVOICES — local wins if cleared; otherwise merge (local + remote, local takes precedence for same ID)
+    if(!wasCleared){
+      const localMap={};invoices.forEach(l=>{localMap[String(l.id)]=l;});
+      remInv.forEach(r=>{if(r.id&&!localMap[String(r.id)])localMap[String(r.id)]=r;});
+      invoices=Object.values(localMap).sort((a,b)=>(a.invDate||'')<(b.invDate||'')?-1:1);
+    }
+    // If cleared, keep invoices=[] and push empty state to sheet (handled by clearSheet call)
+
+    // INVENTORY — always merge (local + remote, local wins same prodNo)
+    const localStkMap={};inventory.forEach(l=>{localStkMap[String(l.prodNo)]=l;});
+    remStk.forEach(r=>{if(r.prodNo&&!localStkMap[String(r.prodNo)])localStkMap[String(r.prodNo)]=parseInventoryRow(r);});
+    inventory=Object.values(localStkMap).sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
+
+    // PURCHASES — merge
+    const localPurMap={};purchases.forEach(l=>{localPurMap[String(l.id)]=l;});
+    remPur.forEach(r=>{if(r.id&&!localPurMap[String(r.id)])localPurMap[String(r.id)]=r;});
+    purchases=Object.values(localPurMap).sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
+
+    // SETTINGS
     if(remSet.length>0){
       const rs=remSet[0];
       S={gstin:rs.gstin||S.gstin||'',address:rs.address||S.address||'',phone:rs.phone||S.phone||'',email:rs.email||S.email||''};
       localStorage.setItem('vc_s',JSON.stringify(S));
     }
+
     save();saveStk();savePur();
-    // Push local data to remote (fire-and-forget, no-cors)
+
+    // Push local data to remote
     invoices.forEach(inv=>gsWrite(SHEETS.invoices,flattenInvoice(inv)));
     inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
     purchases.forEach(p=>gsWrite(SHEETS.purchases,p));
+
+    // Clear the "was cleared" flag after successful sync
+    localStorage.removeItem('vc_inv_cleared');
+
     setSyncStatus('ok');
     document.getElementById('dash-sync-banner').style.display='flex';
     refreshCurrentPage();
-    toast('☁️ Synced successfully!');
+    toast('☁️ Synced!');
   }catch(e){
     setSyncStatus('err');
     const msg=e.message||'Unknown error';
@@ -1346,12 +1366,44 @@ function bulkDelete(){
   save();renderSales();renderDashboard();
   toast('🗑 Deleted '+sel.length+' invoice(s)');
 }
-function clearAllInvoices(){
-  if(!confirm('FINAL WARNING: Delete ALL '+invoices.length+' invoices? This cannot be undone.'))return;
-  invoices=[];invCtr=0;save();localStorage.setItem('vc_ctr','0');
+function toggleDangerZone(){
+  const el=document.getElementById('sales-danger');
+  const isOpen=el.style.display!=='none';
+  el.style.display=isOpen?'none':'block';
+  if(!isOpen){
+    // Reset input and button state every time it opens
+    const inp=document.getElementById('reset-confirm-input');
+    const btn=document.getElementById('reset-confirm-btn');
+    if(inp)inp.value='';
+    if(btn){btn.disabled=true;btn.style.opacity='.4';btn.style.cursor='not-allowed';}
+    if(inp)inp.focus();
+  }
+}
+function closeDangerZone(){
   document.getElementById('sales-danger').style.display='none';
+  const inp=document.getElementById('reset-confirm-input');
+  const btn=document.getElementById('reset-confirm-btn');
+  if(inp)inp.value='';
+  if(btn){btn.disabled=true;btn.style.opacity='.4';btn.style.cursor='not-allowed';}
+}
+function checkResetConfirm(){
+  const val=document.getElementById('reset-confirm-input').value.trim();
+  const btn=document.getElementById('reset-confirm-btn');
+  const match=val==='DELETE ALL';
+  btn.disabled=!match;
+  btn.style.opacity=match?'1':'.4';
+  btn.style.cursor=match?'pointer':'not-allowed';
+}
+function clearAllInvoices(){
+  const val=document.getElementById('reset-confirm-input').value.trim();
+  if(val!=='DELETE ALL'){toast('⚠️ Type DELETE ALL to confirm');return;}
+  invoices=[];invCtr=0;save();localStorage.setItem('vc_ctr','0');
+  localStorage.setItem('vc_inv_cleared','1');
+  const params=new URLSearchParams({action:'clearSheet',sheet:SHEETS.invoices});
+  fetch(SCRIPT_URL+'?'+params.toString(),{method:'GET',mode:'no-cors'}).catch(()=>{});
+  closeDangerZone();
   renderSales();renderDashboard();
-  toast('🗑 All invoices deleted. Ready for fresh import.',4000);
+  toast('🗑 All invoices deleted.',4000);
 }
 
 function viewInvoiceByIdx(idx){
