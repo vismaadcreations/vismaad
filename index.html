@@ -2055,15 +2055,23 @@ function downloadBulkTemplate(){
 }
 function handleBulkUpload(e){
   const file=e.target.files[0];if(!file)return;
+  // Reset file input so same file can be re-uploaded
+  e.target.value='';
   const reader=new FileReader();
   const process=text=>{
     const lines=text.trim().split('\n').filter(l=>l.trim());
-    if(lines.length<2){toast('⚠️ File empty');return;}
-    const headers=lines[0].split(',').map(h=>h.trim().replace(/"/g,'').toLowerCase());
+    if(lines.length<2){toast('⚠️ File empty or only header row');return;}
+    const headers=lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase());
     const rows=[];
+    const skippedRows=[];
     for(let i=1;i<lines.length;i++){
       const cols=parseCsvLine(lines[i]);
-      const row={};headers.forEach((h,j)=>row[h]=cols[j]||'');
+      const row={};headers.forEach((h,j)=>row[h]=(cols[j]||'').trim());
+      const rawDate=row['invoice date']||row['date']||'';
+      const rawName=row['customer name']||row['name']||'';
+      const rawState=row['state']||'';
+
+      // Check for suits
       const its=[];
       for(let n=1;n<=5;n++){
         const nm=row[`suit ${n} name`]||'';
@@ -2071,12 +2079,25 @@ function handleBulkUpload(e){
         const co=parseFloat(row[`suit ${n} cost`]||0)||0;
         if(nm&&pr>0)its.push({id:n,prodNo:'',desc:nm,hsn:'540754',qty:1,unitPrice:pr,costPrice:co});
       }
-      if(its.length)rows.push({
-        invDate:normaliseDate(row['invoice date']||row['date']||''),
-        custName:row['customer name']||row['name']||'',
+
+      // Determine skip reason
+      let skipReason='';
+      if(!rawName)skipReason='Missing customer name';
+      else if(!rawDate)skipReason='Missing invoice date';
+      else if(!rawState)skipReason='Missing state';
+      else if(!its.length)skipReason='No suit with valid name + price found';
+
+      if(skipReason){
+        skippedRows.push({rowNum:i+1,rawName:rawName||'(blank)',rawDate,skipReason});
+        continue;
+      }
+
+      rows.push({
+        invDate:normaliseDate(rawDate),
+        custName:rawName,
         custPhone:row['phone']||'',
         custAddress:row['address']||'',
-        custState:row['state']||'',
+        custState:rawState,
         itemsArr:its,
         shipping:parseFloat(row['shipping charged']||row['shipping']||0)||0,
         shippingCost:parseFloat(row['actual shipping cost']||row['actual shipping']||0)||0,
@@ -2086,22 +2107,40 @@ function handleBulkUpload(e){
         selected:true
       });
     }
-    if(!rows.length){toast('⚠️ No valid rows');return;}
-    showBulkPreview(rows);
+    if(!rows.length&&!skippedRows.length){toast('⚠️ No data rows found');return;}
+    showBulkPreview(rows,skippedRows);
   };
-  if(file.name.endsWith('.csv'))reader.onload=e=>process(e.target.result),reader.readAsText(file);
-  else{
-    if(!window.XLSX){const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=()=>{reader.onload=e=>{const wb=XLSX.read(e.target.result,{type:'binary'});process(XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]));};reader.readAsBinaryString(file);};document.head.appendChild(s);}
-    else{reader.onload=e=>{const wb=XLSX.read(e.target.result,{type:'binary'});process(XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]));};reader.readAsBinaryString(file);}
+  if(file.name.toLowerCase().endsWith('.csv')){
+    reader.onload=ev=>process(ev.target.result);
+    reader.readAsText(file);
+  }else{
+    if(!window.XLSX){
+      const s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload=()=>{
+        reader.onload=ev=>{
+          const wb=XLSX.read(ev.target.result,{type:'binary'});
+          process(XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]));
+        };
+        reader.readAsBinaryString(file);
+      };
+      document.head.appendChild(s);
+    }else{
+      reader.onload=ev=>{
+        const wb=XLSX.read(ev.target.result,{type:'binary'});
+        process(XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]));
+      };
+      reader.readAsBinaryString(file);
+    }
   }
 }
-function showBulkPreview(rows){
+function showBulkPreview(rows,skippedRows=[]){
   const el=document.getElementById('bulk-preview');if(!el)return;
-  // Store on window with a timestamp key to avoid stale references
   window._bulkRows=rows;
   const totalRev=rows.reduce((s,r)=>s+(r.itemsArr.reduce((ss,it)=>ss+it.unitPrice,0)+r.shipping-r.discount),0);
-  el.innerHTML=`<div class="card">
-    <div class="card-title">✅ ${rows.length} orders ready to import
+
+  let html=`<div class="card">
+    <div class="card-title">📋 ${rows.length} orders ready to import
       <span style="font-size:13px;font-weight:400;color:#888;">Total ₹${totalRev.toLocaleString('en-IN')}</span>
     </div>
     ${rows.map(r=>`<div class="list-row">
@@ -2118,6 +2157,23 @@ function showBulkPreview(rows){
       <button class="btn btn-o" onclick="bulkSaveAndPrint()">🖨️ Save All + Print Invoices</button>
     </div>
   </div>`;
+
+  // Show skipped rows with reasons
+  if(skippedRows.length){
+    html+=`<div class="card" style="border:2px solid #f39c12;margin-top:10px;">
+      <div class="card-title" style="color:#e67e22;">⚠️ ${skippedRows.length} row${skippedRows.length>1?'s':''} skipped — fix these in your file</div>
+      ${skippedRows.map(sr=>`<div class="list-row">
+        <div>
+          <div style="font-weight:600;font-size:13px;">Row ${sr.rowNum}: ${sr.rawName}</div>
+          <div style="font-size:12px;color:#c0392b;margin-top:2px;">❌ ${sr.skipReason}</div>
+          ${sr.rawDate?`<div style="font-size:11px;color:#888;">Date: ${sr.rawDate}</div>`:''}
+        </div>
+      </div>`).join('')}
+      <div style="font-size:12px;color:#888;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">Fix these rows in your Excel/CSV file and re-upload. The ${rows.length} valid orders above will be skipped (already imported), and only the fixed rows will be added.</div>
+    </div>`;
+  }
+
+  el.innerHTML=html;
 }
 
 function bulkSaveOnly(){
