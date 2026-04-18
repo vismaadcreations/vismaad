@@ -383,12 +383,22 @@ tbody tr:last-child td{border-bottom:none;}
 <div class="page" id="page-sales">
   <div class="sec-title">Sales</div>
 
-  <!-- Search + filter -->
-  <div class="row2" style="margin-bottom:10px;">
-    <input type="text" id="sales-search" placeholder="🔍 Search name, invoice…" oninput="renderSales()" style="padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:14px;width:100%;"/>
-    <select id="sales-filter" onchange="renderSales()" style="padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:14px;">
+  <!-- Search + filter + sort -->
+  <div style="display:flex;gap:8px;margin-bottom:8px;">
+    <input type="text" id="sales-search" placeholder="🔍 Search name, invoice…" oninput="renderSales()" style="flex:1;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:14px;"/>
+    <select id="sales-filter" onchange="renderSales()" style="padding:12px 10px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;">
       <option value="">All</option><option value="Shipped">Shipped</option><option value="Pending">Pending</option>
     </select>
+  </div>
+
+  <!-- Sort bar -->
+  <div style="display:flex;gap:6px;margin-bottom:10px;overflow-x:auto;padding-bottom:2px;" id="sort-bar">
+    <button class="sort-btn active" data-sort="date-desc" onclick="setSort(this,'date-desc')" style="padding:7px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--brown);color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">📅 Newest first</button>
+    <button class="sort-btn" data-sort="date-asc" onclick="setSort(this,'date-asc')" style="padding:7px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--cream);color:var(--brown);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">📅 Oldest first</button>
+    <button class="sort-btn" data-sort="invno-asc" onclick="setSort(this,'invno-asc')" style="padding:7px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--cream);color:var(--brown);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">🔢 INV ↑</button>
+    <button class="sort-btn" data-sort="invno-desc" onclick="setSort(this,'invno-desc')" style="padding:7px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--cream);color:var(--brown);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">🔢 INV ↓</button>
+    <button class="sort-btn" data-sort="amount-desc" onclick="setSort(this,'amount-desc')" style="padding:7px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--cream);color:var(--brown);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">₹ High–Low</button>
+    <button class="sort-btn" data-sort="amount-asc" onclick="setSort(this,'amount-asc')" style="padding:7px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--cream);color:var(--brown);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">₹ Low–High</button>
   </div>
 
   <!-- Bulk actions bar -->
@@ -399,8 +409,9 @@ tbody tr:last-child td{border-bottom:none;}
         <span style="font-size:13px;color:#888;" id="sel-count">Select all</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-g btn-sm" onclick="bulkMarkShipped(true)">🚚 Mark Shipped</button>
-        <button class="btn btn-o btn-sm" onclick="bulkMarkShipped(false)">↩ Mark Pending</button>
+        <button class="btn btn-g btn-sm" onclick="bulkMarkShipped(true)">🚚 Shipped</button>
+        <button class="btn btn-o btn-sm" onclick="bulkMarkShipped(false)">↩ Pending</button>
+        <button class="btn btn-o btn-sm" onclick="bulkPrint()">🖨️ Print</button>
         <button class="btn btn-d btn-sm" onclick="bulkDelete()">🗑 Delete</button>
       </div>
     </div>
@@ -802,8 +813,17 @@ function setDates(){
   if(ipDate&&!ipDate.value)ipDate.value=t;
 }
 function setInvNumber(){
+  // Always derive from the highest existing invoice number to avoid gaps/collisions
+  if(invoices.length>0){
+    const nums=invoices.map(i=>{
+      const m=(i.invNo||'').match(/(\d+)$/);
+      return m?parseInt(m[1]):0;
+    });
+    invCtr=Math.max(...nums,invCtr);
+  }
   invCtr++;
   document.getElementById('inv-no').value='INV-'+String(invCtr).padStart(3,'0');
+  invCtr--; // will be incremented again on generate
 }
 function onInvDateChange(){
   const d=document.getElementById('inv-date').value;
@@ -951,7 +971,14 @@ function generateInvoice(){
   if(!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');document.getElementById('settings-bar-card').style.display='block';return;}
   if(items.every(i=>!i.unitPrice)){toast('⚠️ Add at least one suit with price');return;}
 
-  const invNo=document.getElementById('inv-no').value;
+  // Always derive correct next number from highest existing invoice at generation time
+  if(invoices.length>0){
+    const nums=invoices.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
+    invCtr=Math.max(...nums,invCtr);
+  }
+  invCtr++;
+  const invNo='INV-'+String(invCtr).padStart(3,'0');
+  document.getElementById('inv-no').value=invNo;
   const invDate=document.getElementById('inv-date').value;
   const fy=getFY(invDate);
   const ship=parseFloat(document.getElementById('shipping').value)||0;
@@ -1117,9 +1144,13 @@ function printCurrentInvoice(){
 }
 
 function resetInvoiceForm(){
-  invCtr++;
-  document.getElementById('inv-no').value='INV-'+String(invCtr).padStart(3,'0');
-  localStorage.setItem('vc_ctr',invCtr);
+  // Derive correct next number from highest existing invoice
+  if(invoices.length>0){
+    const nums=invoices.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
+    invCtr=Math.max(...nums,invCtr);
+  }
+  const nextNum=invCtr+1;
+  document.getElementById('inv-no').value='INV-'+String(nextNum).padStart(3,'0');
   ['c-name','c-phone','c-address','tracking'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('c-state').value='';document.getElementById('tax-display').value='';
   document.getElementById('shipping').value='0';document.getElementById('discount').value='0';
@@ -1313,6 +1344,36 @@ function updateInventoryStats(){
 // SALES LIST
 // ═══════════════════════════════════════════════════════
 let salesFiltered=[];
+let currentSort='date-desc';
+
+function setSort(btn,sort){
+  currentSort=sort;
+  document.querySelectorAll('.sort-btn').forEach(b=>{
+    b.style.background='var(--cream)';b.style.color='var(--brown)';
+  });
+  btn.style.background='var(--brown)';btn.style.color='#fff';
+  renderSales();
+}
+
+function applySortToList(list){
+  return [...list].sort((a,b)=>{
+    if(currentSort==='date-desc')return(b.invDate||'')>(a.invDate||'')?1:-1;
+    if(currentSort==='date-asc')return(a.invDate||'')>(b.invDate||'')?1:-1;
+    if(currentSort==='invno-asc'){
+      const na=parseInt((a.invNo||'').replace(/\D/g,''))||0;
+      const nb=parseInt((b.invNo||'').replace(/\D/g,''))||0;
+      return na-nb;
+    }
+    if(currentSort==='invno-desc'){
+      const na=parseInt((a.invNo||'').replace(/\D/g,''))||0;
+      const nb=parseInt((b.invNo||'').replace(/\D/g,''))||0;
+      return nb-na;
+    }
+    if(currentSort==='amount-desc')return(parseFloat(b.grandTotal)||0)-(parseFloat(a.grandTotal)||0);
+    if(currentSort==='amount-asc')return(parseFloat(a.grandTotal)||0)-(parseFloat(b.grandTotal)||0);
+    return 0;
+  });
+}
 
 function renderSales(){
   const q=(document.getElementById('sales-search')?.value||'').toLowerCase();
@@ -1326,13 +1387,13 @@ function renderSales(){
   });
   const deduped=Object.values(seen).sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:(b.invDate||'')<(a.invDate||'')?-1:0).reverse();
 
-  salesFiltered=deduped.filter(inv=>{
+  salesFiltered=applySortToList(deduped.filter(inv=>{
     const isShipped=inv.isShipped||inv.status==='Shipped';
     if(sf==='Shipped'&&!isShipped)return false;
     if(sf==='Pending'&&isShipped)return false;
     if(q&&!inv.custName?.toLowerCase().includes(q)&&!inv.invNo?.toLowerCase().includes(q)&&!inv.itemsSummary?.toLowerCase().includes(q))return false;
     return true;
-  });
+  }));
 
   const countEl=document.getElementById('sales-count');
   if(countEl)countEl.textContent=salesFiltered.length+' invoice'+(salesFiltered.length!==1?'s':'');
@@ -1404,6 +1465,17 @@ function bulkMarkShipped(shipped){
   });
   save();renderSales();
   toast((shipped?'🚚 Marked shipped: ':'↩ Marked pending: ')+sel.length+' invoice(s)');
+}
+function bulkPrint(){
+  const sel=getSelectedInvoices();
+  if(!sel.length){toast('⚠️ Select at least one invoice to print');return;}
+  const pages=sel.map(inv=>{
+    const html=inv.html||buildInvoiceHTML({...inv,itemsArr:tryParse(inv.itemsArr)||[],logoB64});
+    return`<div class="print-page">${html}</div>`;
+  }).join('');
+  document.getElementById('print-area').innerHTML=pages;
+  window.print();
+  toast('🖨️ Printing '+sel.length+' invoice(s)…');
 }
 function bulkDelete(){
   const sel=getSelectedInvoices();
