@@ -629,16 +629,29 @@ function gsRead(sheet){
   });
 }
 
-// no-cors write — fire-and-forget via form POST (no response body readable, but it works)
+// no-cors write — strips heavy fields to stay well under URL limits (~2KB per invoice)
 function gsWrite(sheet,data){
   const flat={...data};
-  // Encode as URL params so Apps Script gets it via e.parameter
-  const params=new URLSearchParams({
-    action:'write',sheet,
-    data:JSON.stringify(flat)
-  });
-  // Use fetch no-cors for fire-and-forget writes
+  // Remove heavy fields that don't need to be in sheets
+  delete flat.html;
+  delete flat.gstin;delete flat.bizAddress;delete flat.bizPhone;delete flat.bizEmail;delete flat.logoB64;
+  // Keep itemsArr compact — just desc and price per item
+  if(flat.itemsArr){
+    const arr=tryParse(flat.itemsArr)||[];
+    flat.itemsArr=JSON.stringify(arr.map(i=>({d:i.desc||'',p:i.unitPrice||0,q:i.qty||1,n:i.prodNo||''})));
+  }
+  const json=JSON.stringify(flat);
+  // If still too large, send without itemsArr
+  const params=new URLSearchParams({action:'write',sheet,data:json.length>3000?JSON.stringify({...flat,itemsArr:'[truncated]'}):json});
   fetch(SCRIPT_URL+'?'+params.toString(),{method:'GET',mode:'no-cors'}).catch(()=>{});
+}
+
+// Batched write — small delay every 10 to avoid rate limits
+async function gsWriteBatch(sheet,records){
+  for(let i=0;i<records.length;i++){
+    gsWrite(sheet,records[i]);
+    if(i%10===9)await new Promise(r=>setTimeout(r,500));
+  }
 }
 
 // no-cors delete
@@ -685,10 +698,10 @@ async function syncAll(){
 
     save();saveStk();savePur();
 
-    // Push local data to remote
-    invoices.forEach(inv=>gsWrite(SHEETS.invoices,flattenInvoice(inv)));
-    inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
-    purchases.forEach(p=>gsWrite(SHEETS.purchases,p));
+    // Push local data to remote using batched writes
+    await gsWriteBatch(SHEETS.invoices,invoices.map(flattenInvoice));
+    await gsWriteBatch(SHEETS.inventory,inventory.map(flattenProduct));
+    await gsWriteBatch(SHEETS.purchases,purchases);
 
     // Clear the "was cleared" flag after successful sync
     localStorage.removeItem('vc_inv_cleared');
@@ -713,11 +726,17 @@ function parseInventoryRow(r){
 function flattenInvoice(inv){
   const f={...inv};
   if(typeof f.itemsArr==='object')f.itemsArr=JSON.stringify(f.itemsArr);
-  delete f.html; // don't store full HTML in sheets
+  delete f.html; // never store HTML in sheets
   return f;
 }
 function flattenProduct(p){return{...p};}
 
+// Save invoices WITHOUT html to avoid filling localStorage (html is regenerated on demand)
+function save(){
+  const slim=invoices.map(inv=>{const s={...inv};delete s.html;return s;});
+  localStorage.setItem('vc_inv',JSON.stringify(slim));
+  localStorage.setItem('vc_ctr',invCtr);
+}
 // ═══════════════════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════════════════
@@ -1001,9 +1020,10 @@ function generateInvoice(){
     grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
     itemCount:validItems.length,itemsSummary,
     gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,
+    itemsArr:validItems,
   };
-  const html=buildInvoiceHTML({...data,itemsArr:validItems,logoB64});
-  const saved={id:Date.now(),...data,html,itemsArr:validItems};
+  const html=buildInvoiceHTML({...data,logoB64});
+  const saved={id:Date.now(),...data}; // no html stored — regenerated on demand
   invoices.push(saved);save();
 
   // Deduct inventory
@@ -1139,7 +1159,7 @@ function buildInvoiceHTML(data){
 
 function printCurrentInvoice(){
   if(!currentInv)return;
-  document.getElementById('print-area').innerHTML=`<div class="print-page">${currentInv.html}</div>`;
+  document.getElementById('print-area').innerHTML=`<div class="print-page">${getInvHtml(currentInv)}</div>`;
   window.print();
 }
 
@@ -1469,10 +1489,7 @@ function bulkMarkShipped(shipped){
 function bulkPrint(){
   const sel=getSelectedInvoices();
   if(!sel.length){toast('⚠️ Select at least one invoice to print');return;}
-  const pages=sel.map(inv=>{
-    const html=inv.html||buildInvoiceHTML({...inv,itemsArr:tryParse(inv.itemsArr)||[],logoB64});
-    return`<div class="print-page">${html}</div>`;
-  }).join('');
+  const pages=sel.map(inv=>`<div class="print-page">${getInvHtml(inv)}</div>`).join('');
   document.getElementById('print-area').innerHTML=pages;
   window.print();
   toast('🖨️ Printing '+sel.length+' invoice(s)…');
@@ -1526,10 +1543,15 @@ function clearAllInvoices(){
   toast('🗑 All invoices deleted.',4000);
 }
 
+function getInvHtml(inv){
+  // Always regenerate — never rely on stored html
+  const itemsArr=tryParse(inv.itemsArr)||[];
+  return buildInvoiceHTML({...inv,itemsArr,logoB64});
+}
 function viewInvoiceByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
   showPage('invoice',document.getElementById('bnav-invoice'));
-  const html=inv.html||buildInvoiceHTML({...inv,itemsArr:tryParse(inv.itemsArr)||[],logoB64});
+  const html=getInvHtml(inv);
   document.getElementById('inv-preview-html').innerHTML=html;
   document.getElementById('inv-preview-section').style.display='block';
   currentInv={...inv,html};
@@ -1537,8 +1559,7 @@ function viewInvoiceByIdx(idx){
 }
 function printInvoiceByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
-  const html=inv.html||buildInvoiceHTML({...inv,itemsArr:tryParse(inv.itemsArr)||[],logoB64});
-  document.getElementById('print-area').innerHTML=`<div class="print-page">${html}</div>`;
+  document.getElementById('print-area').innerHTML=`<div class="print-page">${getInvHtml(inv)}</div>`;
   window.print();
 }
 function toggleShippedByIdx(idx){
@@ -2121,31 +2142,27 @@ function bulkSaveOnly(){
     const validItems=r.itemsArr.filter(i=>i.unitPrice>0);
 
     if(existingIdx>=0){
-      // UPDATE existing invoice — only fill in fields that are blank or newly provided
       const existing=invoices[existingIdx];
       let changed=false;
-      // Update cost/shipping cost if newly provided in CSV
       if(r.shippingCost&&!existing.shippingCost){existing.shippingCost=r.shippingCost;changed=true;}
       if(r.channel&&!existing.channel){existing.channel=r.channel;changed=true;}
       if(r.tracking&&!existing.tracking){existing.tracking=r.tracking;changed=true;}
       if(r.custPhone&&!existing.custPhone){existing.custPhone=r.custPhone;changed=true;}
       if(r.custAddress&&!existing.custAddress){existing.custAddress=r.custAddress;changed=true;}
-      // Update cost prices from suit cost columns
       const costTotal=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0),0);
       if(costTotal>0&&!existing.costPrice){existing.costPrice=costTotal;changed=true;}
       if(changed){
-        existing.html=buildInvoiceHTML({...existing,itemsArr:tryParse(existing.itemsArr)||validItems,logoB64});
+        delete existing.html;
         gsWrite(SHEETS.invoices,flattenInvoice(existing));
         updated++;
       }
       return;
     }
 
-    // NEW row — add it
+    // NEW row — add it — NO html stored, regenerated on demand
     invCtr++;
     const invNo='INV-'+String(invCtr).padStart(3,'0');
     const costTotal=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0),0);
-    const html=buildInvoiceHTML({invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),custName:r.custName,custPhone:r.custPhone,custAddress:r.custAddress,custState:r.custState,isIntra,itemsArr:validItems,shipping:r.shipping,discount:r.discount,tracking:r.tracking,gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,logoB64});
     const saved={
       id:ts*1000+ri,
       invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),
@@ -2154,17 +2171,22 @@ function bulkSaveOnly(){
       grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
       itemCount:validItems.length,
       itemsSummary:validItems.map(i=>i.desc).join(', '),
-      html,shipping:r.shipping,shippingCost:r.shippingCost||0,
+      itemsArr:validItems,
+      shipping:r.shipping,shippingCost:r.shippingCost||0,
       discount:r.discount,tracking:r.tracking,
       channel:r.channel||'',isShipped:false,status:'Pending',
       costPrice:costTotal||0,
+      gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,
+      dispatchDate:'',
     };
     invoices.push(saved);
-    gsWrite(SHEETS.invoices,flattenInvoice(saved));
     added++;
   });
 
   save();localStorage.setItem('vc_ctr',invCtr);
+
+  // Batch write ALL invoices to sheets after loop — avoids URL limit issues with 100+ records
+  gsWriteBatch(SHEETS.invoices,invoices.map(flattenInvoice));
   const el=document.getElementById('bulk-preview');
   if(el)el.innerHTML=`<div class="card" style="text-align:center;padding:20px;">
     <div style="font-size:32px;margin-bottom:10px;">✅</div>
