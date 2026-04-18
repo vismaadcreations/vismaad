@@ -281,9 +281,10 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="card">
     <div class="card-title">🚚 Shipping & Extras</div>
     <div class="row2">
-      <div class="fg"><label>Shipping (₹)</label><input type="number" id="shipping" value="0" oninput="recalc()"/></div>
+      <div class="fg"><label>Shipping charged to customer (₹)</label><input type="number" id="shipping" value="0" oninput="recalc()"/></div>
       <div class="fg"><label>Discount (₹)</label><input type="number" id="discount" value="0" oninput="recalc()"/></div>
     </div>
+    <div class="fg"><label>Actual shipping cost paid — India Post (₹) <span style="font-weight:400;color:#aaa;">(for P&L only)</span></label><input type="number" id="shipping-cost" value="0" placeholder="What India Post charged you"/></div>
     <div class="row2">
       <div class="fg"><label>India Post Tracking</label><input id="tracking" placeholder="EE123456789IN"/></div>
       <div class="fg"><label>Dispatch Date</label><input type="date" id="dispatch-date"/></div>
@@ -589,7 +590,12 @@ async function syncAll(){
     toast('☁️ Synced successfully!');
   }catch(e){
     setSyncStatus('err');
-    toast('⚠️ Sync failed: '+e.message);
+    const msg=e.message||'Unknown error';
+    if(msg.includes('Timeout')||msg.includes('Script load')){
+      toast('⚠️ Sync timeout — redeploy your Apps Script as a New Version',5000);
+    }else{
+      toast('⚠️ Sync failed: '+msg,4000);
+    }
   }finally{syncing=false;}
 }
 function parseInventoryRow(r){
@@ -852,6 +858,7 @@ function generateInvoice(){
   const fy=getFY(invDate);
   const ship=parseFloat(document.getElementById('shipping').value)||0;
   const disc=parseFloat(document.getElementById('discount').value)||0;
+  const shippingCost=parseFloat(document.getElementById('shipping-cost').value)||0;
   const tracking=document.getElementById('tracking').value;
   const dispatchDate=document.getElementById('dispatch-date').value;
   const isIntra=custState==='Punjab';
@@ -865,7 +872,7 @@ function generateInvoice(){
 
   const data={
     invNo,invDate,fy,custName,custPhone,custAddress,custState,isIntra,
-    shipping:ship,discount:disc,tracking,dispatchDate,channel,
+    shipping:ship,shippingCost,discount:disc,tracking,dispatchDate,channel,
     grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
     itemCount:validItems.length,itemsSummary,
     gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,
@@ -1018,6 +1025,7 @@ function resetInvoiceForm(){
   ['c-name','c-phone','c-address','tracking'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('c-state').value='';document.getElementById('tax-display').value='';
   document.getElementById('shipping').value='0';document.getElementById('discount').value='0';
+  document.getElementById('shipping-cost').value='0';
   document.getElementById('sale-channel').value='';selChannel='';
   document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
   document.querySelector('.chip').classList.add('active');
@@ -1482,21 +1490,49 @@ function renderPLContent(filtInv,filtPur,period){
   const grossRev=filtInv.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0);
   const totalGSTOut=filtInv.reduce((s,i)=>s+(parseFloat(i.gstAmt)||0),0);
   const netRev=parseFloat((grossRev-totalGSTOut).toFixed(2));
-  const ship=filtInv.reduce((s,i)=>s+(parseFloat(i.shipping)||0),0);
-  const shipExcl=parseFloat((ship/1.05).toFixed(2));
-  const suitRev=parseFloat((netRev-shipExcl).toFixed(2));
+
+  // Shipping charged to customers (excl. GST)
+  const shipCharged=filtInv.reduce((s,i)=>s+(parseFloat(i.shipping)||0),0);
+  const shipChargedExcl=parseFloat((shipCharged/1.05).toFixed(2));
+
+  // Actual shipping cost paid to India Post
+  const shipActual=filtInv.reduce((s,i)=>s+(parseFloat(i.shippingCost)||0),0);
+  const shipPL=parseFloat((shipChargedExcl-shipActual).toFixed(2));
+
+  // Suit revenue excl GST
+  const suitRev=parseFloat((netRev-shipChargedExcl).toFixed(2));
   const disc=filtInv.reduce((s,i)=>s+(parseFloat(i.discount)||0),0);
+
+  // Cost of goods — from purchases
   const purIncl=filtPur.reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
   const itc=filtPur.reduce((s,p)=>s+(parseFloat(p.gstAmt)||0),0);
   const purExcl=parseFloat((purIncl-itc).toFixed(2));
-  const grossProfit=parseFloat((suitRev-purExcl).toFixed(2));
-  const netProfit=parseFloat((grossProfit+shipExcl).toFixed(2));
+
+  // Also calculate cost from inventory cost prices for sold items
+  const invCostForSold=filtInv.reduce((s,inv)=>{
+    const iArr=tryParse(inv.itemsArr)||[];
+    return s+iArr.filter(it=>it.unitPrice>0).reduce((ss,it)=>{
+      const prod=inventory.find(p=>parseInt(p.prodNo)===parseInt(it.prodNo));
+      return ss+(prod&&prod.cost?parseFloat(prod.cost)*(it.qty||1):0);
+    },0);
+  },0);
+  // Use whichever is available — purchase register takes priority, else inventory cost
+  const cogsSource=purExcl>0?'purchase register':invCostForSold>0?'inventory cost prices':'not yet entered';
+  const cogs=purExcl>0?purExcl:invCostForSold;
+
+  const grossProfit=parseFloat((suitRev-cogs).toFixed(2));
+  const netProfit=parseFloat((grossProfit+shipPL).toFixed(2));
   const margin=suitRev>0?parseFloat(((grossProfit/suitRev)*100).toFixed(1)):0;
   const gstPayable=parseFloat((totalGSTOut-itc).toFixed(2));
 
-  const row=(l,v,c)=>`<div class="list-row"><span style="color:#555;">${l}</span><strong style="color:${c||'var(--ink)'};">₹${f(v)}</strong></div>`;
+  const row=(l,v,c,sub)=>`<div class="list-row">
+    <div><span style="color:#555;">${l}</span>${sub?`<div style="font-size:11px;color:#aaa;">${sub}</div>`:''}
+    </div><strong style="color:${c||'var(--ink)'};">₹${f(v)}</strong></div>`;
   const head=t=>`<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--brown);background:var(--goldp);padding:5px 8px;border-radius:4px;margin:12px 0 4px;">${t}</div>`;
-  const profBox=(l,v)=>`<div style="background:${v>=0?'#dff0d8':'#fde8e8'};border-radius:8px;padding:12px 14px;display:flex;justify-content:space-between;margin:6px 0;"><strong>${l}</strong><strong style="color:${v>=0?'#27ae60':'#c0392b'};font-size:16px;">₹${f(v)}</strong></div>`;
+  const profBox=(l,v,sub)=>`<div style="background:${v>=0?'#dff0d8':'#fde8e8'};border-radius:8px;padding:12px 14px;margin:6px 0;">
+    <div style="display:flex;justify-content:space-between;"><strong>${l}</strong><strong style="color:${v>=0?'#27ae60':'#c0392b'};font-size:16px;">₹${f(v)}</strong></div>
+    ${sub?`<div style="font-size:11px;color:#888;margin-top:4px;">${sub}</div>`:''}
+  </div>`;
 
   // Channel breakdown
   const channels={};
@@ -1512,26 +1548,29 @@ function renderPLContent(filtInv,filtPur,period){
     </div>
     <div class="card">
       <div class="card-title">📊 P&L Statement</div>
-      ${head('Revenue')}
+      ${head('📥 Revenue')}
       ${row('Gross Sales (incl. GST)',grossRev)}
       ${row('Less: Output GST',totalGSTOut,'#c0392b')}
       ${row('Net Sales (excl. GST)',netRev)}
-      ${row('→ Suit Sales',suitRev)}
-      ${row('→ Shipping Collected',shipExcl)}
-      ${disc>0?row('Less: Discounts',disc,'#c0392b'):''}
-      ${head('Cost of Goods')}
-      ${row('Suit Purchases (excl. GST)',purExcl)}
-      ${profBox('Gross Profit on Suits',grossProfit)}
-      <div class="list-row" style="font-size:13px;color:#888;"><span>Gross Margin</span><strong style="color:var(--brown);">${margin}%</strong></div>
-      ${profBox('Net Profit (incl. shipping)',netProfit)}
-      <div style="font-size:11px;color:#aaa;margin-top:8px;">${filtInv.length} sale(s) · ${filtPur.length} purchase(s)</div>
+      ${row('→ Suit Sales Revenue',suitRev,null,'excl. GST')}
+      ${row('→ Shipping Charged to Customers',shipChargedExcl,null,'excl. GST')}
+      ${disc>0?row('Less: Discounts Given',disc,'#c0392b'):''}
+      ${head('📦 Cost of Goods Sold')}
+      ${row('Suit Purchase Cost',cogs,null,`Source: ${cogsSource}`)}
+      ${profBox('Gross Profit on Suits',grossProfit,margin>0?`Gross margin: ${margin}%`:'')}
+      ${head('🚚 Shipping P&L')}
+      ${row('Shipping Charged to Customers',shipChargedExcl,null,'excl. GST')}
+      ${row('Actual Shipping Cost — India Post',shipActual,shipActual>shipChargedExcl?'#c0392b':null,filtInv.filter(i=>parseFloat(i.shippingCost)>0).length+' of '+filtInv.length+' invoices have actual cost entered')}
+      ${profBox('Shipping Profit / (Loss)',shipPL,shipActual===0?'Add actual shipping cost to invoices for accurate data':'')}
+      ${head('🏆 Net Profit')}
+      ${profBox('Net Profit (Suits + Shipping)',netProfit,`${filtInv.length} sale(s) · ${filtPur.length} purchase(s) in period`)}
     </div>
     <div class="card">
       <div class="card-title">🧾 GST Position</div>
-      ${row('Output GST collected',totalGSTOut)}
-      ${row('Input Tax Credit',itc,'#27ae60')}
+      ${row('Output GST collected on sales',totalGSTOut)}
+      ${row('Input Tax Credit from purchases',itc,'#27ae60')}
       <div style="background:${gstPayable>=0?'#fff8ee':'#dff0d8'};border-radius:8px;padding:12px 14px;display:flex;justify-content:space-between;margin-top:8px;">
-        <strong>${gstPayable>=0?'GST Payable':'GST Credit'}</strong>
+        <strong>${gstPayable>=0?'GST Payable to Govt.':'GST Credit Available'}</strong>
         <strong style="color:${gstPayable>=0?'#c0392b':'#27ae60'};font-size:15px;">₹${f(Math.abs(gstPayable))}</strong>
       </div>
       <div style="font-size:11px;color:#aaa;margin-top:8px;">Consult your CA before filing.</div>
@@ -1627,7 +1666,8 @@ function buildBulkPage(){
     <div class="card">
       <div class="card-title">📁 Upload Order Excel / CSV</div>
       <div style="background:var(--goldp);border-radius:8px;padding:12px;font-size:12px;color:var(--brown);margin-bottom:14px;">
-        Required columns: Invoice Date, Customer Name, Phone, Address, State, Suit 1 Name, Suit 1 Price, Suit 2 Name, Suit 2 Price, Shipping, Discount, Tracking No
+        <strong>Required columns:</strong> Invoice Date, Customer Name, Phone, Address, State, Suit 1 Name, Suit 1 Price<br/>
+        <strong>Optional columns:</strong> Suit 1 Cost, Suit 2 Name, Suit 2 Price, Suit 2 Cost, Suit 3 Name, Suit 3 Price, Suit 3 Cost, Shipping Charged, Actual Shipping Cost, Discount, Tracking No, Channel
       </div>
       <button class="btn btn-o" onclick="document.getElementById('bulk-upload').click()">📂 Choose File</button>
       <input type="file" id="bulk-upload" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleBulkUpload(event)"/>
@@ -1636,8 +1676,9 @@ function buildBulkPage(){
     <div id="bulk-preview"></div>`;
 }
 function downloadBulkTemplate(){
-  const csv=`Invoice Date,Customer Name,Phone,Address,State,Suit 1 Name,Suit 1 Price,Suit 2 Name,Suit 2 Price,Shipping,Discount,Tracking No\n02/03/2026,Priya Sharma,9876543210,"H.No 12 Sector 4, Chandigarh",Punjab,Floral Georgette Suit,1499,,,80,0,EE123456789IN`;
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='vismaad_template.csv';a.click();
+  const csv=`Invoice Date,Customer Name,Phone,Address,State,Suit 1 Name,Suit 1 Price,Suit 1 Cost,Suit 2 Name,Suit 2 Price,Suit 2 Cost,Suit 3 Name,Suit 3 Price,Suit 3 Cost,Shipping Charged,Actual Shipping Cost,Discount,Tracking No,Channel\n02/03/2026,Priya Sharma,9876543210,"H.No 12 Sector 4, Chandigarh",Punjab,Floral Georgette Suit,1499,900,,,,,, ,80,65,0,EE123456789IN,WhatsApp\n05/03/2026,Reena Gupta,9812345678,"45 MG Road, Jaipur",Rajasthan,Cotton Embroidered Suit,1299,750,Silk Printed Suit,1599,900,,,,120,95,0,,Instagram`;
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='vismaad_import_template.csv';a.click();
+  toast('⬇️ Template downloaded!');
 }
 function handleBulkUpload(e){
   const file=e.target.files[0];if(!file)return;
@@ -1652,10 +1693,25 @@ function handleBulkUpload(e){
       const row={};headers.forEach((h,j)=>row[h]=cols[j]||'');
       const its=[];
       for(let n=1;n<=5;n++){
-        const nm=row[`suit ${n} name`]||'';const pr=parseFloat(row[`suit ${n} price`]||0)||0;
-        if(nm&&pr>0)its.push({id:n,prodNo:'',desc:nm,hsn:'540754',qty:1,unitPrice:pr});
+        const nm=row[`suit ${n} name`]||'';
+        const pr=parseFloat(row[`suit ${n} price`]||0)||0;
+        const co=parseFloat(row[`suit ${n} cost`]||0)||0;
+        if(nm&&pr>0)its.push({id:n,prodNo:'',desc:nm,hsn:'540754',qty:1,unitPrice:pr,costPrice:co});
       }
-      if(its.length)rows.push({invDate:normaliseDate(row['invoice date']||row['date']||''),custName:row['customer name']||row['name']||'',custPhone:row['phone']||'',custAddress:row['address']||'',custState:row['state']||'',itemsArr:its,shipping:parseFloat(row['shipping']||0)||0,discount:parseFloat(row['discount']||0)||0,tracking:row['tracking no']||row['tracking']||'',selected:true});
+      if(its.length)rows.push({
+        invDate:normaliseDate(row['invoice date']||row['date']||''),
+        custName:row['customer name']||row['name']||'',
+        custPhone:row['phone']||'',
+        custAddress:row['address']||'',
+        custState:row['state']||'',
+        itemsArr:its,
+        shipping:parseFloat(row['shipping charged']||row['shipping']||0)||0,
+        shippingCost:parseFloat(row['actual shipping cost']||row['actual shipping']||0)||0,
+        discount:parseFloat(row['discount']||0)||0,
+        tracking:row['tracking no']||row['tracking']||'',
+        channel:row['channel']||'',
+        selected:true
+      });
     }
     if(!rows.length){toast('⚠️ No valid rows');return;}
     showBulkPreview(rows);
@@ -1668,30 +1724,89 @@ function handleBulkUpload(e){
 }
 function showBulkPreview(rows){
   const el=document.getElementById('bulk-preview');if(!el)return;
-  el.innerHTML=`<div class="card"><div class="card-title">${rows.length} orders ready</div>`+
-    rows.map((r,i)=>`<div class="list-row"><div><div class="list-main">${r.custName}</div><div class="list-sub">${r.custState} · ${r.itemsArr.map(it=>it.desc).join(', ')}</div></div><div class="list-right"><div class="list-amt">₹${(r.itemsArr.reduce((s,it)=>s+it.unitPrice,0)+r.shipping-r.discount).toLocaleString('en-IN')}</div></div></div>`).join('')+
-    `<button class="btn btn-g" style="margin-top:14px;" onclick="generateBulkInvoices(window._bulkRows)">🖨️ Generate & Print All</button></div>`;
+  // Store on window with a timestamp key to avoid stale references
   window._bulkRows=rows;
+  const totalRev=rows.reduce((s,r)=>s+(r.itemsArr.reduce((ss,it)=>ss+it.unitPrice,0)+r.shipping-r.discount),0);
+  el.innerHTML=`<div class="card">
+    <div class="card-title">✅ ${rows.length} orders ready to import
+      <span style="font-size:13px;font-weight:400;color:#888;">Total ₹${totalRev.toLocaleString('en-IN')}</span>
+    </div>
+    ${rows.map(r=>`<div class="list-row">
+      <div>
+        <div class="list-main">${r.custName}</div>
+        <div class="list-sub">${r.invDate?fmtDate(r.invDate):''} · ${r.custState} · ${r.itemsArr.map(it=>it.desc).join(', ')}</div>
+      </div>
+      <div class="list-right">
+        <div class="list-amt">₹${(r.itemsArr.reduce((s,it)=>s+it.unitPrice,0)+r.shipping-r.discount).toLocaleString('en-IN')}</div>
+      </div>
+    </div>`).join('')}
+    <div style="margin-top:16px;display:flex;flex-direction:column;gap:10px;">
+      <button class="btn btn-p" onclick="bulkSaveOnly()">💾 Save All to Sales (No Print)</button>
+      <button class="btn btn-o" onclick="bulkSaveAndPrint()">🖨️ Save All + Print Invoices</button>
+    </div>
+  </div>`;
 }
-function generateBulkInvoices(rows){
-  if(!S.gstin){toast('⚠️ Enter GSTIN in Settings');return;}
-  let pages='';
-  rows.filter(r=>r.selected!==false).forEach(r=>{
+
+function bulkSaveOnly(){
+  if(!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
+  const rows=window._bulkRows;
+  if(!rows||!rows.length){toast('⚠️ No rows to import');return;}
+  let count=0;
+  rows.forEach(r=>{
     invCtr++;
     const invNo='INV-'+String(invCtr).padStart(3,'0');
     const isIntra=r.custState==='Punjab';
     const{grandIncl,gstAmt,taxableExcl}=calcTotals(r.itemsArr,r.shipping,r.discount);
-    const data={invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),custName:r.custName,custPhone:r.custPhone,custAddress:r.custAddress,custState:r.custState,isIntra,itemsArr:r.itemsArr,shipping:r.shipping,discount:r.discount,tracking:r.tracking,gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,logoB64};
-    const html=buildInvoiceHTML(data);
     const validItems=r.itemsArr.filter(i=>i.unitPrice>0);
-    const saved={id:Date.now()+invCtr,invNo,invDate:data.invDate,fy:data.fy,custName:r.custName,custState:r.custState,isIntra,grandTotal:grandIncl,gstAmt,taxableExcl,itemCount:validItems.length,itemsSummary:validItems.map(i=>i.desc).join(', '),html,custPhone:r.custPhone,custAddress:r.custAddress,tracking:r.tracking,shipping:r.shipping,discount:r.discount,channel:''};
+    const html=buildInvoiceHTML({invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),custName:r.custName,custPhone:r.custPhone,custAddress:r.custAddress,custState:r.custState,isIntra,itemsArr:validItems,shipping:r.shipping,discount:r.discount,tracking:r.tracking,gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,logoB64});
+    const saved={
+      id:Date.now()+invCtr+Math.random(),
+      invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),
+      custName:r.custName,custPhone:r.custPhone,custAddress:r.custAddress,
+      custState:r.custState,isIntra,
+      grandTotal:grandIncl,gstAmt,taxableExcl,
+      itemCount:validItems.length,
+      itemsSummary:validItems.map(i=>i.desc).join(', '),
+      html,shipping:r.shipping,shippingCost:r.shippingCost||0,
+      discount:r.discount,tracking:r.tracking,
+      channel:r.channel||'',
+      suitsTotal:validItems.reduce((s,i)=>s+(i.qty||1)*(i.unitPrice||0),0),
+    };
     invoices.push(saved);
+    // Sync to Google Sheets
     gsWrite(SHEETS.invoices,flattenInvoice(saved));
-    pages+=`<div class="print-page">${html}</div>`;
+    count++;
   });
-  save();localStorage.setItem('vc_ctr',invCtr);
-  document.getElementById('print-area').innerHTML=pages;
-  window.print();toast('🖨️ Printing bulk invoices…');
+  save();
+  localStorage.setItem('vc_ctr',invCtr);
+  // Clear preview
+  const el=document.getElementById('bulk-preview');
+  if(el)el.innerHTML=`<div class="card" style="text-align:center;padding:20px;">
+    <div style="font-size:32px;margin-bottom:10px;">✅</div>
+    <div style="font-size:16px;font-weight:600;color:var(--brown);">${count} invoices imported!</div>
+    <div style="font-size:13px;color:#888;margin-top:6px;">All saved to Sales tab and syncing to Google Sheets</div>
+  </div>`;
+  window._bulkRows=null;
+  toast('✅ '+count+' invoices saved!',4000);
+}
+
+function bulkSaveAndPrint(){
+  if(!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
+  const rows=window._bulkRows;
+  if(!rows||!rows.length){toast('⚠️ No rows to import');return;}
+  bulkSaveOnly();
+  // Print all
+  setTimeout(()=>{
+    const recentInvs=invoices.slice(-rows.length);
+    document.getElementById('print-area').innerHTML=recentInvs.map(inv=>`<div class="print-page">${inv.html}</div>`).join('');
+    window.print();
+  },500);
+}
+
+function generateBulkInvoices(rows){
+  // Legacy call — redirect to new flow
+  window._bulkRows=rows;
+  bulkSaveOnly();
 }
 function parseCsvLine(l){const r=[];let c='',q=false;for(let i=0;i<l.length;i++){const ch=l[i];if(ch==='"')q=!q;else if(ch===','&&!q){r.push(c.trim());c='';}else c+=ch;}r.push(c.trim());return r;}
 function normaliseDate(d){if(!d)return today();if(d.includes('/')){const[a,b,cc]=d.split('/');return cc?.length===4?`${cc}-${b.padStart(2,'0')}-${a.padStart(2,'0')}`:d;}return d;}
