@@ -1,0 +1,1747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<title>Vismaad Creations</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=Great+Vibes&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --cream:#fdf8f2;--warm:#fffdf9;--ink:#1a1208;--brown:#5c3d1e;
+  --gold:#c9933a;--goldl:#e8b96a;--goldp:#f5e6c8;--border:#e2d4bc;
+  --red:#c0392b;--green:#27ae60;--blue:#2980b9;
+  --nav-h:64px;--header-h:56px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;overflow:hidden;}
+body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--ink);font-size:15px;display:flex;flex-direction:column;}
+
+/* ── HEADER ── */
+.hdr{background:var(--brown);color:#fff;height:var(--header-h);display:flex;align-items:center;justify-content:space-between;padding:0 16px;flex-shrink:0;position:relative;z-index:50;}
+.hdr-brand{display:flex;align-items:center;gap:10px;}
+.hdr-logo{height:36px;width:auto;object-fit:contain;display:none;}
+.hdr-name{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;}
+.hdr-sync{display:flex;align-items:center;gap:6px;font-size:12px;opacity:.8;}
+.sync-dot{width:8px;height:8px;border-radius:50%;background:#aaa;flex-shrink:0;transition:background .3s;}
+.sync-dot.ok{background:#5dde8a;}
+.sync-dot.err{background:#e74c3c;}
+.sync-dot.busy{background:#f39c12;animation:pulse .8s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ── SCROLL AREA ── */
+.scroll-area{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:calc(var(--nav-h) + 16px);}
+
+/* ── BOTTOM NAV ── */
+.bnav{position:fixed;bottom:0;left:0;right:0;height:var(--nav-h);background:var(--warm);border-top:1.5px solid var(--border);display:flex;align-items:stretch;z-index:100;padding-bottom:env(safe-area-inset-bottom);}
+.bnav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:none;background:transparent;cursor:pointer;padding:6px 2px;transition:all .15s;position:relative;}
+.bnav-btn.active{color:var(--gold);}
+.bnav-btn.active::after{content:'';position:absolute;top:0;left:20%;right:20%;height:2.5px;background:var(--gold);border-radius:0 0 3px 3px;}
+.bnav-icon{font-size:20px;line-height:1;}
+.bnav-label{font-size:10px;font-weight:500;color:inherit;white-space:nowrap;}
+.bnav-btn:not(.active) .bnav-label{color:var(--ink);opacity:.5;}
+
+/* ── PAGES ── */
+.page{display:none;padding:16px;}
+.page.active{display:block;}
+
+/* ── SECTION TITLE ── */
+.sec-title{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--brown);margin-bottom:16px;}
+
+/* ── CARDS ── */
+.card{background:var(--warm);border-radius:14px;border:1px solid var(--border);padding:16px;margin-bottom:14px;box-shadow:0 1px 6px rgba(92,61,30,.08);}
+.card-title{font-family:'Playfair Display',serif;font-size:15px;font-weight:600;color:var(--brown);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--goldp);display:flex;align-items:center;justify-content:space-between;}
+
+/* ── STAT GRID ── */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;}
+.stat-grid.cols3{grid-template-columns:1fr 1fr 1fr;}
+.stat-card{background:var(--warm);border-radius:12px;border:1px solid var(--border);padding:14px;text-align:center;}
+.stat-val{font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--brown);line-height:1.1;}
+.stat-lbl{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-top:4px;}
+
+/* ── FORMS ── */
+.fg{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
+.fg label{font-size:12px;font-weight:600;color:var(--brown);text-transform:uppercase;letter-spacing:.4px;}
+.fg input,.fg select,.fg textarea{
+  padding:13px 14px;border-radius:10px;border:1.5px solid var(--border);
+  background:var(--cream);font-family:'DM Sans',sans-serif;font-size:15px;
+  color:var(--ink);transition:border .2s;width:100%;appearance:none;
+  -webkit-appearance:none;
+}
+.fg input:focus,.fg select:focus,.fg textarea:focus{outline:none;border-color:var(--gold);}
+.fg input[readonly]{background:#f0e8d8;font-weight:600;}
+.fg textarea{resize:vertical;min-height:80px;}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+
+/* ── BUTTONS ── */
+.btn{padding:13px 20px;border-radius:10px;border:none;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:48px;}
+.btn-p{background:var(--brown);color:#fff;width:100%;}
+.btn-p:active{background:var(--gold);}
+.btn-g{background:var(--gold);color:#fff;width:100%;}
+.btn-g:active{background:var(--goldl);}
+.btn-o{background:transparent;color:var(--brown);border:1.5px solid var(--brown);}
+.btn-o:active{background:var(--goldp);}
+.btn-d{background:transparent;color:var(--red);border:1.5px solid var(--red);}
+.btn-sm{padding:8px 14px;font-size:13px;min-height:36px;border-radius:8px;}
+.btn-row{display:flex;gap:10px;margin-top:6px;}
+.btn-row .btn-p,.btn-row .btn-g{flex:1;}
+
+/* ── BADGES ── */
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
+.b-green{background:#dff0d8;color:#27ae60;}
+.b-yellow{background:#fef9e7;color:#f39c12;}
+.b-red{background:#fde8e8;color:#c0392b;}
+.b-blue{background:#e8f4fd;color:#2980b9;}
+.b-gold{background:var(--goldp);color:var(--brown);}
+
+/* ── LISTS ── */
+.list-row{display:flex;justify-content:space-between;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--border);}
+.list-row:last-child{border-bottom:none;}
+.list-main{font-weight:600;font-size:14px;}
+.list-sub{font-size:12px;color:#888;margin-top:2px;}
+.list-right{text-align:right;flex-shrink:0;margin-left:12px;}
+.list-amt{font-weight:700;font-size:15px;color:var(--brown);}
+
+/* ── TABLES (horizontal scroll) ── */
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -16px;padding:0 16px;}
+table{width:100%;border-collapse:collapse;min-width:500px;}
+thead th{background:var(--brown);color:#fff;padding:10px 12px;font-size:12px;text-align:left;font-weight:600;white-space:nowrap;}
+tbody td{padding:10px 12px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle;}
+tbody tr:last-child td{border-bottom:none;}
+
+/* ── ITEMS TABLE IN INVOICE ── */
+.item-row{background:var(--warm);border-radius:10px;border:1px solid var(--border);padding:12px;margin-bottom:10px;}
+.item-row-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.item-num{font-weight:700;color:var(--brown);font-size:16px;}
+.item-total{font-weight:700;font-size:16px;}
+
+/* ── INVOICE PREVIEW ── */
+.inv-preview{background:#fff;border:1.5px solid #ccc;border-radius:12px;padding:20px;font-family:'DM Sans',sans-serif;font-size:13px;margin-top:16px;}
+
+/* ── AGING GRID ── */
+.aging-grid{display:flex;flex-wrap:wrap;gap:8px;padding:4px 0;}
+.aging-tile{border-radius:10px;padding:10px 12px;text-align:center;min-width:68px;cursor:default;}
+.aging-tile .tile-num{font-size:16px;font-weight:700;line-height:1.1;}
+.aging-tile .tile-qty{font-size:11px;opacity:.9;margin-top:2px;}
+.aging-tile .tile-age{font-size:11px;opacity:.85;}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:calc(var(--nav-h) + 12px);left:16px;right:16px;z-index:9999;background:var(--brown);color:#fff;padding:14px 18px;border-radius:12px;font-size:14px;font-weight:500;box-shadow:0 4px 20px rgba(0,0,0,.2);transform:translateY(20px);opacity:0;transition:all .3s;text-align:center;}
+.toast.show{transform:translateY(0);opacity:1;}
+
+/* ── MODAL ── */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(26,18,8,.55);z-index:200;align-items:flex-end;justify-content:center;}
+.modal-bg.open{display:flex;}
+.modal{background:var(--warm);border-radius:20px 20px 0 0;padding:20px 16px calc(20px + env(safe-area-inset-bottom));width:100%;max-height:90vh;overflow-y:auto;}
+.modal-title{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;color:var(--brown);margin-bottom:16px;}
+.modal-close{float:right;background:var(--border);border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;}
+
+/* ── SYNC BANNER ── */
+.sync-banner{background:var(--goldp);border:1px solid var(--gold);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--brown);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+
+/* ── SETTINGS ── */
+.settings-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border);}
+.settings-row:last-child{border-bottom:none;}
+.settings-lbl{font-size:14px;font-weight:500;}
+.settings-val{font-size:13px;color:#888;max-width:60%;text-align:right;word-break:break-all;}
+
+/* ── CHANNEL CHIPS ── */
+.channel-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;}
+.chip{padding:8px 14px;border-radius:20px;border:1.5px solid var(--border);background:var(--cream);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;}
+.chip.active{background:var(--brown);color:#fff;border-color:var(--brown);}
+
+/* ── PRINT ── */
+#print-area{display:none;}
+@media print{
+  body>*{display:none!important;}
+  #print-area{display:block!important;}
+  .print-page{page-break-after:always;padding:10mm;}
+  .print-page:last-child{page-break-after:auto;}
+  .print-label-page{width:210mm;height:148mm;padding:8mm;page-break-after:always;}
+}
+
+/* ── DESKTOP ENHANCEMENTS ── */
+@media(min-width:768px){
+  .page{padding:24px 28px;max-width:900px;margin:0 auto;}
+  .stat-grid{grid-template-columns:repeat(4,1fr);}
+  .row2{grid-template-columns:1fr 1fr;}
+  .bnav{max-width:100%;}
+  .hdr{padding:0 28px;}
+  .hdr-name{font-size:20px;}
+  .modal{border-radius:14px;max-width:560px;margin:auto;padding:28px;}
+  .modal-bg{align-items:center;}
+}
+
+/* ── PULL TO REFRESH INDICATOR ── */
+.ptr{text-align:center;padding:8px;font-size:12px;color:#888;display:none;}
+.ptr.show{display:block;}
+</style>
+</head>
+<body>
+
+<div id="print-area"></div>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-brand">
+    <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
+    <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
+  </div>
+  <div class="hdr-sync" onclick="syncAll()">
+    <div class="sync-dot" id="sync-dot"></div>
+    <span id="sync-label">Tap to sync</span>
+  </div>
+</div>
+
+<!-- SCROLL AREA -->
+<div class="scroll-area" id="scroll-area">
+<div class="ptr" id="ptr-indicator">↓ Syncing…</div>
+
+<!-- ════ DASHBOARD PAGE ════ -->
+<div class="page active" id="page-dash">
+  <div class="sec-title">Dashboard</div>
+  <div id="dash-sync-banner" class="sync-banner" style="display:none;">
+    ☁️ Data synced with Google Sheets — accessible on all your devices
+  </div>
+  <div class="stat-grid" id="dash-stats">
+    <div class="stat-card"><div class="stat-val" id="ds-orders">—</div><div class="stat-lbl">Orders</div></div>
+    <div class="stat-card"><div class="stat-val" id="ds-revenue">—</div><div class="stat-lbl">Revenue</div></div>
+    <div class="stat-card"><div class="stat-val" id="ds-stock">—</div><div class="stat-lbl">In Stock</div></div>
+    <div class="stat-card"><div class="stat-val" id="ds-products">—</div><div class="stat-lbl">Products</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">📦 Recent Orders</div>
+    <div id="dash-orders"><div style="color:#aaa;font-size:13px;text-align:center;padding:20px;">Loading…</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">⚠️ Low / Aging Stock</div>
+    <div id="dash-aging"><div style="color:#aaa;font-size:13px;text-align:center;padding:20px;">Loading…</div></div>
+  </div>
+</div>
+
+<!-- ════ INVOICE PAGE ════ -->
+<div class="page" id="page-invoice">
+  <div class="sec-title">New Invoice</div>
+
+  <!-- Invoice details -->
+  <div class="card">
+    <div class="card-title">🧾 Invoice Details</div>
+    <div class="row2">
+      <div class="fg"><label>Invoice No.</label><input id="inv-no" readonly/></div>
+      <div class="fg"><label>Date</label><input type="date" id="inv-date" oninput="onInvDateChange()"/></div>
+    </div>
+    <div class="fg"><label>Financial Year</label><input id="inv-fy" readonly/></div>
+  </div>
+
+  <!-- Settings bar -->
+  <div class="card" id="settings-bar-card" style="display:none;">
+    <div class="card-title">⚙️ Business Settings</div>
+    <div class="fg"><label>Your GSTIN</label><input id="s-gstin" placeholder="03XXXXX1234Z5" maxlength="15" style="text-transform:uppercase"/></div>
+    <div class="fg"><label>Business Address</label><input id="s-address" placeholder="Street, City, Punjab, Pincode"/></div>
+    <div class="fg"><label>Phone / WhatsApp</label><input id="s-phone" placeholder="+91 XXXXX XXXXX"/></div>
+    <div class="fg"><label>Email (optional)</label><input id="s-email" placeholder="your@email.com"/></div>
+    <button class="btn btn-p" onclick="saveSettings()">💾 Save Settings</button>
+  </div>
+
+  <!-- Customer -->
+  <div class="card">
+    <div class="card-title">👤 Customer</div>
+    <div class="fg"><label>Name *</label><input id="c-name" placeholder="Customer full name"/></div>
+    <div class="row2">
+      <div class="fg"><label>Phone</label><input id="c-phone" type="tel" placeholder="Mobile number"/></div>
+      <div class="fg"><label>State *</label>
+        <select id="c-state" onchange="updateTaxType()">
+          <option value="">Select state</option>
+          <option value="Punjab">Punjab (Intra)</option>
+          <option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option>
+          <option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option>
+          <option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option>
+          <option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option>
+          <option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option>
+          <option>Mizoram</option><option>Nagaland</option><option>Odisha</option>
+          <option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option>
+          <option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option>
+          <option>Uttarakhand</option><option>West Bengal</option><option>Delhi</option>
+          <option>Jammu & Kashmir</option><option>Ladakh</option><option>Chandigarh</option><option>Other UT</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg"><label>Address</label><textarea id="c-address" placeholder="House No, Street, City, Pincode" rows="2"></textarea></div>
+    <div class="fg"><label style="font-size:11px;color:#888;">Tax Type (Auto)</label><input id="tax-display" readonly placeholder="Select state first" style="background:#f0e8d8;font-size:13px;padding:10px 12px;"/></div>
+  </div>
+
+  <!-- Items -->
+  <div class="card">
+    <div class="card-title">👗 Suit Items</div>
+    <div id="items-container"></div>
+    <button class="btn btn-o btn-sm" onclick="addItem()" style="width:100%;margin-top:4px;">+ Add Suit</button>
+  </div>
+
+  <!-- Shipping -->
+  <div class="card">
+    <div class="card-title">🚚 Shipping & Extras</div>
+    <div class="row2">
+      <div class="fg"><label>Shipping (₹)</label><input type="number" id="shipping" value="0" oninput="recalc()"/></div>
+      <div class="fg"><label>Discount (₹)</label><input type="number" id="discount" value="0" oninput="recalc()"/></div>
+    </div>
+    <div class="row2">
+      <div class="fg"><label>India Post Tracking</label><input id="tracking" placeholder="EE123456789IN"/></div>
+      <div class="fg"><label>Dispatch Date</label><input type="date" id="dispatch-date"/></div>
+    </div>
+    <div class="fg">
+      <label>Sale Channel <span style="font-weight:400;color:#aaa;">(optional)</span></label>
+      <div class="channel-chips">
+        <div class="chip" onclick="setChannel(this,'')">None</div>
+        <div class="chip" onclick="setChannel(this,'WhatsApp')">WhatsApp</div>
+        <div class="chip" onclick="setChannel(this,'Instagram')">Instagram</div>
+        <div class="chip" onclick="setChannel(this,'Facebook')">Facebook</div>
+        <div class="chip" onclick="setChannel(this,'Website')">Website</div>
+        <div class="chip" onclick="setChannel(this,'Offline')">Offline</div>
+      </div>
+      <input type="hidden" id="sale-channel" value=""/>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div class="card">
+    <div class="card-title">💰 Summary</div>
+    <div id="summary-box"><div style="color:#aaa;text-align:center;padding:16px;">Add items above</div></div>
+    <div class="btn-row" style="margin-top:14px;">
+      <button class="btn btn-p" onclick="generateInvoice()">🧾 Generate Invoice</button>
+      <button class="btn btn-o" onclick="resetInvoiceForm()" style="width:auto;padding:13px 16px;">↺</button>
+    </div>
+  </div>
+
+  <!-- Invoice preview -->
+  <div id="inv-preview-section" style="display:none;">
+    <div class="card">
+      <div class="card-title">Preview</div>
+      <div id="inv-preview-html"></div>
+    </div>
+    <button class="btn btn-g" onclick="printCurrentInvoice()" style="margin-bottom:10px;">🖨️ Print Invoice</button>
+    <button class="btn btn-o" onclick="goToLabel()" style="margin-bottom:10px;">📦 Create Shipping Label</button>
+    <button class="btn btn-p" onclick="resetInvoiceForm()">+ New Invoice</button>
+  </div>
+</div>
+
+<!-- ════ INVENTORY PAGE ════ -->
+<div class="page" id="page-inventory">
+  <div class="sec-title">Inventory</div>
+  <div class="stat-grid cols3">
+    <div class="stat-card"><div class="stat-val" id="ist-total">0</div><div class="stat-lbl">Products</div></div>
+    <div class="stat-card"><div class="stat-val" id="ist-stock" style="color:#27ae60;">0</div><div class="stat-lbl">In Stock</div></div>
+    <div class="stat-card"><div class="stat-val" id="ist-value">₹0</div><div class="stat-lbl">Stock Value</div></div>
+  </div>
+
+  <!-- Add product -->
+  <div class="card">
+    <div class="card-title">➕ Add Product</div>
+    <div class="row2">
+      <div class="fg"><label>Product No. *</label><input type="number" id="ip-num" placeholder="Auto" min="1"/></div>
+      <div class="fg"><label>Date Added</label><input type="date" id="ip-date"/></div>
+    </div>
+    <div class="fg"><label>Product Name *</label><input id="ip-name" placeholder="e.g. Floral Georgette Suit"/></div>
+    <div class="row3">
+      <div class="fg"><label>Qty</label><input type="number" id="ip-qty" value="1" min="1"/></div>
+      <div class="fg"><label>Cost (₹)</label><input type="number" id="ip-cost" placeholder="0"/></div>
+      <div class="fg"><label>Sell Price (₹)</label><input type="number" id="ip-sell" placeholder="0"/></div>
+    </div>
+    <div class="fg"><label>Notes</label><input id="ip-notes" placeholder="Colour, design details…"/></div>
+    <button class="btn btn-p" onclick="saveProduct()">💾 Add to Inventory</button>
+  </div>
+
+  <!-- Aging view -->
+  <div class="card">
+    <div class="card-title">📊 Stock Aging — Unsold Products</div>
+    <!-- Age filter tabs -->
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;" id="age-filter-tabs">
+      <button class="age-tab active" data-filter="all" onclick="setAgeFilter(this,'all')" style="padding:7px 14px;border-radius:20px;border:none;font-size:12px;font-weight:600;cursor:pointer;background:var(--brown);color:#fff;">All</button>
+      <button class="age-tab" data-filter="0" onclick="setAgeFilter(this,'0')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #27ae60;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#27ae60;">&lt;1 month</button>
+      <button class="age-tab" data-filter="1" onclick="setAgeFilter(this,'1')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #f39c12;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#f39c12;">1–2 months</button>
+      <button class="age-tab" data-filter="2" onclick="setAgeFilter(this,'2')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #e67e22;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#e67e22;">2–3 months</button>
+      <button class="age-tab" data-filter="3" onclick="setAgeFilter(this,'3')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #e74c3c;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#e74c3c;">3–4 months</button>
+      <button class="age-tab" data-filter="4" onclick="setAgeFilter(this,'4')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #922b21;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#922b21;">4+ months</button>
+    </div>
+    <div id="aging-grid"></div>
+  </div>
+
+  <!-- Register -->
+  <div class="card">
+    <div class="card-title">📋 Register
+      <div style="display:flex;gap:8px;">
+        <select id="inv-status-filter" onchange="renderInventory()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--cream);font-size:12px;">
+          <option value="">All</option><option value="instock">In Stock</option><option value="sold">Sold Out</option>
+        </select>
+      </div>
+    </div>
+    <div id="inv-list"></div>
+  </div>
+</div>
+
+<!-- ════ SALES/SAVED PAGE ════ -->
+<div class="page" id="page-sales">
+  <div class="sec-title">Sales</div>
+  <div class="row2" style="margin-bottom:14px;">
+    <input type="text" id="sales-search" placeholder="🔍 Search…" oninput="renderSales()" style="padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:14px;width:100%;"/>
+    <select id="sales-filter" onchange="renderSales()" style="padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:14px;">
+      <option value="">All</option><option value="Shipped">Shipped</option><option value="Pending">Pending</option>
+    </select>
+  </div>
+  <div id="sales-list"></div>
+</div>
+
+<!-- ════ MORE PAGE ════ -->
+<div class="page" id="page-more">
+  <div class="sec-title">More</div>
+
+  <!-- Quick actions -->
+  <div class="card">
+    <div class="card-title">⚡ Quick Actions</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <button class="btn btn-o btn-sm" onclick="showSubPage('purchases')">🛒 Purchases</button>
+      <button class="btn btn-o btn-sm" onclick="showSubPage('pl')">📈 P&L Report</button>
+      <button class="btn btn-o btn-sm" onclick="showSubPage('labels')">📦 Ship Label</button>
+      <button class="btn btn-o btn-sm" onclick="showSubPage('bulk')">📊 Bulk Import</button>
+      <button class="btn btn-o btn-sm" onclick="showSubPage('export')">⬇️ Export Excel</button>
+      <button class="btn btn-o btn-sm" onclick="toggleSettings()">⚙️ Settings</button>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="card" id="settings-card" style="display:none;">
+    <div class="card-title">⚙️ Settings</div>
+    <div class="fg"><label>Your GSTIN</label><input id="ms-gstin" placeholder="03XXXXX1234Z5" maxlength="15" style="text-transform:uppercase"/></div>
+    <div class="fg"><label>Business Address</label><input id="ms-address" placeholder="Street, City, Punjab, Pincode"/></div>
+    <div class="fg"><label>Phone / WhatsApp</label><input id="ms-phone" placeholder="+91 XXXXX XXXXX"/></div>
+    <div class="fg"><label>Email (optional)</label><input id="ms-email" placeholder="your@email.com"/></div>
+    <div class="fg">
+      <label>Logo Image</label>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div id="logo-thumb" style="width:60px;height:60px;border-radius:8px;border:1.5px dashed var(--border);display:flex;align-items:center;justify-content:center;color:#aaa;font-size:11px;overflow:hidden;cursor:pointer;" onclick="document.getElementById('logo-upload').click()">Logo</div>
+        <div id="qr-thumb" style="width:60px;height:60px;border-radius:8px;border:1.5px dashed var(--border);display:flex;align-items:center;justify-content:center;color:#aaa;font-size:11px;overflow:hidden;cursor:pointer;" onclick="document.getElementById('qr-upload').click()">QR</div>
+        <div style="font-size:12px;color:#888;">Tap to upload logo / Instagram QR</div>
+      </div>
+      <input type="file" id="logo-upload" accept="image/*" style="display:none;" onchange="handleLogoUpload(event)"/>
+      <input type="file" id="qr-upload" accept="image/*" style="display:none;" onchange="handleQRUpload(event)"/>
+    </div>
+    <button class="btn btn-p" onclick="saveSettings()">💾 Save Settings</button>
+  </div>
+
+  <!-- Sync info -->
+  <div class="card">
+    <div class="card-title">☁️ Google Sheets Sync</div>
+    <div id="sync-info-rows"></div>
+    <button class="btn btn-o" style="margin-top:12px;" onclick="syncAll()">🔄 Sync Now</button>
+  </div>
+</div>
+
+<!-- ════ SUB-PAGES (slide in from right) ════ -->
+<div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;overflow-y:auto;padding-bottom:80px;">
+  <div style="background:var(--brown);color:#fff;height:var(--header-h);display:flex;align-items:center;padding:0 16px;gap:12px;position:sticky;top:0;z-index:10;">
+    <button onclick="closeSubPage()" style="background:rgba(255,255,255,.15);border:none;border-radius:8px;color:#fff;padding:8px 12px;font-size:14px;cursor:pointer;">← Back</button>
+    <span id="sub-page-title" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;"></span>
+  </div>
+  <div id="sub-page-content" style="padding:16px;"></div>
+</div>
+
+</div><!-- end scroll-area -->
+
+<!-- BOTTOM NAV -->
+<div class="bnav">
+  <button class="bnav-btn active" id="bnav-dash" onclick="showPage('dash',this)">
+    <span class="bnav-icon">🏠</span><span class="bnav-label">Home</span>
+  </button>
+  <button class="bnav-btn" id="bnav-invoice" onclick="showPage('invoice',this)">
+    <span class="bnav-icon">🧾</span><span class="bnav-label">Invoice</span>
+  </button>
+  <button class="bnav-btn" id="bnav-inventory" onclick="showPage('inventory',this)">
+    <span class="bnav-icon">📦</span><span class="bnav-label">Inventory</span>
+  </button>
+  <button class="bnav-btn" id="bnav-sales" onclick="showPage('sales',this)">
+    <span class="bnav-icon">📋</span><span class="bnav-label">Sales</span>
+  </button>
+  <button class="bnav-btn" id="bnav-more" onclick="showPage('more',this)">
+    <span class="bnav-icon">⋯</span><span class="bnav-label">More</span>
+  </button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════
+const SCRIPT_URL='https://script.google.com/macros/s/AKfycbwpfwN3NXnsxyOnYUyiMvEYCLJJaqzFqzuIWMSJ2XLucP6LEHZ4nLhGuuew2HtDmEIgbQ/exec';
+const SHEETS={invoices:'Invoices',inventory:'Inventory',purchases:'Purchases',settings:'Settings'};
+
+// ═══════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════
+let S=JSON.parse(localStorage.getItem('vc_s')||'{}');
+let invoices=JSON.parse(localStorage.getItem('vc_inv')||'[]');
+let inventory=JSON.parse(localStorage.getItem('vc_stk')||'[]');
+let purchases=JSON.parse(localStorage.getItem('vc_pur')||'[]');
+let invCtr=parseInt(localStorage.getItem('vc_ctr')||'0');
+let items=[],itemId=0,selChannel='';
+let currentInv=null;
+let logoB64=localStorage.getItem('vc_logo')||null;
+let qrB64=localStorage.getItem('vc_qr')||null;
+let syncing=false;
+
+function save(){localStorage.setItem('vc_inv',JSON.stringify(invoices));localStorage.setItem('vc_ctr',invCtr);}
+function saveStk(){localStorage.setItem('vc_stk',JSON.stringify(inventory));}
+function savePur(){localStorage.setItem('vc_pur',JSON.stringify(purchases));}
+
+// ═══════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════
+function toast(m,dur=2800){
+  const t=document.getElementById('toast');
+  t.textContent=m;t.classList.add('show');
+  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),dur);
+}
+
+// ═══════════════════════════════════════════════════════
+// GOOGLE SHEETS SYNC
+// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// GOOGLE SHEETS SYNC — CORS-safe
+// ═══════════════════════════════════════════════════════
+function setSyncStatus(st){
+  const dot=document.getElementById('sync-dot');
+  const lbl=document.getElementById('sync-label');
+  dot.className='sync-dot '+(st==='ok'?'ok':st==='err'?'err':st==='busy'?'busy':'');
+  lbl.textContent=st==='ok'?'Synced':st==='err'?'Sync failed':st==='busy'?'Syncing…':'Tap to sync';
+}
+
+// JSONP read — bypasses CORS completely
+function gsRead(sheet){
+  return new Promise((resolve,reject)=>{
+    const cbName='_gs_'+sheet.replace(/\W/g,'')+'_'+Date.now();
+    const s=document.createElement('script');
+    const timer=setTimeout(()=>{
+      delete window[cbName];document.head.removeChild(s);
+      reject(new Error('Timeout reading '+sheet));
+    },15000);
+    window[cbName]=function(data){
+      clearTimeout(timer);delete window[cbName];
+      try{document.head.removeChild(s);}catch(e){}
+      resolve(data.rows||[]);
+    };
+    s.src=`${SCRIPT_URL}?action=read&sheet=${encodeURIComponent(sheet)}&callback=${cbName}`;
+    s.onerror=()=>{clearTimeout(timer);delete window[cbName];reject(new Error('Script load error'));};
+    document.head.appendChild(s);
+  });
+}
+
+// no-cors write — fire-and-forget via form POST (no response body readable, but it works)
+function gsWrite(sheet,data){
+  const flat={...data};
+  // Encode as URL params so Apps Script gets it via e.parameter
+  const params=new URLSearchParams({
+    action:'write',sheet,
+    data:JSON.stringify(flat)
+  });
+  // Use fetch no-cors for fire-and-forget writes
+  fetch(SCRIPT_URL+'?'+params.toString(),{method:'GET',mode:'no-cors'}).catch(()=>{});
+}
+
+// no-cors delete
+function gsDelete(sheet,id){
+  const params=new URLSearchParams({action:'delete',sheet,id:String(id)});
+  fetch(SCRIPT_URL+'?'+params.toString(),{method:'GET',mode:'no-cors'}).catch(()=>{});
+}
+
+async function syncAll(){
+  if(syncing)return;syncing=true;setSyncStatus('busy');
+  try{
+    // Pull all data from Sheets via JSONP
+    const [remInv,remStk,remPur,remSet]=await Promise.all([
+      gsRead(SHEETS.invoices),gsRead(SHEETS.inventory),
+      gsRead(SHEETS.purchases),gsRead(SHEETS.settings)
+    ]);
+    // Merge invoices — remote wins for existing IDs, keep local-only
+    const remInvMap={};remInv.forEach(r=>{if(r.id)remInvMap[String(r.id)]=r;});
+    invoices.forEach(l=>{if(!remInvMap[String(l.id)])remInvMap[String(l.id)]=l;});
+    invoices=Object.values(remInvMap).sort((a,b)=>(a.invDate||'')>(b.invDate||'')?1:-1);
+    // Merge inventory
+    const remStkMap={};remStk.forEach(r=>{if(r.prodNo)remStkMap[String(r.prodNo)]=parseInventoryRow(r);});
+    inventory.forEach(l=>{if(!remStkMap[String(l.prodNo)])remStkMap[String(l.prodNo)]=l;});
+    inventory=Object.values(remStkMap).sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
+    // Merge purchases
+    const remPurMap={};remPur.forEach(r=>{if(r.id)remPurMap[String(r.id)]=r;});
+    purchases.forEach(l=>{if(!remPurMap[String(l.id)])remPurMap[String(l.id)]=l;});
+    purchases=Object.values(remPurMap).sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
+    // Settings
+    if(remSet.length>0){
+      const rs=remSet[0];
+      S={gstin:rs.gstin||S.gstin||'',address:rs.address||S.address||'',phone:rs.phone||S.phone||'',email:rs.email||S.email||''};
+      localStorage.setItem('vc_s',JSON.stringify(S));
+    }
+    save();saveStk();savePur();
+    // Push local data to remote (fire-and-forget, no-cors)
+    invoices.forEach(inv=>gsWrite(SHEETS.invoices,flattenInvoice(inv)));
+    inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
+    purchases.forEach(p=>gsWrite(SHEETS.purchases,p));
+    setSyncStatus('ok');
+    document.getElementById('dash-sync-banner').style.display='flex';
+    refreshCurrentPage();
+    toast('☁️ Synced successfully!');
+  }catch(e){
+    setSyncStatus('err');
+    toast('⚠️ Sync failed: '+e.message);
+  }finally{syncing=false;}
+}
+function parseInventoryRow(r){
+  return{...r,prodNo:parseInt(r.prodNo)||0,qty:parseInt(r.qty)||0,qtyOriginal:parseInt(r.qtyOriginal)||0,qtySold:parseInt(r.qtySold)||0,cost:parseFloat(r.cost)||0,sellPrice:parseFloat(r.sellPrice)||0};
+}
+function flattenInvoice(inv){
+  const f={...inv};
+  if(typeof f.itemsArr==='object')f.itemsArr=JSON.stringify(f.itemsArr);
+  delete f.html; // don't store full HTML in sheets
+  return f;
+}
+function flattenProduct(p){return{...p};}
+
+// ═══════════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════════
+let curPage='dash';
+function showPage(id,btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.bnav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  if(btn)btn.classList.add('active');
+  curPage=id;
+  document.getElementById('scroll-area').scrollTop=0;
+  if(id==='dash')renderDashboard();
+  if(id==='inventory'){renderInventory();renderAgingGrid();updateInventoryStats();}
+  if(id==='sales')renderSales();
+  if(id==='more')renderSyncInfo();
+}
+function refreshCurrentPage(){showPage(curPage);}
+
+function showSubPage(id){
+  const container=document.getElementById('sub-page-container');
+  const content=document.getElementById('sub-page-content');
+  const title=document.getElementById('sub-page-title');
+  container.style.display='block';
+  const titles={purchases:'🛒 Purchases',pl:'📈 P&L Report',labels:'📦 Shipping Label',bulk:'📊 Bulk Import',export:'⬇️ Export'};
+  title.textContent=titles[id]||id;
+  content.innerHTML=buildSubPage(id);
+  container.scrollTop=0;
+  if(id==='pl')renderPLSubPage();
+  if(id==='labels'){loadLabelDefaults();}
+}
+function closeSubPage(){document.getElementById('sub-page-container').style.display='none';}
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+function init(){
+  loadSettings();
+  setInvNumber();
+  setDates();
+  addItem();
+  renderDashboard();
+  loadAssetThumbs();
+  // Auto-sync on load
+  setTimeout(()=>syncAll(),800);
+}
+function loadSettings(){
+  ['gstin','address','phone','email'].forEach(k=>{
+    const el1=document.getElementById('s-'+k);
+    const el2=document.getElementById('ms-'+k);
+    if(el1&&S[k])el1.value=S[k];
+    if(el2&&S[k])el2.value=S[k];
+  });
+}
+function saveSettings(){
+  S={
+    gstin:(document.getElementById('ms-gstin')||document.getElementById('s-gstin')).value.trim().toUpperCase(),
+    address:(document.getElementById('ms-address')||document.getElementById('s-address')).value.trim(),
+    phone:(document.getElementById('ms-phone')||document.getElementById('s-phone')).value.trim(),
+    email:(document.getElementById('ms-email')||document.getElementById('s-email')).value.trim(),
+  };
+  localStorage.setItem('vc_s',JSON.stringify(S));
+  gsWrite(SHEETS.settings,{id:'settings',...S});
+  toast('✅ Settings saved!');loadSettings();
+}
+function toggleSettings(){
+  const c=document.getElementById('settings-card');
+  c.style.display=c.style.display==='none'?'block':'none';
+}
+
+// ═══════════════════════════════════════════════════════
+// DATES & FY
+// ═══════════════════════════════════════════════════════
+function today(){return new Date().toISOString().split('T')[0];}
+function getFY(d){
+  const dt=d?new Date(d+'T00:00:00'):new Date();
+  const y=dt.getFullYear(),m=dt.getMonth();
+  return m>=3?y+'-'+(y+1).toString().slice(2):(y-1)+'-'+y.toString().slice(2);
+}
+function nextDispatch(d){
+  if(!d)return'';
+  const dt=new Date(d+'T00:00:00');dt.setDate(dt.getDate()+1);
+  if(dt.getDay()===0)dt.setDate(dt.getDate()+1);
+  return dt.toISOString().split('T')[0];
+}
+function setDates(){
+  const t=today();
+  const invDate=document.getElementById('inv-date');
+  if(invDate&&!invDate.value){invDate.value=t;}
+  const dd=document.getElementById('dispatch-date');
+  if(dd&&!dd.value)dd.value=nextDispatch(t);
+  document.getElementById('inv-fy').value=getFY(t);
+  const ipDate=document.getElementById('ip-date');
+  if(ipDate&&!ipDate.value)ipDate.value=t;
+}
+function setInvNumber(){
+  invCtr++;
+  document.getElementById('inv-no').value='INV-'+String(invCtr).padStart(3,'0');
+}
+function onInvDateChange(){
+  const d=document.getElementById('inv-date').value;
+  document.getElementById('inv-fy').value=getFY(d);
+  const dd=document.getElementById('dispatch-date');
+  if(dd)dd.value=nextDispatch(d);
+}
+function fmtDate(d){if(!d)return'';const p=d.split('-');return p[2]+'/'+p[1]+'/'+p[0];}
+
+// ═══════════════════════════════════════════════════════
+// INVOICE — ITEMS
+// ═══════════════════════════════════════════════════════
+function addItem(){
+  itemId++;
+  items.push({id:itemId,prodNo:'',desc:'Unstitched Suit',hsn:'540754',qty:1,unitPrice:0});
+  renderItems();
+}
+function removeItem(id){items=items.filter(i=>i.id!==id);renderItems();}
+function renderItems(){
+  const container=document.getElementById('items-container');
+  container.innerHTML=items.map((it,idx)=>`
+    <div class="item-row" id="irow-${it.id}">
+      <div class="item-row-header">
+        <span class="item-num">Suit ${idx+1}</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="item-total" id="itot-${it.id}">₹${((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN')}</span>
+          ${items.length>1?`<button class="btn btn-d btn-sm" onclick="removeItem(${it.id})" style="padding:6px 10px;">✕</button>`:''}
+        </div>
+      </div>
+      <div class="row2">
+        <div class="fg" style="margin-bottom:10px;">
+          <label>Product No. (optional)</label>
+          <input type="number" value="${it.prodNo||''}" placeholder="—" min="1"
+            oninput="updateItem(${it.id},'prodNo',this.value);lookupProduct(${it.id},this.value)"
+            style="padding:11px 12px;"/>
+        </div>
+        <div class="fg" style="margin-bottom:10px;">
+          <label>Qty</label>
+          <input type="number" value="${it.qty}" min="1" oninput="updateItem(${it.id},'qty',this.value)" style="padding:11px 12px;"/>
+        </div>
+      </div>
+      <div class="fg" style="margin-bottom:10px;">
+        <label>Description</label>
+        <input id="idesc-${it.id}" value="${it.desc}" placeholder="Unstitched Suit"
+          oninput="updateItem(${it.id},'desc',this.value)" style="padding:11px 12px;"/>
+      </div>
+      <div class="row2">
+        <div class="fg" style="margin-bottom:0;">
+          <label>HSN</label>
+          <input value="${it.hsn}" oninput="updateItem(${it.id},'hsn',this.value)" style="padding:11px 12px;"/>
+        </div>
+        <div class="fg" style="margin-bottom:0;">
+          <label>Unit Price (₹ incl.GST)</label>
+          <input type="number" id="iprice-${it.id}" value="${it.unitPrice||''}" placeholder="0"
+            oninput="updateItem(${it.id},'unitPrice',this.value)" style="padding:11px 12px;"/>
+        </div>
+      </div>
+    </div>`).join('');
+  recalc();
+}
+function updateItem(id,f,v){
+  const it=items.find(i=>i.id===id);if(!it)return;
+  if(f==='qty'||f==='unitPrice')it[f]=parseFloat(v)||0;
+  else if(f==='prodNo')it[f]=v?parseInt(v)||'':'';
+  else it[f]=v;
+  const tot=document.getElementById('itot-'+id);
+  if(tot)tot.textContent='₹'+((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN');
+  recalc();
+}
+function lookupProduct(itemRowId,val){
+  const num=parseInt(val);
+  const it=items.find(i=>i.id===itemRowId);if(!it)return;
+  if(!num){
+    it.desc='Unstitched Suit';
+    const d=document.getElementById('idesc-'+itemRowId);
+    if(d)d.value='Unstitched Suit';
+    return;
+  }
+  const prod=inventory.find(p=>p.prodNo===num);
+  if(prod){
+    it.desc=prod.name;
+    if(!it.unitPrice&&prod.sellPrice)it.unitPrice=prod.sellPrice;
+    const d=document.getElementById('idesc-'+itemRowId);
+    const pr=document.getElementById('iprice-'+itemRowId);
+    if(d){d.value=prod.name;d.style.background='#f0faf4';}
+    if(pr&&!it.unitPrice){pr.value=prod.sellPrice||'';it.unitPrice=prod.sellPrice||0;}
+    const tot=document.getElementById('itot-'+itemRowId);
+    if(tot)tot.textContent='₹'+((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN');
+    recalc();
+    toast('✅ #'+num+': '+prod.name);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// INVOICE — CALCULATIONS
+// ═══════════════════════════════════════════════════════
+function calcTotals(arr,ship,disc){
+  const suitsTotal=arr.reduce((s,i)=>s+(i.qty||1)*(i.unitPrice||0),0);
+  const grandIncl=suitsTotal+ship-disc;
+  const taxableExcl=parseFloat((grandIncl/1.05).toFixed(2));
+  const gstAmt=parseFloat((grandIncl-taxableExcl).toFixed(2));
+  return{suitsTotal,grandIncl,taxableExcl,gstAmt};
+}
+function recalc(){
+  const ship=parseFloat(document.getElementById('shipping').value)||0;
+  const disc=parseFloat(document.getElementById('discount').value)||0;
+  const{suitsTotal,grandIncl,taxableExcl,gstAmt}=calcTotals(items,ship,disc);
+  const isIntra=document.getElementById('c-state').value==='Punjab';
+  const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
+  let h=`
+    <div class="list-row"><span>Suits subtotal</span><strong>${f(suitsTotal)}</strong></div>
+    <div class="list-row"><span>Shipping</span><strong>${f(ship)}</strong></div>`;
+  if(disc>0)h+=`<div class="list-row" style="color:#c0392b;"><span>Discount</span><strong>−${f(disc)}</strong></div>`;
+  h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>Taxable (excl. GST)</span><span>${f(taxableExcl)}</span></div>`;
+  if(isIntra){
+    h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>CGST 2.5%</span><span>${f(gstAmt/2)}</span></div>`;
+    h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>SGST 2.5%</span><span>${f(gstAmt/2)}</span></div>`;
+  }else{
+    h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>IGST 5%</span><span>${f(gstAmt)}</span></div>`;
+  }
+  h+=`<div class="list-row" style="font-size:17px;border-top:2px solid var(--brown);margin-top:4px;padding-top:10px;"><strong>Grand Total</strong><strong style="color:var(--brown);">${f(grandIncl)}</strong></div>`;
+  document.getElementById('summary-box').innerHTML=h;
+}
+function setChannel(el,val){
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');selChannel=val;
+  document.getElementById('sale-channel').value=val;
+}
+function updateTaxType(){
+  const st=document.getElementById('c-state').value;
+  const el=document.getElementById('tax-display');
+  if(!st){el.value='';return;}
+  el.value=st==='Punjab'?'CGST 2.5% + SGST 2.5% (Intra-state)':'IGST 5% (Inter-state)';
+  recalc();
+}
+
+// ═══════════════════════════════════════════════════════
+// INVOICE — GENERATE
+// ═══════════════════════════════════════════════════════
+function generateInvoice(){
+  const custName=document.getElementById('c-name').value.trim();
+  const custState=document.getElementById('c-state').value;
+  if(!custName){toast('⚠️ Enter customer name');return;}
+  if(!custState){toast('⚠️ Select customer state');return;}
+  if(!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');document.getElementById('settings-bar-card').style.display='block';return;}
+  if(items.every(i=>!i.unitPrice)){toast('⚠️ Add at least one suit with price');return;}
+
+  const invNo=document.getElementById('inv-no').value;
+  const invDate=document.getElementById('inv-date').value;
+  const fy=getFY(invDate);
+  const ship=parseFloat(document.getElementById('shipping').value)||0;
+  const disc=parseFloat(document.getElementById('discount').value)||0;
+  const tracking=document.getElementById('tracking').value;
+  const dispatchDate=document.getElementById('dispatch-date').value;
+  const isIntra=custState==='Punjab';
+  const custPhone=document.getElementById('c-phone').value;
+  const custAddress=document.getElementById('c-address').value;
+  const channel=document.getElementById('sale-channel').value||'';
+
+  const{grandIncl,gstAmt,taxableExcl,suitsTotal}=calcTotals(items,ship,disc);
+  const validItems=items.filter(i=>i.unitPrice>0);
+  const itemsSummary=validItems.map(i=>`${i.desc||'Unstitched Suit'} x${i.qty||1} @Rs.${i.unitPrice}`).join(' | ');
+
+  const data={
+    invNo,invDate,fy,custName,custPhone,custAddress,custState,isIntra,
+    shipping:ship,discount:disc,tracking,dispatchDate,channel,
+    grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
+    itemCount:validItems.length,itemsSummary,
+    gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,
+  };
+  const html=buildInvoiceHTML({...data,itemsArr:validItems,logoB64});
+  const saved={id:Date.now(),...data,html,itemsArr:validItems};
+  invoices.push(saved);save();
+
+  // Deduct inventory
+  validItems.forEach(it=>{
+    const num=parseInt(it.prodNo);if(!num)return;
+    const prod=inventory.find(p=>p.prodNo===num);if(!prod)return;
+    prod.qtySold=(prod.qtySold||0)+(it.qty||1);
+    prod.qty=Math.max(0,(prod.qty||0)-(it.qty||1));
+  });
+  saveStk();
+
+  // Sync to Google Sheets
+  gsWrite(SHEETS.invoices,flattenInvoice(saved));
+  inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
+
+  currentInv=saved;
+  document.getElementById('inv-preview-html').innerHTML=html;
+  document.getElementById('inv-preview-section').style.display='block';
+  document.getElementById('inv-preview-section').scrollIntoView({behavior:'smooth'});
+  toast('✅ Invoice '+invNo+' saved!');
+  localStorage.setItem('vc_ctr',invCtr);
+}
+
+function buildInvoiceHTML(data){
+  const{suitsTotal,grandIncl,taxableExcl,gstAmt}=calcTotals(data.itemsArr||[],data.shipping||0,data.discount||0);
+  const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
+  const fd=d=>{if(!d)return'';const p=d.split('-');return p[2]+'/'+p[1]+'/'+p[0];};
+  const validItems=(data.itemsArr||[]).filter(i=>i.unitPrice>0);
+
+  // Derive HSN list
+  const hsnSet=[...new Set(validItems.map(i=>i.hsn||'540754'))];
+  const hsnLabel=data.shipping>0?hsnSet.join('/')+'/9965':hsnSet.join('/');
+
+  const itemRows=validItems.map((it,i)=>{
+    const lineIncl=(it.qty||1)*(it.unitPrice||0);
+    const lineTax=parseFloat((lineIncl/1.05).toFixed(2));
+    return`<tr style="border-bottom:1px solid #e2d4bc;">
+      <td style="padding:6px 8px;">${i+1}</td>
+      <td style="padding:6px 8px;"><strong>${it.desc||'Unstitched Suit'}</strong>${it.prodNo?` <span style="font-size:10px;color:#888;">#${it.prodNo}</span>`:''}</td>
+      <td style="padding:6px 8px;">${it.hsn||'540754'}</td>
+      <td style="padding:6px 8px;text-align:center;">${it.qty||1}</td>
+      <td style="padding:6px 8px;text-align:right;">${f(it.unitPrice||0)}</td>
+      <td style="padding:6px 8px;text-align:right;">${f(lineTax)}</td>
+      <td style="padding:6px 8px;text-align:right;font-weight:600;">${f(lineIncl)}</td>
+    </tr>`;
+  }).join('');
+
+  const shipRow=data.shipping>0?`<tr style="border-bottom:1px solid #e2d4bc;">
+    <td style="padding:6px 8px;">${validItems.length+1}</td>
+    <td style="padding:6px 8px;"><strong>Shipping Charges</strong>${data.tracking?`<br/><span style="font-size:10px;color:#888;">${data.tracking}</span>`:''}</td>
+    <td style="padding:6px 8px;">9965</td>
+    <td style="padding:6px 8px;text-align:center;">1</td>
+    <td style="padding:6px 8px;text-align:right;">${f(data.shipping)}</td>
+    <td style="padding:6px 8px;text-align:right;">${f(parseFloat((data.shipping/1.05).toFixed(2)))}</td>
+    <td style="padding:6px 8px;text-align:right;font-weight:600;">${f(data.shipping)}</td>
+  </tr>`:'';
+
+  const discRow=data.discount>0?`<tr><td colspan="6" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: Discount</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−${f(data.discount)}</td></tr>`:'';
+
+  const gstRows=data.isIntra?`
+    <tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(taxableExcl)}</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">${f(gstAmt/2)}</td></tr>
+    <tr><td style="padding:3px 8px;">SGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(taxableExcl)}</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">${f(gstAmt/2)}</td></tr>`
+    :`<tr><td style="padding:3px 8px;">IGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(taxableExcl)}</td><td style="padding:3px 8px;">5%</td><td style="padding:3px 8px;">${f(gstAmt)}</td></tr>`;
+
+  return`<div style="font-family:'DM Sans',sans-serif;font-size:12px;color:#1a1208;background:#fff;padding:20px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+      <div>
+        ${data.logoB64?`<img src="${data.logoB64}" style="height:44px;object-fit:contain;display:block;margin-bottom:5px;"/>`:''}
+        <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#5c3d1e;">Vismaad Creations</div>
+        <div style="font-size:11px;color:#555;margin-top:4px;"><strong>GSTIN:</strong> ${data.gstin||'—'}</div>
+        <div style="font-size:11px;color:#555;">${data.bizAddress||''}</div>
+        <div style="font-size:11px;color:#555;">${data.bizPhone||''}${data.bizEmail?' | '+data.bizEmail:''}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:16px;font-weight:700;color:#5c3d1e;text-transform:uppercase;letter-spacing:1.5px;">Tax Invoice</div>
+        <div style="font-size:12px;color:#555;margin-top:3px;"><strong>No:</strong> ${data.invNo}</div>
+        <div style="font-size:12px;color:#555;"><strong>Date:</strong> ${fd(data.invDate)}</div>
+        <div style="font-size:12px;color:#555;"><strong>FY:</strong> ${data.fy||''}</div>
+        <div style="margin-top:5px;display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:${data.isIntra?'#dff0d8':'#e8f4fd'};color:${data.isIntra?'#27ae60':'#2980b9'};">${data.isIntra?'Intra-State (Punjab)':'Inter-State'}</div>
+      </div>
+    </div>
+    <hr style="border:none;border-top:2px solid #5c3d1e;margin:12px 0;"/>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px;">
+      <div>
+        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:3px;">Billed To</div>
+        <div style="font-size:13px;font-weight:700;">${data.custName}</div>
+        <div style="font-size:11px;color:#555;line-height:1.6;">${data.custPhone?'📞 '+data.custPhone+'<br/>':''}${data.custAddress?data.custAddress.replace(/\n/g,'<br/>')+'<br/>':''}<strong>${data.custState}</strong></div>
+      </div>
+      <div>
+        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:3px;">Dispatched Via</div>
+        <div style="font-size:13px;font-weight:700;">India Post Parcel</div>
+        <div style="font-size:11px;color:#555;">${data.tracking?'🔍 <strong>'+data.tracking+'</strong><br/>':''}${data.dispatchDate?'📅 '+fd(data.dispatchDate):''}</div>
+      </div>
+    </div>
+    <hr style="border:none;border-top:1px solid #e2d4bc;margin:10px 0;"/>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
+      <thead><tr style="background:#5c3d1e;color:#fff;">
+        <th style="padding:7px 8px;font-size:10px;text-align:left;">#</th>
+        <th style="padding:7px 8px;font-size:10px;text-align:left;">Description</th>
+        <th style="padding:7px 8px;font-size:10px;text-align:left;">HSN</th>
+        <th style="padding:7px 8px;font-size:10px;text-align:center;">Qty</th>
+        <th style="padding:7px 8px;font-size:10px;text-align:right;">Unit (₹ incl.)</th>
+        <th style="padding:7px 8px;font-size:10px;text-align:right;">Taxable (₹)</th>
+        <th style="padding:7px 8px;font-size:10px;text-align:right;border-radius:0 3px 0 0;">Amt (₹)</th>
+      </tr></thead>
+      <tbody>${itemRows}${shipRow}${discRow}</tbody>
+      <tfoot><tr style="background:#f5e6c8;">
+        <td colspan="5" style="padding:7px 8px;text-align:right;font-weight:700;">Grand Total</td>
+        <td style="padding:7px 8px;text-align:right;color:#888;">${f(taxableExcl)}</td>
+        <td style="padding:7px 8px;text-align:right;font-weight:700;font-size:13px;color:#5c3d1e;">${f(grandIncl)}</td>
+      </tr></tfoot>
+    </table>
+    <div style="background:#f5e6c8;border-radius:5px;padding:7px 10px;font-size:11px;color:#5c3d1e;font-weight:600;margin-bottom:12px;">
+      Amount in Words: <strong>${numberToWords(Math.round(grandIncl))} Rupees Only</strong>
+    </div>
+    <div style="background:#f9f5ee;border:1px solid #e2d4bc;border-radius:5px;padding:9px 12px;margin-bottom:12px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:6px;">GST Summary — Shipping charges included in taxable value @ 5%</div>
+      <table style="width:100%;font-size:11px;border-collapse:collapse;">
+        <tr><th style="text-align:left;padding:2px 8px;color:#888;font-size:9px;text-transform:uppercase;">Tax</th><th style="text-align:left;padding:2px 8px;color:#888;font-size:9px;text-transform:uppercase;">HSN/SAC</th><th style="text-align:left;padding:2px 8px;color:#888;font-size:9px;text-transform:uppercase;">Taxable</th><th style="text-align:left;padding:2px 8px;color:#888;font-size:9px;text-transform:uppercase;">Rate</th><th style="text-align:left;padding:2px 8px;color:#888;font-size:9px;text-transform:uppercase;">Tax Amt</th></tr>
+        ${gstRows}
+      </table>
+      <div style="margin-top:6px;font-size:10px;color:#888;font-style:italic;">* Prices inclusive of GST. Shipping taxable at 5% as composite supply.</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:14px;">
+      <div style="font-size:10px;color:#888;font-style:italic;">Computer-generated invoice.<br/>Follow us: Instagram · Facebook · WhatsApp</div>
+      <div style="text-align:right;"><div style="font-size:10px;color:#888;margin-bottom:24px;">For Vismaad Creations</div><div style="font-size:10px;color:#888;border-top:1px solid #ccc;padding-top:3px;">Authorised Signatory</div></div>
+    </div>
+    <div style="text-align:center;margin-top:14px;font-size:10px;color:#aaa;padding-top:12px;border-top:1px solid #e2d4bc;">
+      Thank you for shopping with Vismaad Creations! 🙏<br/>GSTIN: ${data.gstin||'—'} | Punjab | Subject to Punjab jurisdiction
+    </div>
+  </div>`;
+}
+
+function printCurrentInvoice(){
+  if(!currentInv)return;
+  document.getElementById('print-area').innerHTML=`<div class="print-page">${currentInv.html}</div>`;
+  window.print();
+}
+
+function resetInvoiceForm(){
+  invCtr++;
+  document.getElementById('inv-no').value='INV-'+String(invCtr).padStart(3,'0');
+  localStorage.setItem('vc_ctr',invCtr);
+  ['c-name','c-phone','c-address','tracking'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('c-state').value='';document.getElementById('tax-display').value='';
+  document.getElementById('shipping').value='0';document.getElementById('discount').value='0';
+  document.getElementById('sale-channel').value='';selChannel='';
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+  document.querySelector('.chip').classList.add('active');
+  items=[];itemId=0;addItem();
+  document.getElementById('inv-preview-section').style.display='none';
+  document.getElementById('summary-box').innerHTML='<div style="color:#aaa;text-align:center;padding:16px;">Add items above</div>';
+  currentInv=null;
+  const t=today();document.getElementById('inv-date').value=t;
+  document.getElementById('inv-fy').value=getFY(t);
+  document.getElementById('dispatch-date').value=nextDispatch(t);
+  document.getElementById('scroll-area').scrollTop=0;
+  toast('📋 Ready for new invoice');
+}
+
+// ═══════════════════════════════════════════════════════
+// INVENTORY
+// ═══════════════════════════════════════════════════════
+function nextProdNo(){
+  if(inventory.length===0)return 1;
+  return Math.max(...inventory.map(p=>parseInt(p.prodNo)||0))+1;
+}
+function saveProduct(){
+  const numRaw=document.getElementById('ip-num').value;
+  const name=document.getElementById('ip-name').value.trim();
+  if(!numRaw){toast('⚠️ Enter a product number');return;}
+  if(!name){toast('⚠️ Enter product name');return;}
+  const prodNo=parseInt(numRaw);
+  if(inventory.find(p=>parseInt(p.prodNo)===prodNo)){toast('⚠️ Product #'+prodNo+' already exists');return;}
+  const qty=parseInt(document.getElementById('ip-qty').value)||1;
+  const prod={
+    prodNo,name,qty,qtyOriginal:qty,qtySold:0,
+    cost:parseFloat(document.getElementById('ip-cost').value)||0,
+    sellPrice:parseFloat(document.getElementById('ip-sell').value)||0,
+    dateAdded:document.getElementById('ip-date').value||today(),
+    notes:document.getElementById('ip-notes').value,
+  };
+  inventory.push(prod);
+  inventory.sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
+  saveStk();
+  gsWrite(SHEETS.inventory,flattenProduct(prod));
+  renderInventory();renderAgingGrid();updateInventoryStats();
+  // Clear form
+  ['ip-num','ip-name','ip-cost','ip-sell','ip-notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('ip-qty').value='1';
+  document.getElementById('ip-num').value=nextProdNo();
+  toast('✅ Product #'+prodNo+' added');
+}
+function getAgeDays(d){return Math.floor((Date.now()-new Date(d+'T00:00:00').getTime())/(864e5));}
+function ageColor(days){
+  if(days<30)return{bg:'#27ae60',fg:'#fff',lbl:'<1 mo'};
+  if(days<60)return{bg:'#f39c12',fg:'#fff',lbl:'1–2 mo'};
+  if(days<90)return{bg:'#e67e22',fg:'#fff',lbl:'2–3 mo'};
+  if(days<120)return{bg:'#e74c3c',fg:'#fff',lbl:'3–4 mo'};
+  return{bg:'#922b21',fg:'#fff',lbl:'4+ mo'};
+}
+let ageBracketFilter='all';
+function setAgeFilter(btn,filter){
+  ageBracketFilter=filter;
+  document.querySelectorAll('.age-tab').forEach(t=>{
+    t.style.background='transparent';
+    t.style.color=t.dataset.filter==='0'?'#27ae60':t.dataset.filter==='1'?'#f39c12':t.dataset.filter==='2'?'#e67e22':t.dataset.filter==='3'?'#e74c3c':t.dataset.filter==='4'?'#922b21':'var(--brown)';
+  });
+  btn.style.background=filter==='all'?'var(--brown)':filter==='0'?'#27ae60':filter==='1'?'#f39c12':filter==='2'?'#e67e22':filter==='3'?'#e74c3c':'#922b21';
+  btn.style.color='#fff';
+  renderAgingGrid();
+}
+function getAgeBracket(days){
+  if(days<30)return 0;if(days<60)return 1;if(days<90)return 2;if(days<120)return 3;return 4;
+}
+function renderAgingGrid(){
+  const el=document.getElementById('aging-grid');if(!el)return;
+  const unsold=inventory.filter(p=>(parseInt(p.qty)||0)>0);
+  if(!unsold.length){
+    el.innerHTML='<div style="color:#aaa;font-size:13px;text-align:center;padding:20px;">All products sold — no pending stock ✅</div>';
+    return;
+  }
+  // Sort oldest first
+  const sorted=[...unsold].sort((a,b)=>getAgeDays(b.dateAdded)-getAgeDays(a.dateAdded));
+  // Apply filter
+  const filtered=ageBracketFilter==='all'?sorted:sorted.filter(p=>getAgeBracket(getAgeDays(p.dateAdded))===parseInt(ageBracketFilter));
+
+  if(!filtered.length){
+    el.innerHTML='<div style="color:#aaa;font-size:13px;text-align:center;padding:20px;">No products in this age range</div>';
+    return;
+  }
+
+  // Summary counts per bracket
+  const counts=[0,0,0,0,0];
+  unsold.forEach(p=>counts[getAgeBracket(getAgeDays(p.dateAdded))]++);
+  const bracketColors=['#27ae60','#f39c12','#e67e22','#e74c3c','#922b21'];
+  const bracketLabels=['<1 month','1–2 months','2–3 months','3–4 months','4+ months'];
+
+  // Summary bar
+  let summaryHTML=`<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">`;
+  counts.forEach((cnt,i)=>{
+    if(cnt===0)return;
+    summaryHTML+=`<div style="background:${bracketColors[i]};color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;">${bracketLabels[i]}: ${cnt} product${cnt>1?'s':''}</div>`;
+  });
+  summaryHTML+=`</div>`;
+
+  // Product list — sorted oldest first, with full info
+  const listHTML=filtered.map(p=>{
+    const days=getAgeDays(p.dateAdded);
+    const ac=ageColor(days);
+    const bracket=getAgeBracket(days);
+    const stockPct=parseInt(p.qtyOriginal)>0?Math.round((parseInt(p.qty)/parseInt(p.qtyOriginal))*100):100;
+    const urgency=bracket>=3?'🔴':bracket>=2?'🟠':bracket>=1?'🟡':'🟢';
+    return`<div style="border-left:4px solid ${ac.bg};border-radius:0 10px 10px 0;background:var(--warm);padding:12px 14px;margin-bottom:10px;border:1px solid var(--border);border-left:4px solid ${ac.bg};">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:22px;font-weight:700;color:var(--brown);font-family:'Playfair Display',serif;">#${p.prodNo}</span>
+          <span style="background:${ac.bg};color:${ac.fg};padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;">${days} days</span>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:13px;font-weight:700;color:var(--brown);">${p.qty} of ${p.qtyOriginal||p.qty} left</div>
+          ${p.sellPrice?`<div style="font-size:12px;color:#888;">₹${parseFloat(p.sellPrice).toLocaleString('en-IN')} each</div>`:''}
+        </div>
+      </div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px;">${p.name}</div>
+      ${p.notes?`<div style="font-size:12px;color:#888;margin-bottom:6px;">${p.notes}</div>`:''}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+        <div style="font-size:12px;color:#888;">Added ${fmtDate(p.dateAdded)} · ${bracketLabels[bracket]}</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <!-- Progress bar showing % unsold -->
+          <div style="width:60px;height:6px;background:#e2d4bc;border-radius:3px;overflow:hidden;">
+            <div style="width:${stockPct}%;height:100%;background:${ac.bg};border-radius:3px;"></div>
+          </div>
+          <span style="font-size:11px;color:#888;">${stockPct}% unsold</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML=summaryHTML+listHTML;
+}
+function renderInventory(){
+  const statusF=document.getElementById('inv-status-filter')?.value||'';
+  const filtered=inventory.filter(p=>{
+    const s=parseInt(p.qty)||0;
+    if(statusF==='instock'&&s===0)return false;
+    if(statusF==='sold'&&s>0)return false;
+    return true;
+  });
+  const el=document.getElementById('inv-list');if(!el)return;
+  if(!filtered.length){el.innerHTML='<div style="color:#aaa;text-align:center;padding:20px;font-size:13px;">No products found</div>';return;}
+  el.innerHTML=filtered.map(p=>{
+    const s=parseInt(p.qty)||0,orig=parseInt(p.qtyOriginal)||s;
+    const days=getAgeDays(p.dateAdded);
+    const ac=ageColor(days);
+    const badge=s===0?'<span class="badge b-red">Sold Out</span>':s<orig?'<span class="badge b-yellow">Partial</span>':'<span class="badge b-green">In Stock</span>';
+    return`<div class="list-row">
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;font-weight:700;color:var(--brown);">#${p.prodNo}</span>
+          ${badge}
+          ${s>0?`<span style="background:${ac.bg};color:${ac.fg};padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;">${ac.lbl}</span>`:''}
+        </div>
+        <div class="list-main" style="margin-top:3px;">${p.name}</div>
+        <div class="list-sub">${p.cost?'Cost ₹'+p.cost+' · ':''} ${s} of ${orig} in stock${p.notes?' · '+p.notes:''}</div>
+      </div>
+      <div class="list-right">
+        ${p.sellPrice?`<div class="list-amt">₹${p.sellPrice.toLocaleString('en-IN')}</div>`:''}
+        <button class="btn btn-o btn-sm" style="margin-top:6px;" onclick="adjustStock(${p.prodNo})">± Stock</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function adjustStock(prodNo){
+  const p=inventory.find(x=>parseInt(x.prodNo)===prodNo);if(!p)return;
+  const v=prompt(`#${prodNo} "${p.name}"\nCurrent stock: ${p.qty}\nEnter new stock qty:`,p.qty);
+  if(v===null)return;
+  p.qty=Math.max(0,parseInt(v)||0);
+  p.qtyOriginal=Math.max(parseInt(p.qtyOriginal)||0,p.qty+(parseInt(p.qtySold)||0));
+  saveStk();gsWrite(SHEETS.inventory,flattenProduct(p));
+  renderInventory();renderAgingGrid();updateInventoryStats();
+  toast('📦 Stock updated for #'+prodNo);
+}
+function updateInventoryStats(){
+  const totalStock=inventory.reduce((s,p)=>s+(parseInt(p.qty)||0),0);
+  const stockVal=inventory.reduce((s,p)=>s+(parseInt(p.qty)||0)*(parseFloat(p.cost)||0),0);
+  document.getElementById('ist-total').textContent=inventory.length;
+  document.getElementById('ist-stock').textContent=totalStock;
+  document.getElementById('ist-value').textContent='₹'+stockVal.toLocaleString('en-IN');
+}
+
+// ═══════════════════════════════════════════════════════
+// SALES LIST
+// ═══════════════════════════════════════════════════════
+function renderSales(){
+  const q=(document.getElementById('sales-search')?.value||'').toLowerCase();
+  const sf=document.getElementById('sales-filter')?.value||'';
+  let filtered=[...invoices].reverse().filter(inv=>{
+    if(sf&&inv.status!==sf&&!(sf==='Shipped'&&inv.isShipped)&&!(sf==='Pending'&&!inv.isShipped))return false;
+    if(q&&!inv.custName?.toLowerCase().includes(q)&&!inv.invNo?.toLowerCase().includes(q)&&!inv.itemsSummary?.toLowerCase().includes(q))return false;
+    return true;
+  });
+  const el=document.getElementById('sales-list');if(!el)return;
+  if(!filtered.length){el.innerHTML='<div style="color:#aaa;text-align:center;padding:30px;font-size:13px;">No invoices found</div>';return;}
+  el.innerHTML=filtered.map(inv=>{
+    const isShipped=inv.isShipped||inv.status==='Shipped';
+    const badge=isShipped?'<span class="badge b-green">Shipped</span>':'<span class="badge b-yellow">Pending</span>';
+    const chIcon={WhatsApp:'💬',Instagram:'📸',Facebook:'👍',Website:'🌐',Offline:'🏪'};
+    return`<div class="card" style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <div>
+          <div style="font-weight:700;font-size:15px;color:var(--brown);">${inv.invNo}</div>
+          <div style="font-size:12px;color:#888;">${fmtDate(inv.invDate)} · ${inv.custState}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-weight:700;font-size:16px;color:var(--brown);">₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}</div>
+          ${badge}
+        </div>
+      </div>
+      <div style="font-size:13px;font-weight:500;">${inv.custName}</div>
+      <div style="font-size:12px;color:#888;margin-top:3px;">${inv.itemsSummary||''}</div>
+      ${inv.channel?`<div style="font-size:12px;color:#888;margin-top:3px;">${chIcon[inv.channel]||''} ${inv.channel}</div>`:''}
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <button class="btn btn-o btn-sm" onclick="viewInvoice(${inv.id})">👁 View</button>
+        <button class="btn btn-o btn-sm" onclick="printInvoice(${inv.id})">🖨️ Print</button>
+        <button class="btn btn-sm ${isShipped?'btn-o':'btn-g'}" onclick="toggleShipped(${inv.id})">${isShipped?'↩ Unship':'🚚 Mark Shipped'}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function viewInvoice(id){
+  const inv=invoices.find(i=>i.id===id);if(!inv)return;
+  showPage('invoice',document.getElementById('bnav-invoice'));
+  const html=inv.html||buildInvoiceHTML({...inv,itemsArr:tryParse(inv.itemsArr)||[],logoB64});
+  document.getElementById('inv-preview-html').innerHTML=html;
+  document.getElementById('inv-preview-section').style.display='block';
+  currentInv={...inv,html};
+  document.getElementById('scroll-area').scrollTop=99999;
+}
+function printInvoice(id){
+  const inv=invoices.find(i=>i.id===id);if(!inv)return;
+  const html=inv.html||buildInvoiceHTML({...inv,itemsArr:tryParse(inv.itemsArr)||[],logoB64});
+  document.getElementById('print-area').innerHTML=`<div class="print-page">${html}</div>`;
+  window.print();
+}
+function toggleShipped(id){
+  const inv=invoices.find(i=>i.id===id);if(!inv)return;
+  inv.isShipped=!inv.isShipped;inv.status=inv.isShipped?'Shipped':'Pending';
+  save();gsWrite(SHEETS.invoices,flattenInvoice(inv));
+  renderSales();toast(inv.isShipped?'🚚 Marked shipped':'↩ Marked pending');
+}
+function tryParse(v){try{return typeof v==='string'?JSON.parse(v):v;}catch{return v;}}
+
+// ═══════════════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════════════
+function renderDashboard(){
+  document.getElementById('ds-orders').textContent=invoices.length;
+  const rev=invoices.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0);
+  document.getElementById('ds-revenue').textContent='₹'+rev.toLocaleString('en-IN');
+  document.getElementById('ds-stock').textContent=inventory.reduce((s,p)=>s+(parseInt(p.qty)||0),0);
+  document.getElementById('ds-products').textContent=inventory.length;
+
+  // Recent orders
+  const recent=[...invoices].reverse().slice(0,5);
+  document.getElementById('dash-orders').innerHTML=recent.length?recent.map(inv=>`
+    <div class="list-row">
+      <div><div class="list-main">${inv.custName}</div><div class="list-sub">${inv.invNo} · ${fmtDate(inv.invDate)}</div></div>
+      <div class="list-right"><div class="list-amt">₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}</div>
+      <span class="badge ${inv.isShipped||inv.status==='Shipped'?'b-green':'b-yellow'}" style="margin-top:3px;">${inv.isShipped||inv.status==='Shipped'?'Shipped':'Pending'}</span></div>
+    </div>`).join('')
+    :'<div style="color:#aaa;font-size:13px;text-align:center;padding:16px;">No invoices yet</div>';
+
+  // Aging alerts — show ALL unsold, oldest first, with product number + name
+  const agingAll=inventory.filter(p=>(parseInt(p.qty)||0)>0).sort((a,b)=>getAgeDays(b.dateAdded)-getAgeDays(a.dateAdded));
+  document.getElementById('dash-aging').innerHTML=agingAll.length?agingAll.slice(0,8).map(p=>{
+    const days=getAgeDays(p.dateAdded);
+    const ac=ageColor(days);
+    return`<div class="list-row">
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
+          <span style="font-size:16px;font-weight:700;color:var(--brown);">#${p.prodNo}</span>
+          <span style="background:${ac.bg};color:${ac.fg};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">${days}d</span>
+        </div>
+        <div style="font-size:13px;font-weight:500;">${p.name}</div>
+        <div style="font-size:11px;color:#888;">${p.qty} left · added ${fmtDate(p.dateAdded)}</div>
+      </div>
+    </div>`;}).join('')+(agingAll.length>8?`<div style="text-align:center;padding:10px 0;font-size:13px;color:var(--gold);font-weight:600;cursor:pointer;" onclick="showPage('inventory',document.getElementById('bnav-inventory'))">View all ${agingAll.length} products →</div>`:'')
+    :'<div style="color:#aaa;font-size:13px;text-align:center;padding:16px;">No unsold stock — all fresh! ✅</div>';
+}
+
+// ═══════════════════════════════════════════════════════
+// LABEL
+// ═══════════════════════════════════════════════════════
+function goToLabel(){
+  showSubPage('labels');
+  if(currentInv){
+    setTimeout(()=>{
+      const n=document.getElementById('lbl-to-name');if(n)n.value=currentInv.custName||'';
+      const p=document.getElementById('lbl-to-ph');if(p)p.value=currentInv.custPhone||'';
+      const a=document.getElementById('lbl-to-addr');if(a)a.value=currentInv.custAddress||'';
+      const i=document.getElementById('lbl-inv-no');if(i)i.value=currentInv.invNo||'';
+      const t=document.getElementById('lbl-tracking2');if(t)t.value=currentInv.tracking||'';
+    },100);
+  }
+}
+function loadLabelDefaults(){
+  setTimeout(()=>{
+    const fa=document.getElementById('lbl-from-addr');
+    if(fa&&!fa.value)fa.value='Vismaad Creations\n'+(S.address||'');
+    const fp=document.getElementById('lbl-from-ph');
+    if(fp&&!fp.value)fp.value=S.phone||'';
+  },50);
+}
+function printLabel(){
+  const name=document.getElementById('lbl-to-name')?.value.trim();
+  if(!name){toast('⚠️ Enter customer name');return;}
+  const addr=document.getElementById('lbl-to-addr')?.value||'';
+  const ph=document.getElementById('lbl-to-ph')?.value||'';
+  const invNo=document.getElementById('lbl-inv-no')?.value||'';
+  const track=document.getElementById('lbl-tracking2')?.value||'';
+  const fromAddr=document.getElementById('lbl-from-addr')?.value||'Punjab';
+  const fromPh=document.getElementById('lbl-from-ph')?.value||'';
+  const qrImg=qrB64?`<img src="${qrB64}" style="width:100%;height:100%;object-fit:cover;"/>`:'<div style="font-size:8px;text-align:center;color:#aaa;padding:4px;">Instagram QR</div>';
+  const logoImg=logoB64?`<img src="${logoB64}" style="max-height:22mm;max-width:44mm;object-fit:contain;"/>`:'<span style="font-size:13pt;font-weight:700;color:#5c3d1e;">Vismaad Creations</span>';
+  document.getElementById('print-area').innerHTML=`<div class="print-label-page">
+    <div style="width:190mm;height:130mm;background:#fff;border:1.5px solid #333;border-radius:4mm;padding:8mm;display:grid;grid-template-rows:1fr auto auto;font-family:Arial,sans-serif;position:relative;-webkit-print-color-adjust:exact;print-color-adjust:exact;">
+      <div style="position:absolute;top:4mm;right:6mm;font-size:8pt;color:#aaa;">${invNo?'Inv: '+invNo:''} ${track?'· '+track:''}</div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:8mm;align-items:flex-start;padding-bottom:4mm;border-bottom:1px solid #ddd;">
+        <div>
+          <div style="font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#888;margin-bottom:3mm;">To</div>
+          <div style="font-size:16pt;font-weight:700;color:#1a1208;line-height:1.3;">${name}</div>
+          <div style="font-size:12pt;color:#444;line-height:1.6;margin-top:2mm;">${addr.replace(/\n/g,'<br/>')}</div>
+          ${ph?`<div style="font-size:12pt;font-weight:600;color:#333;margin-top:1mm;">📞 ${ph}</div>`:''}
+        </div>
+        <div style="width:38mm;height:38mm;border:1px solid #ddd;border-radius:2mm;overflow:hidden;">${qrImg}</div>
+      </div>
+      <div style="text-align:center;padding:3mm 0;border-bottom:1px solid #ddd;border-top:1px solid #ddd;margin:2mm 0;">
+        <span style="font-family:'Great Vibes',cursive;font-size:26pt;color:#8B4513;">Thank you for shopping with us!</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding-top:2mm;">
+        <div></div>
+        <div style="display:flex;align-items:center;justify-content:center;">${logoImg}</div>
+        <div style="text-align:right;">
+          <div style="font-size:8pt;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:1mm;">From</div>
+          <div style="font-size:12pt;font-weight:700;">Vismaad Creations</div>
+          <div style="font-size:11pt;color:#555;line-height:1.6;">${fromAddr.replace(/\n/g,'<br/>')}${fromPh?'<br/>📞 '+fromPh:''}</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  window.print();toast('🖨️ Printing label…');
+}
+
+// ═══════════════════════════════════════════════════════
+// SUB-PAGES (Purchases, P&L, Label, Export, Bulk)
+// ═══════════════════════════════════════════════════════
+function buildSubPage(id){
+  if(id==='purchases')return buildPurchasesPage();
+  if(id==='pl')return buildPLPage();
+  if(id==='labels')return buildLabelPage();
+  if(id==='export')return buildExportPage();
+  if(id==='bulk')return buildBulkPage();
+  return '<p>Coming soon</p>';
+}
+
+function buildPurchasesPage(){
+  const rows=purchases.map(p=>`
+    <div class="list-row">
+      <div>
+        <div class="list-main">${p.supplier}</div>
+        <div class="list-sub">${fmtDate(p.date)} · ${p.desc||'Suit Purchase'} · Qty: ${p.qty||0}</div>
+      </div>
+      <div class="list-right">
+        <div class="list-amt">₹${parseFloat(p.amount||0).toLocaleString('en-IN')}</div>
+        ${parseFloat(p.gstAmt||0)>0?`<div style="font-size:11px;color:#27ae60;">ITC ₹${parseFloat(p.gstAmt).toLocaleString('en-IN')}</div>`:''}
+        <button class="btn btn-d btn-sm" style="margin-top:6px;" onclick="deletePurchase(${p.id})">🗑</button>
+      </div>
+    </div>`).join('');
+  const totalAmt=purchases.reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
+  const totalITC=purchases.reduce((s,p)=>s+(parseFloat(p.gstAmt)||0),0);
+  return`
+    <div class="stat-grid" style="margin-bottom:14px;">
+      <div class="stat-card"><div class="stat-val">₹${totalAmt.toLocaleString('en-IN')}</div><div class="stat-lbl">Total Spent</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:#27ae60;">₹${totalITC.toLocaleString('en-IN')}</div><div class="stat-lbl">ITC Available</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">➕ Add Purchase</div>
+      <div class="row2"><div class="fg"><label>Date</label><input type="date" id="pp-date" value="${today()}"/></div>
+      <div class="fg"><label>Supplier *</label><input id="pp-sup" placeholder="Supplier name"/></div></div>
+      <div class="row2"><div class="fg"><label>Description</label><input id="pp-desc" placeholder="Suit Purchase"/></div>
+      <div class="fg"><label>Qty (pieces)</label><input type="number" id="pp-qty" placeholder="0" min="0"/></div></div>
+      <div class="row3">
+        <div class="fg"><label>Amount (₹)</label><input type="number" id="pp-amt" placeholder="0" oninput="calcPurGST()"/></div>
+        <div class="fg"><label>GST</label><select id="pp-gst" onchange="calcPurGST()">
+          <option value="none">No GST</option><option value="5">5%</option><option value="12">12%</option></select></div>
+        <div class="fg"><label>ITC (₹)</label><input id="pp-itc" readonly style="background:#f0e8d8;"/></div>
+      </div>
+      <div class="row2">
+        <div class="fg"><label>Supplier GSTIN</label><input id="pp-gstin" placeholder="Optional" style="text-transform:uppercase"/></div>
+        <div class="fg"><label>Bill No.</label><input id="pp-billno" placeholder="Supplier bill no."/></div>
+      </div>
+      <button class="btn btn-p" onclick="savePurchaseEntry()">💾 Save Purchase</button>
+    </div>
+    <div class="card"><div class="card-title">📋 Purchase Register</div>${rows||'<div style="color:#aaa;text-align:center;padding:20px;font-size:13px;">No purchases yet</div>'}</div>`;
+}
+function calcPurGST(){
+  const amt=parseFloat(document.getElementById('pp-amt')?.value)||0;
+  const rate=document.getElementById('pp-gst')?.value;
+  const el=document.getElementById('pp-itc');
+  if(!el)return;
+  if(!rate||rate==='none'){el.value='0';return;}
+  el.value=parseFloat((amt*parseFloat(rate)/100/(1+parseFloat(rate)/100)).toFixed(2));
+}
+function savePurchaseEntry(){
+  const sup=document.getElementById('pp-sup')?.value.trim();
+  const amt=parseFloat(document.getElementById('pp-amt')?.value)||0;
+  if(!sup||!amt){toast('⚠️ Supplier and amount required');return;}
+  const entry={
+    id:Date.now(),type:'purchase',
+    date:document.getElementById('pp-date')?.value||today(),
+    supplier:sup,desc:document.getElementById('pp-desc')?.value||'Suit Purchase',
+    qty:parseInt(document.getElementById('pp-qty')?.value)||0,
+    amount:amt,gstRate:document.getElementById('pp-gst')?.value,
+    gstAmt:parseFloat(document.getElementById('pp-itc')?.value)||0,
+    supGstin:document.getElementById('pp-gstin')?.value.toUpperCase(),
+    billNo:document.getElementById('pp-billno')?.value,
+  };
+  purchases.push(entry);savePur();
+  gsWrite(SHEETS.purchases,entry);
+  toast('✅ Purchase saved!');
+  showSubPage('purchases');
+}
+function deletePurchase(id){
+  if(!confirm('Delete this purchase?'))return;
+  purchases=purchases.filter(p=>p.id!==id);savePur();
+  gsDelete(SHEETS.purchases,id);
+  toast('🗑 Deleted');showSubPage('purchases');
+}
+
+function buildPLPage(){
+  return`
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+      <button class="btn btn-o btn-sm" onclick="setPLPeriod('thismonth')">This Month</button>
+      <button class="btn btn-o btn-sm" onclick="setPLPeriod('lastmonth')">Last Month</button>
+      <button class="btn btn-o btn-sm" onclick="setPLPeriod('thisquarter')">This Quarter</button>
+      <button class="btn btn-o btn-sm" onclick="setPLPeriod('thisfy')">This FY</button>
+      <button class="btn btn-o btn-sm" onclick="setPLPeriod('all')">All Time</button>
+    </div>
+    <div id="pl-content"><div style="color:#aaa;text-align:center;padding:30px;">Select a period above</div></div>`;
+}
+function setPLPeriod(p){
+  const now=new Date(),y=now.getFullYear(),m=now.getMonth();
+  let from,to;
+  if(p==='thismonth'){from=new Date(y,m,1);to=new Date(y,m+1,0);}
+  else if(p==='lastmonth'){from=new Date(y,m-1,1);to=new Date(y,m,0);}
+  else if(p==='thisquarter'){const q=Math.floor(m/3);from=new Date(y,q*3,1);to=new Date(y,q*3+3,0);}
+  else if(p==='thisfy'){const fy=m>=3?y:y-1;from=new Date(fy,3,1);to=new Date(fy+1,2,31);}
+  else{from=new Date('2026-03-02');to=new Date();}
+  const fd=from.toISOString().split('T')[0],td=to.toISOString().split('T')[0];
+  const filtInv=invoices.filter(i=>i.invDate>=fd&&i.invDate<=td);
+  const filtPur=purchases.filter(x=>x.date>=fd&&x.date<=td);
+  renderPLContent(filtInv,filtPur,p);
+}
+function renderPLSubPage(){setPLPeriod('thismonth');}
+function renderPLContent(filtInv,filtPur,period){
+  const f=n=>n.toLocaleString('en-IN',{minimumFractionDigits:2});
+  const grossRev=filtInv.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0);
+  const totalGSTOut=filtInv.reduce((s,i)=>s+(parseFloat(i.gstAmt)||0),0);
+  const netRev=parseFloat((grossRev-totalGSTOut).toFixed(2));
+  const ship=filtInv.reduce((s,i)=>s+(parseFloat(i.shipping)||0),0);
+  const shipExcl=parseFloat((ship/1.05).toFixed(2));
+  const suitRev=parseFloat((netRev-shipExcl).toFixed(2));
+  const disc=filtInv.reduce((s,i)=>s+(parseFloat(i.discount)||0),0);
+  const purIncl=filtPur.reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
+  const itc=filtPur.reduce((s,p)=>s+(parseFloat(p.gstAmt)||0),0);
+  const purExcl=parseFloat((purIncl-itc).toFixed(2));
+  const grossProfit=parseFloat((suitRev-purExcl).toFixed(2));
+  const netProfit=parseFloat((grossProfit+shipExcl).toFixed(2));
+  const margin=suitRev>0?parseFloat(((grossProfit/suitRev)*100).toFixed(1)):0;
+  const gstPayable=parseFloat((totalGSTOut-itc).toFixed(2));
+
+  const row=(l,v,c)=>`<div class="list-row"><span style="color:#555;">${l}</span><strong style="color:${c||'var(--ink)'};">₹${f(v)}</strong></div>`;
+  const head=t=>`<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--brown);background:var(--goldp);padding:5px 8px;border-radius:4px;margin:12px 0 4px;">${t}</div>`;
+  const profBox=(l,v)=>`<div style="background:${v>=0?'#dff0d8':'#fde8e8'};border-radius:8px;padding:12px 14px;display:flex;justify-content:space-between;margin:6px 0;"><strong>${l}</strong><strong style="color:${v>=0?'#27ae60':'#c0392b'};font-size:16px;">₹${f(v)}</strong></div>`;
+
+  // Channel breakdown
+  const channels={};
+  filtInv.forEach(i=>{const ch=i.channel||'Not specified';channels[ch]=(channels[ch]||0)+(parseFloat(i.grandTotal)||0);});
+  const chEntries=Object.entries(channels).sort((a,b)=>b[1]-a[1]);
+  const chIcons={WhatsApp:'💬',Instagram:'📸',Facebook:'👍',Website:'🌐',Offline:'🏪','Not specified':'❓'};
+
+  const el=document.getElementById('pl-content');if(!el)return;
+  el.innerHTML=`
+    <div class="stat-grid" style="margin-bottom:14px;">
+      <div class="stat-card"><div class="stat-val">₹${f(grossRev)}</div><div class="stat-lbl">Revenue</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:${netProfit>=0?'#27ae60':'#c0392b'};">₹${f(netProfit)}</div><div class="stat-lbl">Net Profit</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">📊 P&L Statement</div>
+      ${head('Revenue')}
+      ${row('Gross Sales (incl. GST)',grossRev)}
+      ${row('Less: Output GST',totalGSTOut,'#c0392b')}
+      ${row('Net Sales (excl. GST)',netRev)}
+      ${row('→ Suit Sales',suitRev)}
+      ${row('→ Shipping Collected',shipExcl)}
+      ${disc>0?row('Less: Discounts',disc,'#c0392b'):''}
+      ${head('Cost of Goods')}
+      ${row('Suit Purchases (excl. GST)',purExcl)}
+      ${profBox('Gross Profit on Suits',grossProfit)}
+      <div class="list-row" style="font-size:13px;color:#888;"><span>Gross Margin</span><strong style="color:var(--brown);">${margin}%</strong></div>
+      ${profBox('Net Profit (incl. shipping)',netProfit)}
+      <div style="font-size:11px;color:#aaa;margin-top:8px;">${filtInv.length} sale(s) · ${filtPur.length} purchase(s)</div>
+    </div>
+    <div class="card">
+      <div class="card-title">🧾 GST Position</div>
+      ${row('Output GST collected',totalGSTOut)}
+      ${row('Input Tax Credit',itc,'#27ae60')}
+      <div style="background:${gstPayable>=0?'#fff8ee':'#dff0d8'};border-radius:8px;padding:12px 14px;display:flex;justify-content:space-between;margin-top:8px;">
+        <strong>${gstPayable>=0?'GST Payable':'GST Credit'}</strong>
+        <strong style="color:${gstPayable>=0?'#c0392b':'#27ae60'};font-size:15px;">₹${f(Math.abs(gstPayable))}</strong>
+      </div>
+      <div style="font-size:11px;color:#aaa;margin-top:8px;">Consult your CA before filing.</div>
+    </div>
+    <div class="card">
+      <div class="card-title">📱 Sales by Channel</div>
+      ${chEntries.length?chEntries.map(([ch,amt])=>{
+        const pct=grossRev>0?((amt/grossRev)*100).toFixed(1):0;
+        return`<div style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+            <span>${chIcons[ch]||'📌'} ${ch}</span><strong>₹${f(amt)} <span style="font-size:11px;color:#888;">${pct}%</span></strong>
+          </div>
+          <div style="background:#e2d4bc;border-radius:3px;height:6px;"><div style="background:var(--gold);border-radius:3px;height:6px;width:${pct}%;"></div></div>
+        </div>`;}).join(''):'<div style="color:#aaa;font-size:13px;text-align:center;padding:16px;">No sales</div>'}
+    </div>`;
+}
+
+function buildLabelPage(){
+  return`
+    <div class="card">
+      <div class="card-title">📋 Customer Details</div>
+      <div class="fg"><label>Name *</label><input id="lbl-to-name" placeholder="Customer name"/></div>
+      <div class="fg"><label>Phone</label><input id="lbl-to-ph" placeholder="Mobile number"/></div>
+      <div class="fg"><label>Full Address *</label><textarea id="lbl-to-addr" placeholder="House, Street, City, State, Pincode" rows="3"></textarea></div>
+      <div class="row2">
+        <div class="fg"><label>Invoice No.</label><input id="lbl-inv-no" placeholder="INV-001"/></div>
+        <div class="fg"><label>Tracking No.</label><input id="lbl-tracking2" placeholder="EE123456789IN"/></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">🏠 From Address</div>
+      <div class="fg"><label>Address</label><textarea id="lbl-from-addr" placeholder="Vismaad Creations&#10;Your address&#10;City, Punjab, Pincode" rows="3"></textarea></div>
+      <div class="fg"><label>Phone</label><input id="lbl-from-ph" placeholder="+91 XXXXX XXXXX"/></div>
+    </div>
+    <button class="btn btn-g" onclick="printLabel()">🖨️ Print Label (Half A4)</button>`;
+}
+
+function buildExportPage(){
+  return`
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+      <button class="btn btn-o btn-sm" onclick="exportExcel('thismonth')">This Month</button>
+      <button class="btn btn-o btn-sm" onclick="exportExcel('lastmonth')">Last Month</button>
+      <button class="btn btn-o btn-sm" onclick="exportExcel('thisquarter')">This Quarter</button>
+      <button class="btn btn-o btn-sm" onclick="exportExcel('thisfy')">This FY</button>
+      <button class="btn btn-o btn-sm" onclick="exportExcel('all')">All Time</button>
+    </div>
+    <div class="card">
+      <div class="card-title">📊 Export Options</div>
+      <button class="btn btn-p" style="margin-bottom:10px;" onclick="doExport('detailed','all')">📋 Detailed Sales Register (All time)</button>
+      <button class="btn btn-g" style="margin-bottom:10px;" onclick="doExport('gst','thisfy')">🧾 GST Summary (This FY)</button>
+      <button class="btn btn-o" onclick="doExport('inventory','all')">📦 Inventory Register</button>
+    </div>`;
+}
+function exportExcel(period){doExport('detailed',period);}
+function doExport(type,period){
+  const now=new Date(),y=now.getFullYear(),m=now.getMonth();
+  let from='',to='';
+  if(period==='thismonth'){from=new Date(y,m,1).toISOString().split('T')[0];to=new Date(y,m+1,0).toISOString().split('T')[0];}
+  else if(period==='lastmonth'){from=new Date(y,m-1,1).toISOString().split('T')[0];to=new Date(y,m,0).toISOString().split('T')[0];}
+  else if(period==='thisquarter'){const q=Math.floor(m/3);from=new Date(y,q*3,1).toISOString().split('T')[0];to=new Date(y,q*3+3,0).toISOString().split('T')[0];}
+  else if(period==='thisfy'){const fy=m>=3?y:y-1;from=new Date(fy,3,1).toISOString().split('T')[0];to=new Date(fy+1,2,31).toISOString().split('T')[0];}
+  if(!window.XLSX){
+    const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload=()=>_doExport(type,from,to,period);document.head.appendChild(s);
+  }else _doExport(type,from,to,period);
+}
+function _doExport(type,from,to,period){
+  const filtered=from?invoices.filter(i=>i.invDate>=from&&i.invDate<=to):invoices;
+  const wb=XLSX.utils.book_new();
+  if(type==='inventory'){
+    const hdr=['Prod No','Name','Date Added','Total Qty','Sold','In Stock','Cost Price (₹)','Sell Price (₹)','Notes'];
+    const rows=inventory.map(p=>[p.prodNo,p.name,p.dateAdded,p.qtyOriginal||p.qty,p.qtySold||0,p.qty||0,p.cost||0,p.sellPrice||0,p.notes||'']);
+    const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
+    ws['!cols']=hdr.map((_,i)=>({wch:[8,30,14,10,8,10,14,14,20][i]||12}));
+    XLSX.utils.book_append_sheet(wb,ws,'Inventory');
+  }else{
+    const hdr=['Invoice No','Date','Customer','Phone','State','Tax Type','Items','Shipping ₹','Discount ₹','Taxable ₹','GST ₹','Total ₹','Channel','Tracking','Status'];
+    const rows=filtered.map(inv=>{
+      const tax=parseFloat((inv.taxableExcl||inv.grandTotal/1.05).toFixed(2));
+      const gst=parseFloat((inv.gstAmt||(inv.grandTotal-tax)).toFixed(2));
+      return[inv.invNo,inv.invDate,inv.custName,inv.custPhone||'',inv.custState,inv.isIntra?'Intra (CGST+SGST)':'Inter (IGST)',inv.itemsSummary||'',inv.shipping||0,inv.discount||0,tax,gst,inv.grandTotal||0,inv.channel||'',inv.tracking||'',inv.isShipped?'Shipped':'Pending'];
+    });
+    const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
+    ws['!cols']=[{wch:12},{wch:12},{wch:22},{wch:14},{wch:16},{wch:20},{wch:40},{wch:12},{wch:12},{wch:14},{wch:10},{wch:14},{wch:12},{wch:22},{wch:10}];
+    XLSX.utils.book_append_sheet(wb,ws,'Sales');
+  }
+  XLSX.writeFile(wb,`Vismaad_${type}_${period||'all'}.xlsx`);
+  toast('✅ Excel downloaded!');
+}
+
+function buildBulkPage(){
+  return`
+    <div class="card">
+      <div class="card-title">📁 Upload Order Excel / CSV</div>
+      <div style="background:var(--goldp);border-radius:8px;padding:12px;font-size:12px;color:var(--brown);margin-bottom:14px;">
+        Required columns: Invoice Date, Customer Name, Phone, Address, State, Suit 1 Name, Suit 1 Price, Suit 2 Name, Suit 2 Price, Shipping, Discount, Tracking No
+      </div>
+      <button class="btn btn-o" onclick="document.getElementById('bulk-upload').click()">📂 Choose File</button>
+      <input type="file" id="bulk-upload" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleBulkUpload(event)"/>
+      <button class="btn btn-p btn-sm" style="margin-top:10px;width:auto;" onclick="downloadBulkTemplate()">⬇️ Download Template CSV</button>
+    </div>
+    <div id="bulk-preview"></div>`;
+}
+function downloadBulkTemplate(){
+  const csv=`Invoice Date,Customer Name,Phone,Address,State,Suit 1 Name,Suit 1 Price,Suit 2 Name,Suit 2 Price,Shipping,Discount,Tracking No\n02/03/2026,Priya Sharma,9876543210,"H.No 12 Sector 4, Chandigarh",Punjab,Floral Georgette Suit,1499,,,80,0,EE123456789IN`;
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='vismaad_template.csv';a.click();
+}
+function handleBulkUpload(e){
+  const file=e.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  const process=text=>{
+    const lines=text.trim().split('\n').filter(l=>l.trim());
+    if(lines.length<2){toast('⚠️ File empty');return;}
+    const headers=lines[0].split(',').map(h=>h.trim().replace(/"/g,'').toLowerCase());
+    const rows=[];
+    for(let i=1;i<lines.length;i++){
+      const cols=parseCsvLine(lines[i]);
+      const row={};headers.forEach((h,j)=>row[h]=cols[j]||'');
+      const its=[];
+      for(let n=1;n<=5;n++){
+        const nm=row[`suit ${n} name`]||'';const pr=parseFloat(row[`suit ${n} price`]||0)||0;
+        if(nm&&pr>0)its.push({id:n,prodNo:'',desc:nm,hsn:'540754',qty:1,unitPrice:pr});
+      }
+      if(its.length)rows.push({invDate:normaliseDate(row['invoice date']||row['date']||''),custName:row['customer name']||row['name']||'',custPhone:row['phone']||'',custAddress:row['address']||'',custState:row['state']||'',itemsArr:its,shipping:parseFloat(row['shipping']||0)||0,discount:parseFloat(row['discount']||0)||0,tracking:row['tracking no']||row['tracking']||'',selected:true});
+    }
+    if(!rows.length){toast('⚠️ No valid rows');return;}
+    showBulkPreview(rows);
+  };
+  if(file.name.endsWith('.csv'))reader.onload=e=>process(e.target.result),reader.readAsText(file);
+  else{
+    if(!window.XLSX){const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=()=>{reader.onload=e=>{const wb=XLSX.read(e.target.result,{type:'binary'});process(XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]));};reader.readAsBinaryString(file);};document.head.appendChild(s);}
+    else{reader.onload=e=>{const wb=XLSX.read(e.target.result,{type:'binary'});process(XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]));};reader.readAsBinaryString(file);}
+  }
+}
+function showBulkPreview(rows){
+  const el=document.getElementById('bulk-preview');if(!el)return;
+  el.innerHTML=`<div class="card"><div class="card-title">${rows.length} orders ready</div>`+
+    rows.map((r,i)=>`<div class="list-row"><div><div class="list-main">${r.custName}</div><div class="list-sub">${r.custState} · ${r.itemsArr.map(it=>it.desc).join(', ')}</div></div><div class="list-right"><div class="list-amt">₹${(r.itemsArr.reduce((s,it)=>s+it.unitPrice,0)+r.shipping-r.discount).toLocaleString('en-IN')}</div></div></div>`).join('')+
+    `<button class="btn btn-g" style="margin-top:14px;" onclick="generateBulkInvoices(window._bulkRows)">🖨️ Generate & Print All</button></div>`;
+  window._bulkRows=rows;
+}
+function generateBulkInvoices(rows){
+  if(!S.gstin){toast('⚠️ Enter GSTIN in Settings');return;}
+  let pages='';
+  rows.filter(r=>r.selected!==false).forEach(r=>{
+    invCtr++;
+    const invNo='INV-'+String(invCtr).padStart(3,'0');
+    const isIntra=r.custState==='Punjab';
+    const{grandIncl,gstAmt,taxableExcl}=calcTotals(r.itemsArr,r.shipping,r.discount);
+    const data={invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),custName:r.custName,custPhone:r.custPhone,custAddress:r.custAddress,custState:r.custState,isIntra,itemsArr:r.itemsArr,shipping:r.shipping,discount:r.discount,tracking:r.tracking,gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,logoB64};
+    const html=buildInvoiceHTML(data);
+    const validItems=r.itemsArr.filter(i=>i.unitPrice>0);
+    const saved={id:Date.now()+invCtr,invNo,invDate:data.invDate,fy:data.fy,custName:r.custName,custState:r.custState,isIntra,grandTotal:grandIncl,gstAmt,taxableExcl,itemCount:validItems.length,itemsSummary:validItems.map(i=>i.desc).join(', '),html,custPhone:r.custPhone,custAddress:r.custAddress,tracking:r.tracking,shipping:r.shipping,discount:r.discount,channel:''};
+    invoices.push(saved);
+    gsWrite(SHEETS.invoices,flattenInvoice(saved));
+    pages+=`<div class="print-page">${html}</div>`;
+  });
+  save();localStorage.setItem('vc_ctr',invCtr);
+  document.getElementById('print-area').innerHTML=pages;
+  window.print();toast('🖨️ Printing bulk invoices…');
+}
+function parseCsvLine(l){const r=[];let c='',q=false;for(let i=0;i<l.length;i++){const ch=l[i];if(ch==='"')q=!q;else if(ch===','&&!q){r.push(c.trim());c='';}else c+=ch;}r.push(c.trim());return r;}
+function normaliseDate(d){if(!d)return today();if(d.includes('/')){const[a,b,cc]=d.split('/');return cc?.length===4?`${cc}-${b.padStart(2,'0')}-${a.padStart(2,'0')}`:d;}return d;}
+
+// ═══════════════════════════════════════════════════════
+// SETTINGS — LOGO / QR
+// ═══════════════════════════════════════════════════════
+function handleLogoUpload(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{logoB64=ev.target.result;localStorage.setItem('vc_logo',logoB64);loadAssetThumbs();toast('✅ Logo uploaded!');};r.readAsDataURL(f);}
+function handleQRUpload(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{qrB64=ev.target.result;localStorage.setItem('vc_qr',qrB64);loadAssetThumbs();toast('✅ QR uploaded!');};r.readAsDataURL(f);}
+function loadAssetThumbs(){
+  const lt=document.getElementById('logo-thumb');
+  const qt=document.getElementById('qr-thumb');
+  if(lt&&logoB64)lt.innerHTML=`<img src="${logoB64}" style="width:100%;height:100%;object-fit:contain;border-radius:6px;"/>`;
+  if(qt&&qrB64)qt.innerHTML=`<img src="${qrB64}" style="width:100%;height:100%;object-fit:contain;border-radius:6px;"/>`;
+  // Header logo
+  const hdrImg=document.getElementById('hdr-logo-img');
+  const hdrTxt=document.getElementById('hdr-logo-text');
+  if(logoB64&&hdrImg){hdrImg.src=logoB64;hdrImg.style.display='block';if(hdrTxt)hdrTxt.style.display='none';}
+}
+
+// ═══════════════════════════════════════════════════════
+// SYNC INFO
+// ═══════════════════════════════════════════════════════
+function renderSyncInfo(){
+  const el=document.getElementById('sync-info-rows');if(!el)return;
+  el.innerHTML=`
+    <div class="settings-row"><span class="settings-lbl">Invoices synced</span><span class="settings-val">${invoices.length}</span></div>
+    <div class="settings-row"><span class="settings-lbl">Inventory items</span><span class="settings-val">${inventory.length}</span></div>
+    <div class="settings-row"><span class="settings-lbl">Purchases</span><span class="settings-val">${purchases.length}</span></div>
+    <div class="settings-row"><span class="settings-lbl">Google Sheet</span><span class="settings-val" style="font-size:11px;">1-D3qG3DR1H2Gj0wnnXgUl8xPvZYu6JqVBfNqGIsderY</span></div>`;
+}
+
+// ═══════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════
+function numberToWords(n){
+  if(n===0)return'Zero';
+  const o=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  const t=['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  function c(x){
+    if(x<20)return o[x];if(x<100)return t[Math.floor(x/10)]+(x%10?' '+o[x%10]:'');
+    if(x<1000)return o[Math.floor(x/100)]+' Hundred'+(x%100?' '+c(x%100):'');
+    if(x<100000)return c(Math.floor(x/1000))+' Thousand'+(x%1000?' '+c(x%1000):'');
+    if(x<10000000)return c(Math.floor(x/100000))+' Lakh'+(x%100000?' '+c(x%100000):'');
+    return c(Math.floor(x/10000000))+' Crore'+(x%10000000?' '+c(x%10000000):'');
+  }
+  return c(n);
+}
+
+init();
+</script>
+</body>
+</html>
