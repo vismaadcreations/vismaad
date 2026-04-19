@@ -175,11 +175,27 @@ tbody tr:last-child td{border-bottom:none;}
 /* ── PULL TO REFRESH INDICATOR ── */
 .ptr{text-align:center;padding:8px;font-size:12px;color:#888;display:none;}
 .ptr.show{display:block;}
+
+/* ── LOADING OVERLAY ── */
+.loading-overlay{display:none;position:fixed;inset:0;background:rgba(26,18,8,.45);z-index:500;align-items:center;justify-content:center;flex-direction:column;gap:14px;}
+.loading-overlay.show{display:flex;}
+.loading-spinner{width:44px;height:44px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;}
+.loading-msg{color:#fff;font-size:15px;font-weight:500;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── BUTTON LOADING STATE ── */
+.btn.loading{opacity:.7;pointer-events:none;}
+.btn.loading::after{content:' ⏳';}
+
 </style>
 </head>
 <body>
 
 <div id="print-area"></div>
+<div class="loading-overlay" id="loading-overlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-msg" id="loading-msg">Processing…</div>
+</div>
 
 <!-- HEADER -->
 <div class="hdr">
@@ -583,7 +599,6 @@ let logoB64=localStorage.getItem('vc_logo')||null;
 let qrB64=localStorage.getItem('vc_qr')||null;
 let syncing=false;
 
-function save(){localStorage.setItem('vc_inv',JSON.stringify(invoices));localStorage.setItem('vc_ctr',invCtr);}
 function saveStk(){localStorage.setItem('vc_stk',JSON.stringify(inventory));}
 function savePur(){localStorage.setItem('vc_pur',JSON.stringify(purchases));}
 
@@ -594,6 +609,25 @@ function toast(m,dur=2800){
   const t=document.getElementById('toast');
   t.textContent=m;t.classList.add('show');
   clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),dur);
+}
+function showLoading(msg='Processing…'){
+  document.getElementById('loading-msg').textContent=msg;
+  document.getElementById('loading-overlay').classList.add('show');
+}
+function hideLoading(){
+  document.getElementById('loading-overlay').classList.remove('show');
+}
+// Expand compact itemsArr {d,p,q,n} back to full format for calculations
+function expandItems(arr){
+  if(!Array.isArray(arr))arr=tryParse(arr)||[];
+  return arr.map(i=>({
+    desc:i.desc||i.d||'Unstitched Suit',
+    unitPrice:parseFloat(i.unitPrice||i.p)||0,
+    qty:parseInt(i.qty||i.q)||1,
+    prodNo:i.prodNo||i.n||'',
+    hsn:i.hsn||'540754',
+    costPrice:parseFloat(i.costPrice||i.c)||0,
+  }));
 }
 
 // ═══════════════════════════════════════════════════════
@@ -664,57 +698,42 @@ async function syncAll(){
   if(syncing)return;syncing=true;setSyncStatus('busy');
   try{
     const wasCleared=localStorage.getItem('vc_inv_cleared')==='1';
-
-    // Pull all data from Sheets via JSONP
     const [remInv,remStk,remPur,remSet]=await Promise.all([
       gsRead(SHEETS.invoices),gsRead(SHEETS.inventory),
       gsRead(SHEETS.purchases),gsRead(SHEETS.settings)
     ]);
-
-    // INVOICES — local wins if cleared; otherwise merge (local + remote, local takes precedence for same ID)
     if(!wasCleared){
       const localMap={};invoices.forEach(l=>{localMap[String(l.id)]=l;});
       remInv.forEach(r=>{if(r.id&&!localMap[String(r.id)])localMap[String(r.id)]=r;});
       invoices=Object.values(localMap).sort((a,b)=>(a.invDate||'')<(b.invDate||'')?-1:1);
     }
-    // If cleared, keep invoices=[] and push empty state to sheet (handled by clearSheet call)
-
-    // INVENTORY — always merge (local + remote, local wins same prodNo)
     const localStkMap={};inventory.forEach(l=>{localStkMap[String(l.prodNo)]=l;});
     remStk.forEach(r=>{if(r.prodNo&&!localStkMap[String(r.prodNo)])localStkMap[String(r.prodNo)]=parseInventoryRow(r);});
     inventory=Object.values(localStkMap).sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
-
-    // PURCHASES — merge
     const localPurMap={};purchases.forEach(l=>{localPurMap[String(l.id)]=l;});
     remPur.forEach(r=>{if(r.id&&!localPurMap[String(r.id)])localPurMap[String(r.id)]=r;});
     purchases=Object.values(localPurMap).sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
-
-    // SETTINGS
     if(remSet.length>0){
       const rs=remSet[0];
       S={gstin:rs.gstin||S.gstin||'',address:rs.address||S.address||'',phone:rs.phone||S.phone||'',email:rs.email||S.email||''};
       localStorage.setItem('vc_s',JSON.stringify(S));
     }
-
     save();saveStk();savePur();
-
-    // Push local data to remote using batched writes
-    await gsWriteBatch(SHEETS.invoices,invoices.map(flattenInvoice));
-    await gsWriteBatch(SHEETS.inventory,inventory.map(flattenProduct));
-    await gsWriteBatch(SHEETS.purchases,purchases);
-
-    // Clear the "was cleared" flag after successful sync
+    invoices.forEach(inv=>gsWrite(SHEETS.invoices,flattenInvoice(inv)));
+    inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
+    purchases.forEach(p=>gsWrite(SHEETS.purchases,p));
     localStorage.removeItem('vc_inv_cleared');
-
+    // Refresh invoice number display after sync brings in new data
+    setInvNumber();
     setSyncStatus('ok');
     document.getElementById('dash-sync-banner').style.display='flex';
     refreshCurrentPage();
-    toast('☁️ Synced!');
+    toast('☁️ Synced! '+invoices.length+' invoices');
   }catch(e){
     setSyncStatus('err');
     const msg=e.message||'Unknown error';
     if(msg.includes('Timeout')||msg.includes('Script load')){
-      toast('⚠️ Sync timeout — redeploy your Apps Script as a New Version',5000);
+      toast('⚠️ Sync timeout — redeploy Apps Script as New Version',5000);
     }else{
       toast('⚠️ Sync failed: '+msg,4000);
     }
@@ -1544,8 +1563,7 @@ function clearAllInvoices(){
 }
 
 function getInvHtml(inv){
-  // Always regenerate — never rely on stored html
-  const itemsArr=tryParse(inv.itemsArr)||[];
+  const itemsArr=expandItems(inv.itemsArr);
   return buildInvoiceHTML({...inv,itemsArr,logoB64});
 }
 function viewInvoiceByIdx(idx){
@@ -1610,10 +1628,8 @@ function recalcEditTotal(){
   const shipCost=parseFloat(document.getElementById('edit-ship-cost')?.value)||0;
   const inv=invoices.find(i=>String(i.id)===editingInvId);
   if(!inv)return;
-  // Recalculate grand total from suits + new shipping - new discount
   const suitsTotal=parseFloat(inv.suitsTotal)||0;
   const newGrand=suitsTotal+shipCharged-disc;
-  const{taxableExcl,gstAmt}=calcTotals(tryParse(inv.itemsArr)||[],shipCharged,disc);
   const shipPL=parseFloat((shipCharged/1.05).toFixed(2))-shipCost;
   const el=document.getElementById('edit-total-preview');
   if(el)el.innerHTML=`
@@ -1625,7 +1641,8 @@ function saveInvoiceEdit(){
   const inv=invoices.find(i=>String(i.id)===editingInvId);if(!inv)return;
   const shipCharged=parseFloat(document.getElementById('edit-ship-charged').value)||0;
   const disc=parseFloat(document.getElementById('edit-discount').value)||0;
-  const{grandIncl,gstAmt,taxableExcl}=calcTotals(tryParse(inv.itemsArr)||[],shipCharged,disc);
+  const items=expandItems(inv.itemsArr);
+  const{grandIncl,gstAmt,taxableExcl}=calcTotals(items,shipCharged,disc);
   inv.shipping=shipCharged;
   inv.shippingCost=parseFloat(document.getElementById('edit-ship-cost').value)||0;
   inv.discount=disc;
@@ -1637,8 +1654,7 @@ function saveInvoiceEdit(){
   inv.grandTotal=grandIncl;
   inv.gstAmt=gstAmt;
   inv.taxableExcl=taxableExcl;
-  // Regenerate invoice HTML with updated values
-  inv.html=buildInvoiceHTML({...inv,itemsArr:tryParse(inv.itemsArr)||[],logoB64});
+  delete inv.html; // never store html
   save();
   gsWrite(SHEETS.invoices,flattenInvoice(inv));
   closeEditModal();
@@ -2181,92 +2197,104 @@ function bulkSaveOnly(){
   const rows=window._bulkRows;
   if(!rows||!rows.length){toast('⚠️ No rows to import');return;}
 
-  let added=0,updated=0;
-  const ts=Date.now();
-  rows.forEach((r,ri)=>{
-    const suitsTotal=r.itemsArr.reduce((s,i)=>s+(i.qty||1)*(i.unitPrice||0),0);
-    const stableKey=`${r.invDate||''}|${(r.custName||'').trim().toLowerCase()}|${suitsTotal}`;
+  showLoading('Importing '+rows.length+' orders…');
 
-    // Check if this row already exists
-    const existingIdx=invoices.findIndex(i=>{
-      const k=`${i.invDate||''}|${(i.custName||'').trim().toLowerCase()}|${parseFloat(i.suitsTotal||0)}`;
-      return k===stableKey;
-    });
-
-    const isIntra=(r.custState||'')==='Punjab';
-    const{grandIncl,gstAmt,taxableExcl}=calcTotals(r.itemsArr,r.shipping,r.discount);
-    const validItems=r.itemsArr.filter(i=>i.unitPrice>0);
-
-    if(existingIdx>=0){
-      const existing=invoices[existingIdx];
-      let changed=false;
-      if(r.shippingCost&&!existing.shippingCost){existing.shippingCost=r.shippingCost;changed=true;}
-      if(r.channel&&!existing.channel){existing.channel=r.channel;changed=true;}
-      if(r.tracking&&!existing.tracking){existing.tracking=r.tracking;changed=true;}
-      if(r.custPhone&&!existing.custPhone){existing.custPhone=r.custPhone;changed=true;}
-      if(r.custAddress&&!existing.custAddress){existing.custAddress=r.custAddress;changed=true;}
-      const costTotal=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0),0);
-      if(costTotal>0&&!existing.costPrice){existing.costPrice=costTotal;changed=true;}
-      if(changed){
-        delete existing.html;
-        gsWrite(SHEETS.invoices,flattenInvoice(existing));
-        updated++;
+  // Use setTimeout so the loading overlay renders before the heavy loop
+  setTimeout(()=>{
+    try{
+      // Recalculate invCtr from existing invoices first
+      if(invoices.length>0){
+        const nums=invoices.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
+        invCtr=Math.max(...nums,invCtr);
       }
-      return;
+
+      let added=0,updated=0;
+      rows.forEach((r,ri)=>{
+        const suitsTotal=r.itemsArr.reduce((s,i)=>s+(i.qty||1)*(i.unitPrice||0),0);
+        const stableKey=`${r.invDate||''}|${(r.custName||'').trim().toLowerCase()}|${suitsTotal}`;
+        const existingIdx=invoices.findIndex(i=>{
+          const k=`${i.invDate||''}|${(i.custName||'').trim().toLowerCase()}|${parseFloat(i.suitsTotal||0)}`;
+          return k===stableKey;
+        });
+        const isIntra=(r.custState||'')==='Punjab';
+        const{grandIncl,gstAmt,taxableExcl}=calcTotals(r.itemsArr,r.shipping,r.discount);
+        const validItems=r.itemsArr.filter(i=>i.unitPrice>0);
+
+        if(existingIdx>=0){
+          const existing=invoices[existingIdx];
+          let changed=false;
+          if(r.shippingCost&&!existing.shippingCost){existing.shippingCost=r.shippingCost;changed=true;}
+          if(r.channel&&!existing.channel){existing.channel=r.channel;changed=true;}
+          if(r.tracking&&!existing.tracking){existing.tracking=r.tracking;changed=true;}
+          if(r.custPhone&&!existing.custPhone){existing.custPhone=r.custPhone;changed=true;}
+          if(r.custAddress&&!existing.custAddress){existing.custAddress=r.custAddress;changed=true;}
+          const costTotal=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0),0);
+          if(costTotal>0&&!existing.costPrice){existing.costPrice=costTotal;changed=true;}
+          if(changed){delete existing.html;gsWrite(SHEETS.invoices,flattenInvoice(existing));updated++;}
+          return;
+        }
+
+        // NEW row
+        invCtr++;
+        const invNo='INV-'+String(invCtr).padStart(3,'0');
+        const costTotal=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0),0);
+        // Safe ID: use invCtr as unique integer — guaranteed unique since we just incremented it
+        const saved={
+          id:invCtr*100000+ri, // safe unique integer, no floats
+          invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),
+          custName:r.custName,custPhone:r.custPhone,custAddress:r.custAddress,
+          custState:r.custState,isIntra,
+          grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
+          itemCount:validItems.length,
+          itemsSummary:validItems.map(i=>i.desc).join(', '),
+          itemsArr:validItems,
+          shipping:r.shipping,shippingCost:r.shippingCost||0,
+          discount:r.discount,tracking:r.tracking,
+          channel:r.channel||'',isShipped:false,status:'Pending',
+          costPrice:costTotal||0,
+          gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,
+          dispatchDate:'',
+        };
+        invoices.push(saved);
+        added++;
+      });
+
+      save();localStorage.setItem('vc_ctr',invCtr);
+      // Batch sync to Sheets
+      gsWriteBatch(SHEETS.invoices,invoices.map(flattenInvoice));
+
+      hideLoading();
+      const el=document.getElementById('bulk-preview');
+      if(el)el.innerHTML=`<div class="card" style="text-align:center;padding:20px;">
+        <div style="font-size:36px;margin-bottom:10px;">✅</div>
+        ${added>0?`<div style="font-size:17px;font-weight:700;color:var(--brown);">${added} invoice${added!==1?'s':''} imported!</div>`:''}
+        ${updated>0?`<div style="font-size:14px;color:#27ae60;margin-top:6px;">✏️ ${updated} existing invoice${updated!==1?'s':''} updated</div>`:''}
+        ${added===0&&updated===0?`<div style="font-size:14px;color:#888;">All rows already in system — nothing new to add</div>`:''}
+        <div style="font-size:13px;color:#888;margin-top:8px;">Syncing to Google Sheets in the background…</div>
+        <button class="btn btn-p" style="margin-top:16px;" onclick="showPage('sales',document.getElementById('bnav-sales'));closeSubPage()">📋 View in Sales →</button>
+      </div>`;
+      window._bulkRows=null;
+      toast('✅ '+(added+updated)+' invoice(s) processed',4000);
+    }catch(err){
+      hideLoading();
+      toast('❌ Import error: '+err.message,5000);
     }
-
-    // NEW row — add it — NO html stored, regenerated on demand
-    invCtr++;
-    const invNo='INV-'+String(invCtr).padStart(3,'0');
-    const costTotal=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0),0);
-    const saved={
-      id:ts*1000+ri,
-      invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),
-      custName:r.custName,custPhone:r.custPhone,custAddress:r.custAddress,
-      custState:r.custState,isIntra,
-      grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
-      itemCount:validItems.length,
-      itemsSummary:validItems.map(i=>i.desc).join(', '),
-      itemsArr:validItems,
-      shipping:r.shipping,shippingCost:r.shippingCost||0,
-      discount:r.discount,tracking:r.tracking,
-      channel:r.channel||'',isShipped:false,status:'Pending',
-      costPrice:costTotal||0,
-      gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,
-      dispatchDate:'',
-    };
-    invoices.push(saved);
-    added++;
-  });
-
-  save();localStorage.setItem('vc_ctr',invCtr);
-
-  // Batch write ALL invoices to sheets after loop — avoids URL limit issues with 100+ records
-  gsWriteBatch(SHEETS.invoices,invoices.map(flattenInvoice));
-  const el=document.getElementById('bulk-preview');
-  if(el)el.innerHTML=`<div class="card" style="text-align:center;padding:20px;">
-    <div style="font-size:32px;margin-bottom:10px;">✅</div>
-    ${added>0?`<div style="font-size:16px;font-weight:600;color:var(--brown);">${added} new invoice${added!==1?'s':''} imported</div>`:''}
-    ${updated>0?`<div style="font-size:14px;font-weight:500;color:#27ae60;margin-top:4px;">✏️ ${updated} existing invoice${updated!==1?'s':''} updated with new data</div>`:''}
-    ${added===0&&updated===0?`<div style="font-size:14px;color:#888;">No changes — all rows already up to date</div>`:''}
-    <div style="font-size:13px;color:#888;margin-top:8px;">Syncing to Google Sheets…</div>
-    <button class="btn btn-o" style="margin-top:14px;" onclick="showPage('sales',document.getElementById('bnav-sales'));closeSubPage()">View in Sales →</button>
-  </div>`;
-  window._bulkRows=null;
-  toast('✅ '+(added+updated)+' invoice(s) processed',4000);
+  },80);
 }
 
 function bulkSaveAndPrint(){
   if(!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
   const rows=window._bulkRows;
   if(!rows||!rows.length){toast('⚠️ No rows to import');return;}
+  const countBefore=invoices.length;
   bulkSaveOnly();
-  // Print all
+  // Print after a delay to let the import complete
   setTimeout(()=>{
-    const recentInvs=invoices.slice(-rows.length);
-    document.getElementById('print-area').innerHTML=recentInvs.map(inv=>`<div class="print-page">${inv.html}</div>`).join('');
+    const newInvs=invoices.slice(countBefore);
+    if(!newInvs.length){toast('No new invoices to print');return;}
+    document.getElementById('print-area').innerHTML=newInvs.map(inv=>`<div class="print-page">${getInvHtml(inv)}</div>`).join('');
     window.print();
-  },500);
+  },1500);
 }
 
 function generateBulkInvoices(rows){
@@ -2275,7 +2303,32 @@ function generateBulkInvoices(rows){
   bulkSaveOnly();
 }
 function parseCsvLine(l){const r=[];let c='',q=false;for(let i=0;i<l.length;i++){const ch=l[i];if(ch==='"')q=!q;else if(ch===','&&!q){r.push(c.trim());c='';}else c+=ch;}r.push(c.trim());return r;}
-function normaliseDate(d){if(!d)return today();if(d.includes('/')){const[a,b,cc]=d.split('/');return cc?.length===4?`${cc}-${b.padStart(2,'0')}-${a.padStart(2,'0')}`:d;}return d;}
+function normaliseDate(d){
+  if(!d)return today();
+  d=String(d).trim();
+  // Excel serial number (e.g. 46083 = a date)
+  if(/^\d{4,5}$/.test(d)){
+    const excelEpoch=new Date(1899,11,30);
+    const dt=new Date(excelEpoch.getTime()+parseInt(d)*86400000);
+    return dt.toISOString().split('T')[0];
+  }
+  // DD/MM/YYYY
+  if(d.includes('/')){
+    const parts=d.split('/');
+    if(parts.length===3){
+      const[a,b,cc]=parts;
+      if(cc.length===4)return`${cc}-${b.padStart(2,'0')}-${a.padStart(2,'0')}`;
+      if(a.length===4)return`${a}-${b.padStart(2,'0')}-${cc.padStart(2,'0')}`;
+    }
+  }
+  // DD-MM-YYYY
+  if(d.includes('-')&&d.length===10&&d.indexOf('-')===2){
+    const[a,b,cc]=d.split('-');
+    return`${cc}-${b.padStart(2,'0')}-${a.padStart(2,'0')}`;
+  }
+  // Already YYYY-MM-DD
+  return d;
+}
 
 // ═══════════════════════════════════════════════════════
 // SETTINGS — LOGO / QR
