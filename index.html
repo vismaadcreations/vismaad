@@ -1764,41 +1764,93 @@ function goToLabel(){
 function printLabel(){
   const name=document.getElementById('lbl-to-name')?.value.trim();
   if(!name){toast('⚠️ Enter customer name');return;}
-  const addr=document.getElementById('lbl-to-addr')?.value||'';
+  const addr=(document.getElementById('lbl-to-addr')?.value||'').replace(/\n/g,'<br/>');
   const ph=document.getElementById('lbl-to-ph')?.value||'';
   const invNo=document.getElementById('lbl-inv-no')?.value||'';
   const track=document.getElementById('lbl-tracking2')?.value||'';
-  const fromAddr=document.getElementById('lbl-from-addr')?.value||'Punjab';
+  const fromAddr=(document.getElementById('lbl-from-addr')?.value||'Vismaad Creations').replace(/\n/g,'<br/>');
   const fromPh=document.getElementById('lbl-from-ph')?.value||'';
-  const qrImg=qrB64?`<img src="${qrB64}" style="width:100%;height:100%;object-fit:cover;"/>`:'<div style="font-size:8px;text-align:center;color:#aaa;">Instagram QR</div>';
-  const logoImg=logoB64?`<img src="${logoB64}" style="max-height:22mm;max-width:44mm;object-fit:contain;"/>`:'<span style="font-size:13pt;font-weight:700;color:#5c3d1e;">Vismaad Creations</span>';
-  document.getElementById('print-area').innerHTML=`<div class="print-label-page">
-    <div style="width:190mm;height:130mm;background:#fff;border:1.5px solid #333;border-radius:4mm;padding:8mm;display:grid;grid-template-rows:1fr auto auto;font-family:Arial,sans-serif;position:relative;-webkit-print-color-adjust:exact;print-color-adjust:exact;">
-      <div style="position:absolute;top:4mm;right:6mm;font-size:8pt;color:#aaa;">${invNo?'Inv: '+invNo:''} ${track?'· '+track:''}</div>
-      <div style="display:grid;grid-template-columns:1fr auto;gap:8mm;align-items:flex-start;padding-bottom:4mm;border-bottom:1px solid #ddd;">
-        <div>
-          <div style="font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#888;margin-bottom:3mm;">To</div>
-          <div style="font-size:16pt;font-weight:700;color:#1a1208;">${name}</div>
-          <div style="font-size:12pt;color:#444;line-height:1.6;margin-top:2mm;">${addr.replace(/\n/g,'<br/>')}</div>
-          ${ph?`<div style="font-size:12pt;font-weight:600;color:#333;">📞 ${ph}</div>`:''}
-        </div>
-        <div style="width:38mm;height:38mm;border:1px solid #ddd;border-radius:2mm;overflow:hidden;">${qrImg}</div>
-      </div>
-      <div style="text-align:center;padding:3mm 0;border-bottom:1px solid #ddd;border-top:1px solid #ddd;margin:2mm 0;">
-        <span style="font-family:'Great Vibes',cursive;font-size:26pt;color:#8B4513;">Thank you for shopping with us!</span>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding-top:2mm;">
-        <div></div>
-        <div style="display:flex;align-items:center;justify-content:center;">${logoImg}</div>
-        <div style="text-align:right;">
-          <div style="font-size:8pt;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:1mm;">From</div>
-          <div style="font-size:12pt;font-weight:700;">Vismaad Creations</div>
-          <div style="font-size:11pt;color:#555;line-height:1.6;">${fromAddr.replace(/\n/g,'<br/>')}${fromPh?'<br/>📞 '+fromPh:''}</div>
-        </div>
-      </div>
-    </div>
-  </div>`;
-  window.print();toast('🖨️ Printing label…');
+  const qrImg=qrB64
+    ?'<img src="'+qrB64+'" style="width:32mm;height:32mm;object-fit:contain;display:block;"/>'
+    :'<div style="width:32mm;height:32mm;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;font-size:8pt;color:#aaa;text-align:center;line-height:1.4;">Instagram<br/>QR</div>';
+  const logoImg=logoB64
+    ?'<img src="'+logoB64+'" style="max-height:14mm;max-width:42mm;object-fit:contain;display:block;margin:0 auto;"/>'
+    :'<div style="font-size:12pt;font-weight:700;color:#5c3d1e;font-family:Georgia,serif;text-align:center;">Vismaad<br/>Creations</div>';
+
+  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
+    +'<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet"/>'
+    +'<style>'
+    +'*{box-sizing:border-box;margin:0;padding:0;}'
+    // Exact half-A4 page — 210mm x 148.5mm, zero margins
+    +'@page{size:210mm 148.5mm;margin:0;}'
+    +'html,body{width:210mm;height:148.5mm;overflow:hidden;background:#fff;'
+    +'font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;'
+    +'-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+    // Label fills page with padding
+    +'.lbl{width:210mm;height:148.5mm;padding:6mm;}'
+    // Border box fills available space
+    +'.box{width:198mm;height:136.5mm;border:1.5px solid #555;border-radius:2mm;padding:5mm;'
+    +'display:flex;flex-direction:column;overflow:hidden;}'
+    +'.ref{font-size:7.5pt;color:#999;text-align:right;height:5mm;line-height:5mm;flex-shrink:0;}'
+    +'.mid{display:flex;gap:5mm;align-items:flex-start;flex:1;min-height:0;'
+    +'border-bottom:0.5px solid #ddd;padding-bottom:3mm;margin-bottom:3mm;overflow:hidden;}'
+    +'.to{flex:1;min-width:0;overflow:hidden;}'
+    +'.to-lbl{font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#888;margin-bottom:1.5mm;}'
+    +'.to-name{font-size:14pt;font-weight:700;line-height:1.25;margin-bottom:1.5mm;word-break:break-word;}'
+    +'.to-addr{font-size:9.5pt;color:#444;line-height:1.55;word-break:break-word;}'
+    +'.to-ph{font-size:9.5pt;font-weight:600;margin-top:1.5mm;}'
+    +'.ty{text-align:center;border-bottom:0.5px solid #ddd;padding:2mm 0;margin-bottom:2.5mm;flex-shrink:0;}'
+    +'.ty span{font-family:"Great Vibes","Brush Script MT",cursive;font-size:22pt;color:#7B3F00;}'
+    +'.bot{display:flex;align-items:center;flex-shrink:0;}'
+    +'.bot-l{flex:1;}'
+    +'.bot-m{flex:1;text-align:center;}'
+    +'.bot-r{flex:1;text-align:right;}'
+    +'.fr-lbl{font-size:7pt;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:1mm;}'
+    +'.fr-name{font-size:10pt;font-weight:700;}'
+    +'.fr-det{font-size:9pt;color:#555;line-height:1.5;}'
+    +'</style>'
+    +'<script>'
+    +'window.onload=function(){'
+    +'  if(document.fonts&&document.fonts.ready){'
+    +'    document.fonts.ready.then(function(){setTimeout(window.print,500);});'
+    +'  }else{setTimeout(window.print,1400);}'
+    +'};'
+    +'<\/script>'
+    +'</head><body>'
+    +'<div class="lbl"><div class="box">'
+    +'<div class="ref">'+(invNo?'Inv: '+invNo:'')+(track?(invNo?' · ':'')+track:'')+'</div>'
+    +'<div class="mid">'
+      +'<div class="to">'
+        +'<div class="to-lbl">To</div>'
+        +'<div class="to-name">'+name+'</div>'
+        +'<div class="to-addr">'+addr+'</div>'
+        +(ph?'<div class="to-ph">&#9990; '+ph+'</div>':'')
+      +'</div>'
+      +qrImg
+    +'</div>'
+    +'<div class="ty"><span>Thank you for shopping with us!</span></div>'
+    +'<div class="bot">'
+      +'<div class="bot-l"></div>'
+      +'<div class="bot-m">'+logoImg+'</div>'
+      +'<div class="bot-r">'
+        +'<div class="fr-lbl">From</div>'
+        +'<div class="fr-name">Vismaad Creations</div>'
+        +'<div class="fr-det">'+fromAddr+(fromPh?'<br/>&#9990; '+fromPh:'')+'</div>'
+      +'</div>'
+    +'</div>'
+    +'</div></div>'
+    +'</body></html>';
+
+  const blob=new Blob([html],{type:'text/html'});
+  const url=URL.createObjectURL(blob);
+  const w=window.open(url,'_blank');
+  if(!w){
+    toast('⚠️ Popup blocked — allow popups for this site and try again',5000);
+    URL.revokeObjectURL(url);
+  }else{
+    setTimeout(()=>URL.revokeObjectURL(url),30000);
+    toast('🖨️ Label ready — print dialog opening…');
+  }
 }
 
 // ═══════════════════════════════════════════
