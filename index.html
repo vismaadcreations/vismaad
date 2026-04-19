@@ -1764,68 +1764,78 @@ function goToLabel(){
 function printLabel(){
   const name=document.getElementById('lbl-to-name')?.value.trim();
   if(!name){toast('⚠️ Enter customer name');return;}
-  const addr=(document.getElementById('lbl-to-addr')?.value||'').replace(/\n/g,'<br/>');
+  const rawAddr=document.getElementById('lbl-to-addr')?.value||'';
   const ph=document.getElementById('lbl-to-ph')?.value||'';
   const invNo=document.getElementById('lbl-inv-no')?.value||'';
   const track=document.getElementById('lbl-tracking2')?.value||'';
-  const fromAddr=(document.getElementById('lbl-from-addr')?.value||'Vismaad Creations').replace(/\n/g,'<br/>');
+  const rawFromAddr=document.getElementById('lbl-from-addr')?.value||'Vismaad Creations';
   const fromPh=document.getElementById('lbl-from-ph')?.value||'';
+  const addr=rawAddr.replace(/\n/g,'<br/>');
+  const fromAddr=rawFromAddr.replace(/\n/g,'<br/>');
+
   const qrImg=qrB64
-    ?'<img src="'+qrB64+'" style="width:38mm;height:38mm;object-fit:contain;display:block;"/>'
-    :'<div style="width:38mm;height:38mm;border:1px dashed #ccc;font-size:9pt;color:#aaa;display:flex;align-items:center;justify-content:center;text-align:center;">QR<br/>Code</div>';
+    ?'<img src="'+qrB64+'" style="width:32mm;height:32mm;object-fit:contain;display:block;flex-shrink:0;"/>'
+    :'<div style="width:32mm;height:32mm;border:1px dashed #ccc;font-size:8pt;color:#aaa;display:flex;align-items:center;justify-content:center;text-align:center;flex-shrink:0;">QR</div>';
   const logoImg=logoB64
-    ?'<img src="'+logoB64+'" style="max-height:18mm;max-width:50mm;object-fit:contain;display:block;margin:0 auto;"/>'
-    :'<span style="font-size:14pt;font-weight:700;color:#5c3d1e;font-family:Georgia,serif;">Vismaad Creations</span>';
+    ?'<img src="'+logoB64+'" style="max-height:12mm;max-width:40mm;object-fit:contain;display:block;margin:0 auto;"/>'
+    :'<span style="font-size:11pt;font-weight:700;color:#5c3d1e;">Vismaad<br/>Creations</span>';
+
+  // Hard heights for each row (mm) — must sum to ≤ 118mm (128mm box minus 10mm padding)
+  // ref:    5mm
+  // mid:   55mm  (TO address + QR — tallest section)
+  // ty:    14mm  (thank you cursive)
+  // bot:   16mm  (logo + from)
+  // gaps:   8mm  (margins between rows)
+  // TOTAL: 98mm  — 20mm headroom for longer addresses
 
   const css=''
     +'*{box-sizing:border-box;margin:0;padding:0;}'
-    +'body{font-family:Arial,Helvetica,sans-serif;background:#fff;padding:10mm;'
+    +'body{font-family:Arial,Helvetica,sans-serif;background:#fff;'
+    +'padding:8mm 10mm;'
     +'-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
-    +'.box{width:170mm;border:1.5px solid #555;border-radius:2mm;padding:6mm;}'
-    +'.ref{font-size:9pt;color:#999;text-align:right;margin-bottom:4mm;}'
-    // TO + QR row — address block grows as needed, QR stays fixed
-    +'.mid{display:flex;gap:5mm;margin-bottom:4mm;padding-bottom:4mm;border-bottom:0.5px solid #ddd;align-items:flex-start;}'
-    +'.to{flex:1;min-width:0;}'
-    +'.tolbl{font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#888;margin-bottom:2mm;}'
-    +'.toname{font-size:16pt;font-weight:700;line-height:1.2;margin-bottom:2mm;word-break:break-word;}'
-    // Address: bold, 13pt, auto line-height, shrinks font if very long via fit-content approach
-    +'.toaddr{'
-    +'font-size:13pt;'
-    +'font-weight:700;'
-    +'color:#222;'
-    +'line-height:1.55;'
-    +'word-break:break-word;'
+    // Box: hard max-height = 128mm so it CANNOT overflow half-A4
+    +'.box{'
+    +'width:170mm;'
+    +'max-height:128mm;'
+    +'overflow:hidden;'
+    +'border:1.5px solid #444;border-radius:2mm;'
+    +'padding:4mm 5mm;'
+    +'display:flex;flex-direction:column;gap:2mm;'
     +'}'
-    +'.toph{font-size:13pt;font-weight:700;color:#222;margin-top:2mm;}'
-    // Thank you strip
-    +'.ty{text-align:center;padding:4mm 0;margin-bottom:4mm;border-bottom:0.5px solid #ddd;}'
-    +'.tytext{font-family:"Great Vibes","Brush Script MT","Segoe Script",cursive;font-size:26pt;color:#7B3F00;}'
-    // Bottom: logo centre, FROM right
-    +'.bot{display:flex;align-items:flex-start;}'
-    +'.botl,.botm,.botr{flex:1;}'
-    +'.botm{text-align:center;}'
-    +'.botr{text-align:right;}'
-    +'.frlbl{font-size:8pt;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:1.5mm;}'
-    +'.frname{font-size:12pt;font-weight:700;color:#111;margin-bottom:1mm;}'
-    // FROM address: bold, 12pt, auto line-height
-    +'.frdet{'
-    +'font-size:12pt;'
-    +'font-weight:700;'
-    +'color:#222;'
-    +'line-height:1.55;'
-    +'word-break:break-word;'
-    +'}'
-    +'.cut{width:170mm;margin-top:6mm;padding-top:3mm;border-top:1px dashed #bbb;'
-    +'text-align:center;font-size:8.5pt;color:#bbb;letter-spacing:2px;}';
+    // Ref line — fixed 1 line
+    +'.ref{font-size:8pt;color:#999;text-align:right;flex-shrink:0;}'
+    // Mid: TO block + QR — flex:1 takes remaining space, overflow hidden
+    +'.mid{display:flex;gap:4mm;align-items:flex-start;flex:1;min-height:0;overflow:hidden;'
+    +'border-bottom:0.5px solid #ddd;padding-bottom:2mm;}'
+    +'.to{flex:1;min-width:0;overflow:hidden;}'
+    +'.tolbl{font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:1mm;flex-shrink:0;}'
+    +'.toname{font-size:14pt;font-weight:700;line-height:1.2;margin-bottom:1.5mm;flex-shrink:0;word-break:break-word;}'
+    // Address: bold, starts at 12pt, auto-shrinks via JS down to 8pt minimum
+    +'.toaddr{font-size:12pt;font-weight:700;color:#111;line-height:1.45;word-break:break-word;overflow:hidden;}'
+    +'.toph{font-size:11pt;font-weight:700;color:#111;margin-top:1mm;flex-shrink:0;}'
+    // Thank you — fixed height
+    +'.ty{text-align:center;padding:2mm 0;border-bottom:0.5px solid #ddd;flex-shrink:0;}'
+    +'.tytext{font-family:"Great Vibes","Brush Script MT",cursive;font-size:22pt;color:#7B3F00;line-height:1;}'
+    // Bottom row — fixed height
+    +'.bot{display:flex;align-items:center;flex-shrink:0;}'
+    +'.botl{flex:1;}'
+    +'.botm{flex:1;text-align:center;}'
+    +'.botr{flex:1;text-align:right;}'
+    +'.frlbl{font-size:7pt;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:0.5mm;}'
+    +'.frname{font-size:10pt;font-weight:700;color:#111;}'
+    // From address: bold, starts 10pt, auto-shrinks
+    +'.frdet{font-size:10pt;font-weight:700;color:#111;line-height:1.4;word-break:break-word;}'
+    +'.cut{width:170mm;margin-top:3mm;padding-top:2mm;border-top:1px dashed #bbb;'
+    +'text-align:center;font-size:7.5pt;color:#bbb;letter-spacing:2px;}';
 
   const body=''
     +'<div class="box">'
-      +'<div class="ref">'+(invNo?'Inv: '+invNo:'')+(track?(invNo?' &middot; ':'')+track:'')+'</div>'
+      +'<div class="ref">'+(invNo?'Inv: '+invNo:'')+(track?(invNo?' · ':'')+track:'')+'</div>'
       +'<div class="mid">'
         +'<div class="to">'
           +'<div class="tolbl">To</div>'
           +'<div class="toname">'+name+'</div>'
-          +'<div class="toaddr">'+addr+'</div>'
+          +'<div class="toaddr" id="toaddr">'+addr+'</div>'
           +(ph?'<div class="toph">&#9990; '+ph+'</div>':'')
         +'</div>'
         +qrImg
@@ -1837,33 +1847,40 @@ function printLabel(){
         +'<div class="botr">'
           +'<div class="frlbl">From</div>'
           +'<div class="frname">Vismaad Creations</div>'
-          +'<div class="frdet">'+fromAddr+(fromPh?'<br/>&#9990; '+fromPh:'')+'</div>'
+          +'<div class="frdet" id="frdet">'+fromAddr+(fromPh?'<br/>&#9990; '+fromPh:'')+'</div>'
         +'</div>'
       +'</div>'
     +'</div>'
-    +'<div class="cut">&#8702;&#8702;&#8702; cut here &#8702;&#8702;&#8702;</div>';
+    +'<div class="cut">✂ cut here</div>';
 
-  // Auto-shrink addresses if too long — runs after page loads
+  // Shrink address fonts until box fits within 128mm
   const shrinkScript=''
     +'window.onload=function(){'
+    +'  var PX_PER_MM=3.7795276;'
+    +'  var MAX_H=Math.round(128*PX_PER_MM);'
+    +'  var box=document.querySelector(".box");'
+    +'  var toaddr=document.getElementById("toaddr");'
+    +'  var frdet=document.getElementById("frdet");'
     +'  function shrink(el,minPt){'
     +'    if(!el)return;'
-    +'    var size=parseFloat(window.getComputedStyle(el).fontSize);'
-    +'    while(el.scrollHeight>el.offsetHeight+2&&size>minPt){'
-    +'      size-=0.5;el.style.fontSize=size+"px";'
+    +'    var px=parseFloat(window.getComputedStyle(el).fontSize);'
+    +'    while(box.scrollHeight>MAX_H&&px>minPt*PX_PER_MM/0.75){'
+    +'      px-=0.5;el.style.fontSize=px+"px";'
     +'    }'
     +'  }'
-    +'  shrink(document.getElementById("toaddr"),9);'
-    +'  shrink(document.getElementById("frdet"),9);'
+    +'  shrink(toaddr,8);'
+    +'  shrink(frdet,8);'
     +'  var go=function(){window.print();};'
-    +'  if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){setTimeout(go,500);});}else{setTimeout(go,1500);}'
+    +'  if(document.fonts&&document.fonts.ready){'
+    +'    document.fonts.ready.then(function(){setTimeout(go,600);});'
+    +'  }else{setTimeout(go,1600);}'
     +'};';
 
   const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
     +'<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet"/>'
     +'<style>'+css+'</style>'
     +'<script>'+shrinkScript+'<\/script>'
-    +'</head><body>'+body.replace('class="toaddr"','class="toaddr" id="toaddr"').replace('class="frdet"','class="frdet" id="frdet"')+'</body></html>';
+    +'</head><body>'+body+'</body></html>';
 
   const blob=new Blob([html],{type:'text/html'});
   const url=URL.createObjectURL(blob);
@@ -1873,7 +1890,7 @@ function printLabel(){
     URL.revokeObjectURL(url);
   }else{
     setTimeout(()=>URL.revokeObjectURL(url),30000);
-    toast('🖨️ Label opening — select A4 Portrait in print dialog');
+    toast('🖨️ Label opening — print on A4 Portrait, 100% scale');
   }
 }
 function renderSyncInfo(){
