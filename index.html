@@ -158,6 +158,26 @@ tbody tr:last-child td{border-bottom:none;}
   .print-page{page-break-after:always;padding:10mm;}
   .print-page:last-child{page-break-after:auto;}
   .print-label-page{width:210mm;height:148mm;padding:8mm;page-break-after:always;}
+  /* Two half-A4 copies on one A4 sheet */
+  .print-page-dual{
+    width:210mm;height:297mm;padding:0;page-break-after:always;
+    display:flex;flex-direction:column;
+  }
+  .print-half{
+    width:100%;height:148.5mm;overflow:hidden;position:relative;
+    padding:6mm 8mm;box-sizing:border-box;
+  }
+  .print-half:first-child{
+    border-bottom:1px dashed #aaa;
+  }
+  .copy-label{
+    position:absolute;top:3mm;right:4mm;
+    font-size:8pt;font-weight:700;
+    padding:2px 8px;border-radius:10px;
+    text-transform:uppercase;letter-spacing:1px;
+  }
+  .copy-label.customer{background:#dff0d8;color:#27ae60;}
+  .copy-label.office{background:#e8f4fd;color:#2980b9;}
 }
 
 /* ── DESKTOP ENHANCEMENTS ── */
@@ -701,33 +721,70 @@ function gsRead(sheet){
     document.head.appendChild(s);
   });
 }
+// Fire-and-forget write — for single record updates (status changes, edits)
 function gsWrite(sheet,data){
+  const flat=flattenForSheet(data);
+  const payload=makePayload(flat);
+  const params=new URLSearchParams({action:'write',sheet,data:payload});
+  fetch(SCRIPT_URL+'?'+params.toString(),{method:'GET',mode:'no-cors'}).catch(()=>{});
+}
+
+// Confirmed write via JSONP — waits for acknowledgement, returns promise
+function gsWriteConfirmed(sheet,data){
+  return new Promise(function(resolve){
+    const flat=flattenForSheet(data);
+    const payload=makePayload(flat);
+    const cb='_w'+Date.now()+Math.floor(Math.random()*9999);
+    const url=SCRIPT_URL+'?action=write&sheet='+encodeURIComponent(sheet)+'&data='+encodeURIComponent(payload)+'&callback='+cb;
+    const s=document.createElement('script');
+    const timer=setTimeout(function(){
+      delete window[cb];try{document.head.removeChild(s);}catch{}resolve(false);
+    },12000);
+    window[cb]=function(){
+      clearTimeout(timer);delete window[cb];try{document.head.removeChild(s);}catch{}resolve(true);
+    };
+    s.onerror=function(){clearTimeout(timer);delete window[cb];resolve(false);};
+    s.src=url;
+    document.head.appendChild(s);
+  });
+}
+
+// Batch confirmed writes with progress callback
+async function gsWriteBatch(sheet,records,onProgress){
+  let done=0,failed=0;
+  for(let i=0;i<records.length;i++){
+    const ok=await gsWriteConfirmed(sheet,records[i]);
+    if(ok)done++;else failed++;
+    if(onProgress)onProgress(done,failed,records.length);
+    await new Promise(r=>setTimeout(r,550)); // 550ms between writes — safe rate limit
+  }
+  return{done,failed};
+}
+
+function flattenForSheet(data){
   const flat={...data};
   delete flat.html;delete flat.logoB64;
   delete flat.bizAddress;delete flat.bizPhone;delete flat.bizEmail;delete flat.gstin;
   if(typeof flat.itemsArr==='object')flat.itemsArr=JSON.stringify(flat.itemsArr);
-  const json=JSON.stringify(flat);
-  // Strip itemsArr if still too large
-  const payload=json.length>3000?JSON.stringify({...flat,itemsArr:'[]'}):json;
-  const params=new URLSearchParams({action:'write',sheet,data:payload});
-  fetch(SCRIPT_URL+'?'+params.toString(),{method:'GET',mode:'no-cors'}).catch(()=>{});
+  return flat;
 }
+function makePayload(flat){
+  const json=JSON.stringify(flat);
+  if(json.length<=3000)return json;
+  // Too large — send without itemsArr but keep all other fields
+  const slim={...flat};
+  slim.itemsArr='[]';
+  return JSON.stringify(slim);
+}
+
 function gsDelete(sheet,id){
   fetch(SCRIPT_URL+'?'+new URLSearchParams({action:'delete',sheet,id:String(id)}).toString(),{method:'GET',mode:'no-cors'}).catch(()=>{});
 }
 function gsClearSheet(sheet){
   fetch(SCRIPT_URL+'?'+new URLSearchParams({action:'clearSheet',sheet}).toString(),{method:'GET',mode:'no-cors'}).catch(()=>{});
 }
-async function gsWriteBatch(sheet,records){
-  for(let i=0;i<records.length;i++){
-    gsWrite(sheet,records[i]);
-    if(i%10===9)await new Promise(r=>setTimeout(r,400));
-  }
-}
 function flattenInvoice(inv){
-  const f={...inv};delete f.html;
-  if(typeof f.itemsArr==='object')f.itemsArr=JSON.stringify(f.itemsArr);
-  return f;
+  return flattenForSheet(inv);
 }
 function flattenProduct(p){return{...p};}
 function parseInventoryRow(r){
@@ -1087,12 +1144,31 @@ function generateInvoice(){
   localStorage.setItem('vc_ctr',invCtr);
   toast('✅ Invoice '+invNo+' saved!');
 }
-function getInvHtml(inv){
-  return buildInvoiceHTML({...inv,itemsArr:expandItems(inv.itemsArr),logoB64});
+function getInvHtml(inv,copyLabel=''){
+  const html=buildInvoiceHTML({...inv,itemsArr:expandItems(inv.itemsArr),logoB64});
+  if(!copyLabel)return html;
+  const cls=copyLabel.toLowerCase().includes('customer')?'customer':'office';
+  return html.replace(
+    'font-family:\'DM Sans\',sans-serif;font-size:12px;color:#1a1208;background:#fff;padding:20px;',
+    'font-family:\'DM Sans\',sans-serif;font-size:12px;color:#1a1208;background:#fff;padding:20px;position:relative;'
+  )+'<div class="copy-label '+cls+'" style="position:absolute;top:3mm;right:4mm;font-size:8pt;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:1px;background:'+(cls==='customer'?'#dff0d8;color:#27ae60':'#e8f4fd;color:#2980b9')+';">'+copyLabel+'</div>';
 }
 function printCurrentInvoice(){
   if(!currentInv)return;
-  document.getElementById('print-area').innerHTML=`<div class="print-page">${getInvHtml(currentInv)}</div>`;
+  // Two half-A4 copies on one A4 sheet
+  const customerCopy=getInvHtml(currentInv,'Customer Copy');
+  const officeCopy=getInvHtml(currentInv,'Office Copy');
+  document.getElementById('print-area').innerHTML=`
+    <div class="print-page-dual">
+      <div class="print-half" style="position:relative;">
+        <div class="copy-label customer">Customer Copy</div>
+        ${customerCopy}
+      </div>
+      <div class="print-half" style="position:relative;">
+        <div class="copy-label office">Office Copy</div>
+        ${officeCopy}
+      </div>
+    </div>`;
   window.print();
 }
 function resetInvoiceForm(){
@@ -1240,12 +1316,14 @@ function setSort(btn,sort){
 }
 function applySortToList(list){
   return[...list].sort((a,b)=>{
-    if(currentSort==='date-asc')return(a.invDate||'')<(b.invDate||'')?-1:1;
+    const da=a.invDate||'',db=b.invDate||'';
+    if(currentSort==='date-desc')return db>da?1:db<da?-1:0;  // newest first: b before a
+    if(currentSort==='date-asc') return da>db?1:da<db?-1:0;  // oldest first: a before b
     if(currentSort==='invno-asc'){const na=parseInt((a.invNo||'').replace(/\D/g,''))||0,nb=parseInt((b.invNo||'').replace(/\D/g,''))||0;return na-nb;}
     if(currentSort==='invno-desc'){const na=parseInt((a.invNo||'').replace(/\D/g,''))||0,nb=parseInt((b.invNo||'').replace(/\D/g,''))||0;return nb-na;}
     if(currentSort==='amount-asc')return(parseFloat(a.grandTotal)||0)-(parseFloat(b.grandTotal)||0);
     if(currentSort==='amount-desc')return(parseFloat(b.grandTotal)||0)-(parseFloat(a.grandTotal)||0);
-    return(b.invDate||'')<(a.invDate||'')?-1:1; // date-desc default
+    return db>da?1:db<da?-1:0; // default: newest first
   });
 }
 function renderSales(){
@@ -2056,68 +2134,109 @@ function showBulkPreview(rows,skipped=[]){
   }
   el.innerHTML=html;
 }
-function bulkSaveOnly(){
+async function bulkSaveOnly(){
   if(!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
   const rows=window._bulkRows;
   if(!rows||!rows.length){toast('⚠️ No rows to import');return;}
-  showLoading('Saving '+rows.length+' invoices…');
-  setTimeout(()=>{
-    try{
-      if(invoices.length>0){
-        const nums=invoices.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
-        invCtr=Math.max(...nums,invCtr);
-      }
-      let added=0,updated=0;
-      rows.forEach((r,ri)=>{
-        const suitsTotal=r.itemsArr.reduce((s,i)=>s+(i.qty||1)*(i.unitPrice||0),0);
-        const key=`${r.invDate||''}|${(r.custName||'').trim().toLowerCase()}|${suitsTotal}`;
-        const existIdx=invoices.findIndex(i=>`${i.invDate||''}|${(i.custName||'').trim().toLowerCase()}|${parseFloat(i.suitsTotal||0)}`===key);
-        const isIntra=(r.custState||'')==='Punjab';
-        const{grandIncl,gstAmt,taxableExcl}=calcTotals(r.itemsArr,r.shipping,r.discount);
-        const validItems=r.itemsArr.filter(i=>i.unitPrice>0);
-        if(existIdx>=0){
-          const ex=invoices[existIdx];let changed=false;
-          if(r.shippingCost&&!ex.shippingCost){ex.shippingCost=r.shippingCost;changed=true;}
-          if(r.channel&&!ex.channel){ex.channel=r.channel;changed=true;}
-          if(r.tracking&&!ex.tracking){ex.tracking=r.tracking;changed=true;}
-          if(r.custPhone&&!ex.custPhone){ex.custPhone=r.custPhone;changed=true;}
-          if(r.custAddress&&!ex.custAddress){ex.custAddress=r.custAddress;changed=true;}
-          const ct=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0),0);
-          if(ct>0&&!ex.costPrice){ex.costPrice=ct;changed=true;}
-          if(changed){delete ex.html;gsWrite(SHEETS.invoices,flattenInvoice(ex));updated++;}
-          return;
-        }
-        invCtr++;
-        const invNo='INV-'+String(invCtr).padStart(3,'0');
+
+  // Step 1 — Build local invoices immediately (fast)
+  showLoading('Preparing '+rows.length+' invoices…');
+  await new Promise(r=>setTimeout(r,80));
+
+  try{
+    if(invoices.length>0){
+      const nums=invoices.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
+      invCtr=Math.max(...nums,invCtr);
+    }
+    let added=0,updated=0;
+    const toWrite=[];
+
+    rows.forEach((r,ri)=>{
+      const suitsTotal=r.itemsArr.reduce((s,i)=>s+(i.qty||1)*(i.unitPrice||0),0);
+      const key=`${r.invDate||''}|${(r.custName||'').trim().toLowerCase()}|${suitsTotal}`;
+      const existIdx=invoices.findIndex(i=>`${i.invDate||''}|${(i.custName||'').trim().toLowerCase()}|${parseFloat(i.suitsTotal||0)}`===key);
+      const isIntra=(r.custState||'')==='Punjab';
+      const{grandIncl,gstAmt,taxableExcl}=calcTotals(r.itemsArr,r.shipping,r.discount);
+      const validItems=r.itemsArr.filter(i=>i.unitPrice>0);
+
+      if(existIdx>=0){
+        const ex=invoices[existIdx];let changed=false;
+        if(r.shippingCost&&!ex.shippingCost){ex.shippingCost=r.shippingCost;changed=true;}
+        if(r.channel&&!ex.channel){ex.channel=r.channel;changed=true;}
+        if(r.tracking&&!ex.tracking){ex.tracking=r.tracking;changed=true;}
+        if(r.custPhone&&!ex.custPhone){ex.custPhone=r.custPhone;changed=true;}
+        if(r.custAddress&&!ex.custAddress){ex.custAddress=r.custAddress;changed=true;}
         const ct=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0),0);
-        const saved={
-          id:Date.now()+ri,invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),
-          custName:r.custName,custPhone:r.custPhone,custAddress:r.custAddress,custState:r.custState,isIntra,
-          grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,itemCount:validItems.length,
-          itemsSummary:validItems.map(i=>i.desc).join(', '),itemsArr:validItems,
-          shipping:r.shipping,shippingCost:r.shippingCost||0,discount:r.discount,
-          tracking:r.tracking,channel:r.channel||'',isShipped:false,status:'Pending',costPrice:ct||0,
-          gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,dispatchDate:'',
-        };
-        invoices.push(saved);
-        gsWrite(SHEETS.invoices,flattenInvoice(saved));
-        added++;
-      });
-      save();localStorage.setItem('vc_ctr',invCtr);
+        if(ct>0&&!ex.costPrice){ex.costPrice=ct;changed=true;}
+        if(changed){delete ex.html;toWrite.push(ex);updated++;}
+        return;
+      }
+
+      invCtr++;
+      const invNo='INV-'+String(invCtr).padStart(3,'0');
+      const ct=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0),0);
+      const saved={
+        id:Date.now()+ri,invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),
+        custName:r.custName,custPhone:r.custPhone,custAddress:r.custAddress,custState:r.custState,isIntra,
+        grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,itemCount:validItems.length,
+        itemsSummary:validItems.map(i=>i.desc).join(', '),itemsArr:validItems,
+        shipping:r.shipping,shippingCost:r.shippingCost||0,discount:r.discount,
+        tracking:r.tracking,channel:r.channel||'',isShipped:false,status:'Pending',costPrice:ct||0,
+        gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,dispatchDate:'',
+      };
+      invoices.push(saved);
+      toWrite.push(saved);
+      added++;
+    });
+
+    // Save locally immediately
+    save();localStorage.setItem('vc_ctr',invCtr);
+
+    const total=toWrite.length;
+    if(total===0){
       hideLoading();
       const el=document.getElementById('bulk-preview');
-      if(el)el.innerHTML=`<div class="card" style="text-align:center;padding:24px;">
-        <div style="font-size:40px;margin-bottom:12px;">✅</div>
-        ${added>0?`<div style="font-size:18px;font-weight:700;color:var(--brown);margin-bottom:6px;">${added} invoice${added!==1?'s':''} imported!</div>`:''}
-        ${updated>0?`<div style="font-size:14px;color:#27ae60;margin-bottom:6px;">✏️ ${updated} invoice${updated!==1?'s':''} updated</div>`:''}
-        ${added===0&&updated===0?`<div style="font-size:14px;color:#888;">All rows already in system</div>`:''}
-        <div style="font-size:13px;color:#888;margin-bottom:16px;">Syncing to Google Sheets…</div>
-        <button class="btn btn-p" onclick="showPage('sales',document.getElementById('bnav-sales'));closeSubPage()">📋 View in Sales →</button>
-      </div>`;
+      if(el)el.innerHTML=`<div class="card" style="text-align:center;padding:24px;"><div style="font-size:14px;color:#888;">All rows already in system — nothing new to add</div></div>`;
       window._bulkRows=null;
-      toast('✅ '+(added+updated)+' invoices processed',4000);
-    }catch(err){hideLoading();toast('❌ Import failed: '+err.message,6000);}
-  },80);
+      return;
+    }
+
+    // Show progress card immediately
+    const el=document.getElementById('bulk-preview');
+    if(el)el.innerHTML=`<div class="card" style="text-align:center;padding:24px;" id="bulk-progress-card">
+      <div style="font-size:28px;margin-bottom:10px;">☁️</div>
+      <div style="font-size:16px;font-weight:600;color:var(--brown);margin-bottom:6px;" id="bulk-progress-title">Saving to Google Sheets…</div>
+      <div style="font-size:14px;color:#888;margin-bottom:14px;" id="bulk-progress-sub">0 of ${total} written</div>
+      <div style="background:#e2d4bc;border-radius:6px;height:10px;margin:0 20px;"><div id="bulk-progress-bar" style="background:var(--gold);border-radius:6px;height:10px;width:0%;transition:width .3s;"></div></div>
+      <div style="font-size:12px;color:#aaa;margin-top:10px;">Please keep this screen open · ~${Math.ceil(total*0.6)} seconds</div>
+    </div>`;
+    hideLoading();
+
+    // Step 2 — Confirmed batch write with live progress
+    const result=await gsWriteBatch(SHEETS.invoices,toWrite.map(flattenInvoice),(done,failed,tot)=>{
+      const pct=Math.round((done/tot)*100);
+      const bar=document.getElementById('bulk-progress-bar');
+      const sub=document.getElementById('bulk-progress-sub');
+      if(bar)bar.style.width=pct+'%';
+      if(sub)sub.textContent=done+' of '+tot+' written'+(failed>0?' ('+failed+' retrying)':'');
+    });
+
+    // Done
+    const card=document.getElementById('bulk-progress-card');
+    if(card)card.outerHTML=`<div class="card" style="text-align:center;padding:24px;">
+      <div style="font-size:40px;margin-bottom:12px;">✅</div>
+      ${added>0?`<div style="font-size:18px;font-weight:700;color:var(--brown);margin-bottom:6px;">${added} invoice${added!==1?'s':''} imported!</div>`:''}
+      ${updated>0?`<div style="font-size:14px;color:#27ae60;margin-bottom:6px;">✏️ ${updated} updated</div>`:''}
+      <div style="font-size:13px;color:#888;margin-bottom:6px;">${result.done} of ${total} confirmed in Google Sheets${result.failed>0?' · '+result.failed+' may need manual sync':''}</div>
+      <button class="btn btn-p" style="margin-top:14px;" onclick="showPage('sales',document.getElementById('bnav-sales'));closeSubPage()">📋 View in Sales →</button>
+    </div>`;
+    window._bulkRows=null;
+    toast('✅ '+(added+updated)+' invoices saved!',4000);
+
+  }catch(err){
+    hideLoading();
+    toast('❌ Import failed: '+err.message,6000);
+  }
 }
 function bulkSaveAndPrint(){
   if(!S.gstin){toast('⚠️ Enter GSTIN in Settings first');return;}
