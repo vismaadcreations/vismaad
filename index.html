@@ -300,10 +300,24 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="fg"><label>Shipping charged to customer (₹)</label><input type="number" id="shipping" value="0" oninput="recalc()"/></div>
       <div class="fg"><label>Discount (₹)</label><input type="number" id="discount" value="0" oninput="recalc()"/></div>
     </div>
-    <div class="fg"><label>Actual shipping cost paid — India Post (₹) <span style="font-weight:400;color:#aaa;">(for P&L only)</span></label><input type="number" id="shipping-cost" value="0" placeholder="What India Post charged you"/></div>
-    <div class="row2">
-      <div class="fg"><label>India Post Tracking</label><input id="tracking" placeholder="EE123456789IN"/></div>
+    <div class="fg"><label>Actual shipping cost paid (₹) <span style="font-weight:400;color:#aaa;">(for P&L only)</span></label><input type="number" id="shipping-cost" value="0" placeholder="What courier charged you"/></div>
+    <div class="fg">
+      <label>Dispatch Method</label>
+      <select id="dispatch-method" onchange="updateDispatchFields()">
+        <option value="indiapost">India Post Parcel</option>
+        <option value="courier">Other Courier</option>
+        <option value="hand">Hand Delivery</option>
+        <option value="walkin">Walk-in / Collected in person</option>
+        <option value="">Not specified</option>
+      </select>
+    </div>
+    <div id="dispatch-tracking-row" class="row2">
+      <div class="fg"><label>Tracking No.</label><input id="tracking" placeholder="EE123456789IN"/></div>
       <div class="fg"><label>Dispatch Date</label><input type="date" id="dispatch-date"/></div>
+    </div>
+    <div id="dispatch-courier-row" class="fg" style="display:none;">
+      <label>Courier Name</label>
+      <input id="courier-name" placeholder="e.g. Delhivery, DTDC, BlueDart"/>
     </div>
     <div class="fg">
       <label>Sale Channel <span style="font-weight:400;color:#aaa;">(optional)</span></label>
@@ -1079,6 +1093,16 @@ function updateTaxType(){
   el.value=st==='Punjab'?'CGST 2.5% + SGST 2.5% (Intra-state)':'IGST 5% (Inter-state)';
   recalc();
 }
+function updateDispatchFields(){
+  const method=document.getElementById('dispatch-method')?.value;
+  const trackRow=document.getElementById('dispatch-tracking-row');
+  const courierRow=document.getElementById('dispatch-courier-row');
+  // Show tracking for postal/courier, hide for hand delivery / walk-in / not specified
+  const showTracking=method==='indiapost'||method==='courier';
+  const showCourier=method==='courier';
+  if(trackRow)trackRow.style.display=showTracking?'':'none';
+  if(courierRow)courierRow.style.display=showCourier?'block':'none';
+}
 
 // ═══════════════════════════════════════════
 // GENERATE INVOICE
@@ -1106,6 +1130,8 @@ function generateInvoice(){
   const shippingCost=parseFloat(document.getElementById('shipping-cost')?.value)||0;
   const tracking=document.getElementById('tracking')?.value||'';
   const dispatchDate=document.getElementById('dispatch-date')?.value||'';
+  const dispatchMethod=document.getElementById('dispatch-method')?.value||'indiapost';
+  const courierName=document.getElementById('courier-name')?.value||'';
   const isIntra=custState==='Punjab';
   const custPhone=document.getElementById('c-phone')?.value||'';
   const custAddress=document.getElementById('c-address')?.value||'';
@@ -1118,7 +1144,8 @@ function generateInvoice(){
     id:Date.now(),
     invNo,invDate,fy:getFY(invDate),
     custName,custPhone,custAddress,custState,isIntra,
-    shipping:ship,shippingCost,discount:disc,tracking,dispatchDate,channel,
+    shipping:ship,shippingCost,discount:disc,tracking,dispatchDate,
+    dispatchMethod,courierName,channel,
     grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
     itemCount:validItems.length,
     itemsSummary:validItems.map(i=>`${i.desc} x${i.qty} @₹${i.unitPrice}`).join(' | '),
@@ -1167,6 +1194,9 @@ function resetInvoiceForm(){
   const sh=document.getElementById('shipping');if(sh)sh.value='0';
   const di=document.getElementById('discount');if(di)di.value='0';
   const sc2=document.getElementById('shipping-cost');if(sc2)sc2.value='0';
+  const dm=document.getElementById('dispatch-method');if(dm)dm.value='indiapost';
+  const cn=document.getElementById('courier-name');if(cn)cn.value='';
+  updateDispatchFields();
   const sc=document.getElementById('sale-channel');if(sc)sc.value='';
   selChannel='';
   document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
@@ -1255,9 +1285,31 @@ function buildInvoiceHTML(data){
         <div style="font-size:11px;color:#555;line-height:1.6;">${data.custPhone?'📞 '+data.custPhone+'<br/>':''}${data.custAddress?data.custAddress.replace(/\n/g,'<br/>')+'<br/>':''}${data.custState?`<strong>${data.custState}</strong>`:''}</div>
       </div>
       <div>
-        <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Dispatched Via</div>
-        <div style="font-size:13px;font-weight:700;">India Post Parcel</div>
-        <div style="font-size:11px;color:#555;">${data.tracking?'🔍 <strong>'+data.tracking+'</strong><br/>':''}${data.dispatchDate?'📅 '+fd(data.dispatchDate):''}</div>
+        ${(()=>{
+          const method=data.dispatchMethod||'indiapost';
+          const labels={
+            indiapost:'India Post Parcel',
+            courier:data.courierName||'Courier',
+            hand:'Hand Delivery',
+            walkin:'Walk-in / Collected in person',
+            '':'',
+          };
+          const label=labels[method]||method;
+          if(method==='walkin'){
+            return`<div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Delivery</div>
+              <div style="font-size:13px;font-weight:700;">Walk-in / Collected in person</div>
+              ${data.dispatchDate?`<div style="font-size:11px;color:#555;">📅 ${fd(data.dispatchDate)}</div>`:''}`;
+          }
+          if(method==='hand'){
+            return`<div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Delivery</div>
+              <div style="font-size:13px;font-weight:700;">Hand Delivery</div>
+              ${data.dispatchDate?`<div style="font-size:11px;color:#555;">📅 ${fd(data.dispatchDate)}</div>`:''}`;
+          }
+          if(!label)return'';
+          return`<div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Dispatched Via</div>
+            <div style="font-size:13px;font-weight:700;">${label}</div>
+            <div style="font-size:11px;color:#555;">${data.tracking?'🔍 <strong>'+data.tracking+'</strong><br/>':''}${data.dispatchDate?'📅 '+fd(data.dispatchDate):''}</div>`;
+        })()}
       </div>
     </div>
     <hr style="border:none;border-top:1px solid #e2d4bc;margin:10px 0;"/>
