@@ -806,15 +806,38 @@ async function syncAll(){
     const remPur  = await gsRead(SHEETS.purchases);
     const remSet  = await gsRead(SHEETS.settings);
 
-    // INVOICES — merge: local wins for same ID, pull in remote-only records
+    // INVOICES — smart merge:
+    // - New remote records (not in local) → add them
+    // - Existing records → update mutable fields from remote (shipped status, tracking, channel, costs)
+    //   This ensures status changes made on one device propagate to others
     if(!cleared){
-      const localIds=new Set(invoices.map(i=>String(i.id)));
-      // Only add records from remote that don't exist locally
-      const remoteOnly=remInv.filter(r=>r.id&&!localIds.has(String(r.id)));
-      if(remoteOnly.length>0){
-        invoices=[...invoices,...remoteOnly];
-        invoices.sort((a,b)=>(a.invDate||'')<(b.invDate||'')?-1:1);
-      }
+      const localMap={};invoices.forEach(i=>{localMap[String(i.id)]=i;});
+      remInv.forEach(r=>{
+        if(!r.id)return;
+        const local=localMap[String(r.id)];
+        if(!local){
+          // New record from remote — add it
+          localMap[String(r.id)]=r;
+        }else{
+          // Update mutable fields from remote — remote is the source of truth for these
+          // since any device may have changed them
+          const remShipped=r.isShipped==='true'||r.isShipped===true||r.status==='Shipped';
+          const remStatus=r.status||'';
+          // Remote wins for shipped status if it differs
+          if(remShipped!==local.isShipped||remStatus!==local.status){
+            local.isShipped=remShipped;
+            local.status=remShipped?'Shipped':'Pending';
+          }
+          // Sync other editable fields if remote has them and local doesn't
+          if(r.tracking&&!local.tracking)local.tracking=r.tracking;
+          if(r.channel&&!local.channel)local.channel=r.channel;
+          if(r.costPrice&&!local.costPrice)local.costPrice=parseFloat(r.costPrice)||0;
+          if(r.shippingCost&&!local.shippingCost)local.shippingCost=parseFloat(r.shippingCost)||0;
+          if(r.custPhone&&!local.custPhone)local.custPhone=r.custPhone;
+          if(r.custAddress&&!local.custAddress)local.custAddress=r.custAddress;
+        }
+      });
+      invoices=Object.values(localMap).sort((a,b)=>(a.invDate||'')<(b.invDate||'')?-1:1);
     }
 
     // INVENTORY — merge
@@ -1384,8 +1407,19 @@ function toggleSelectAll(cb){document.querySelectorAll('.sale-cb').forEach(c=>c.
 function getSelectedInvoices(){return[...document.querySelectorAll('.sale-cb:checked')].map(c=>salesFiltered[parseInt(c.dataset.idx)]).filter(Boolean);}
 function bulkMarkShipped(shipped){
   const sel=getSelectedInvoices();if(!sel.length){toast('⚠️ Select at least one invoice');return;}
-  sel.forEach(inv=>{inv.isShipped=shipped;inv.status=shipped?'Shipped':'Pending';gsWrite(SHEETS.invoices,flattenInvoice(inv));});
-  save();renderSales();toast((shipped?'🚚 Marked shipped: ':'↩ Marked pending: ')+sel.length);
+  sel.forEach(inv=>{inv.isShipped=shipped;inv.status=shipped?'Shipped':'Pending';});
+  save();renderSales();
+  toast((shipped?'🚚 Marking shipped: ':'↩ Marking pending: ')+sel.length+'…');
+  // Write all with confirmed writes sequentially
+  (async()=>{
+    let ok=0;
+    for(const inv of sel){
+      const success=await gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv));
+      if(success)ok++;
+      await new Promise(r=>setTimeout(r,300));
+    }
+    toast(ok+'/'+sel.length+' status updates confirmed in Google Sheets');
+  })();
 }
 function bulkPrint(){
   const sel=getSelectedInvoices();if(!sel.length){toast('⚠️ Select invoices first');return;}
@@ -1414,8 +1448,13 @@ function printInvoiceByIdx(idx){
 function toggleShippedByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
   inv.isShipped=!inv.isShipped;inv.status=inv.isShipped?'Shipped':'Pending';
-  save();gsWrite(SHEETS.invoices,flattenInvoice(inv));renderSales();
-  toast(inv.isShipped?'🚚 Shipped':'↩ Pending');
+  save();
+  // Use confirmed write so status definitely lands in Google Sheets
+  gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{
+    if(!ok)toast('⚠️ Status saved locally but sheet sync failed — tap sync dot to retry');
+  });
+  renderSales();
+  toast(inv.isShipped?'🚚 Marked Shipped':'↩ Marked Pending');
 }
 function deleteInvoiceByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
