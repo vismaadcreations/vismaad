@@ -1167,31 +1167,12 @@ function generateInvoice(){
   localStorage.setItem('vc_ctr',invCtr);
   toast('✅ Invoice '+invNo+' saved!');
 }
-function getInvHtml(inv,copyLabel=''){
-  const html=buildInvoiceHTML({...inv,itemsArr:expandItems(inv.itemsArr),logoB64});
-  if(!copyLabel)return html;
-  const cls=copyLabel.toLowerCase().includes('customer')?'customer':'office';
-  return html.replace(
-    'font-family:\'DM Sans\',sans-serif;font-size:12px;color:#1a1208;background:#fff;padding:20px;',
-    'font-family:\'DM Sans\',sans-serif;font-size:12px;color:#1a1208;background:#fff;padding:20px;position:relative;'
-  )+'<div class="copy-label '+cls+'" style="position:absolute;top:3mm;right:4mm;font-size:8pt;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:1px;background:'+(cls==='customer'?'#dff0d8;color:#27ae60':'#e8f4fd;color:#2980b9')+';">'+copyLabel+'</div>';
+function getInvHtml(inv){
+  return buildInvoiceHTML({...inv,itemsArr:expandItems(inv.itemsArr),logoB64});
 }
 function printCurrentInvoice(){
   if(!currentInv)return;
-  // Two half-A4 copies on one A4 sheet
-  const customerCopy=getInvHtml(currentInv,'Customer Copy');
-  const officeCopy=getInvHtml(currentInv,'Office Copy');
-  document.getElementById('print-area').innerHTML=`
-    <div class="print-page-dual">
-      <div class="print-half" style="position:relative;">
-        <div class="copy-label customer">Customer Copy</div>
-        ${customerCopy}
-      </div>
-      <div class="print-half" style="position:relative;">
-        <div class="copy-label office">Office Copy</div>
-        ${officeCopy}
-      </div>
-    </div>`;
+  document.getElementById('print-area').innerHTML=`<div class="print-page">${getInvHtml(currentInv)}</div>`;
   window.print();
 }
 function resetInvoiceForm(){
@@ -1226,12 +1207,24 @@ function resetInvoiceForm(){
 // BUILD INVOICE HTML
 // ═══════════════════════════════════════════
 function buildInvoiceHTML(data){
-  const{suitsTotal,grandIncl,taxableExcl,gstAmt}=calcTotals(data.itemsArr||[],data.shipping||0,data.discount||0);
+  // Use stored grandTotal if available — don't recalculate (avoids discrepancy from edits)
+  const storedGrand=parseFloat(data.grandTotal)||0;
+  const storedShipping=parseFloat(data.shipping)||0;
+  const storedDiscount=parseFloat(data.discount)||0;
+  const itemsArr=data.itemsArr||[];
+
+  // Recalc only for tax breakdown — using actual items
+  const{suitsTotal,grandIncl,taxableExcl,gstAmt}=calcTotals(itemsArr,storedShipping,storedDiscount);
+  // Use stored grand total for display — fall back to recalculated only if not stored
+  const displayGrand=storedGrand>0?storedGrand:grandIncl;
+  const displayTaxable=parseFloat((displayGrand/1.05).toFixed(2));
+  const displayGST=parseFloat((displayGrand-displayTaxable).toFixed(2));
+
   const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
   const fd=d=>{if(!d)return'';try{const p=d.split('-');return p[2]+'/'+p[1]+'/'+p[0];}catch{return d;}};
-  const validItems=(data.itemsArr||[]).filter(i=>i.unitPrice>0);
+  const validItems=itemsArr.filter(i=>i.unitPrice>0);
   const hsnSet=[...new Set(validItems.map(i=>i.hsn||'540754'))];
-  const hsnLabel=data.shipping>0?hsnSet.join('/')+'/9965':hsnSet.join('/');
+  const hsnLabel=storedShipping>0?hsnSet.join('/')+'/9965':hsnSet.join('/');
   const itemRows=validItems.map((it,i)=>{
     const lineIncl=(it.qty||1)*(it.unitPrice||0);
     const lineTax=parseFloat((lineIncl/1.05).toFixed(2));
@@ -1245,18 +1238,18 @@ function buildInvoiceHTML(data){
       <td style="padding:6px 8px;text-align:right;font-weight:600;">${f(lineIncl)}</td>
     </tr>`;
   }).join('');
-  const shipRow=data.shipping>0?`<tr style="border-bottom:1px solid #e2d4bc;">
+  const shipRow=storedShipping>0?`<tr style="border-bottom:1px solid #e2d4bc;">
     <td style="padding:6px 8px;">${validItems.length+1}</td>
     <td style="padding:6px 8px;"><strong>Shipping Charges</strong>${data.tracking?`<br/><span style="font-size:10px;color:#888;">${data.tracking}</span>`:''}</td>
     <td style="padding:6px 8px;">9965</td><td style="padding:6px 8px;text-align:center;">1</td>
-    <td style="padding:6px 8px;text-align:right;">${f(data.shipping)}</td>
-    <td style="padding:6px 8px;text-align:right;">${f(parseFloat((data.shipping/1.05).toFixed(2)))}</td>
-    <td style="padding:6px 8px;text-align:right;font-weight:600;">${f(data.shipping)}</td></tr>`:'';
-  const discRow=data.discount>0?`<tr><td colspan="6" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: Discount</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−${f(data.discount)}</td></tr>`:'';
+    <td style="padding:6px 8px;text-align:right;">${f(storedShipping)}</td>
+    <td style="padding:6px 8px;text-align:right;">${f(parseFloat((storedShipping/1.05).toFixed(2)))}</td>
+    <td style="padding:6px 8px;text-align:right;font-weight:600;">${f(storedShipping)}</td></tr>`:'';
+  const discRow=storedDiscount>0?`<tr><td colspan="6" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: Discount</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−${f(storedDiscount)}</td></tr>`:'';
   const gstRows=data.isIntra?`
-    <tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(taxableExcl)}</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">${f(gstAmt/2)}</td></tr>
-    <tr><td style="padding:3px 8px;">SGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(taxableExcl)}</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">${f(gstAmt/2)}</td></tr>`
-    :`<tr><td style="padding:3px 8px;">IGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(taxableExcl)}</td><td style="padding:3px 8px;">5%</td><td style="padding:3px 8px;">${f(gstAmt)}</td></tr>`;
+    <tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(displayTaxable)}</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">${f(displayGST/2)}</td></tr>
+    <tr><td style="padding:3px 8px;">SGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(displayTaxable)}</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">${f(displayGST/2)}</td></tr>`
+    :`<tr><td style="padding:3px 8px;">IGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(displayTaxable)}</td><td style="padding:3px 8px;">5%</td><td style="padding:3px 8px;">${f(displayGST)}</td></tr>`;
   return`<div style="font-family:'DM Sans',sans-serif;font-size:12px;color:#1a1208;background:#fff;padding:20px;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
       <div>
@@ -1301,12 +1294,12 @@ function buildInvoiceHTML(data){
       <tbody>${itemRows}${shipRow}${discRow}</tbody>
       <tfoot><tr style="background:#f5e6c8;">
         <td colspan="5" style="padding:7px 8px;text-align:right;font-weight:700;">Grand Total</td>
-        <td style="padding:7px 8px;text-align:right;color:#888;">${f(taxableExcl)}</td>
-        <td style="padding:7px 8px;text-align:right;font-weight:700;font-size:13px;color:#5c3d1e;">${f(grandIncl)}</td>
+        <td style="padding:7px 8px;text-align:right;color:#888;">${f(displayTaxable)}</td>
+        <td style="padding:7px 8px;text-align:right;font-weight:700;font-size:13px;color:#5c3d1e;">${f(displayGrand)}</td>
       </tr></tfoot>
     </table>
     <div style="background:#f5e6c8;border-radius:5px;padding:7px 10px;font-size:11px;color:#5c3d1e;font-weight:600;margin-bottom:12px;">
-      Amount in Words: <strong>${numberToWords(Math.round(grandIncl))} Rupees Only</strong>
+      Amount in Words: <strong>${numberToWords(Math.round(displayGrand))} Rupees Only</strong>
     </div>
     <div style="background:#f9f5ee;border:1px solid #e2d4bc;border-radius:5px;padding:9px 12px;margin-bottom:12px;">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:6px;">GST Summary</div>
