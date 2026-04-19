@@ -1783,21 +1783,38 @@ function printLabel(){
     +'-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
     +'.box{width:170mm;border:1.5px solid #555;border-radius:2mm;padding:6mm;}'
     +'.ref{font-size:9pt;color:#999;text-align:right;margin-bottom:4mm;}'
-    +'.mid{display:flex;gap:5mm;margin-bottom:4mm;padding-bottom:4mm;border-bottom:0.5px solid #ddd;}'
-    +'.to{flex:1;}'
+    // TO + QR row — address block grows as needed, QR stays fixed
+    +'.mid{display:flex;gap:5mm;margin-bottom:4mm;padding-bottom:4mm;border-bottom:0.5px solid #ddd;align-items:flex-start;}'
+    +'.to{flex:1;min-width:0;}'
     +'.tolbl{font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#888;margin-bottom:2mm;}'
     +'.toname{font-size:16pt;font-weight:700;line-height:1.2;margin-bottom:2mm;word-break:break-word;}'
-    +'.toaddr{font-size:11pt;color:#444;line-height:1.6;word-break:break-word;}'
-    +'.toph{font-size:11pt;font-weight:600;margin-top:2mm;}'
+    // Address: bold, 13pt, auto line-height, shrinks font if very long via fit-content approach
+    +'.toaddr{'
+    +'font-size:13pt;'
+    +'font-weight:700;'
+    +'color:#222;'
+    +'line-height:1.55;'
+    +'word-break:break-word;'
+    +'}'
+    +'.toph{font-size:13pt;font-weight:700;color:#222;margin-top:2mm;}'
+    // Thank you strip
     +'.ty{text-align:center;padding:4mm 0;margin-bottom:4mm;border-bottom:0.5px solid #ddd;}'
     +'.tytext{font-family:"Great Vibes","Brush Script MT","Segoe Script",cursive;font-size:26pt;color:#7B3F00;}'
-    +'.bot{display:flex;align-items:center;}'
+    // Bottom: logo centre, FROM right
+    +'.bot{display:flex;align-items:flex-start;}'
     +'.botl,.botm,.botr{flex:1;}'
     +'.botm{text-align:center;}'
     +'.botr{text-align:right;}'
     +'.frlbl{font-size:8pt;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:1.5mm;}'
-    +'.frname{font-size:12pt;font-weight:700;}'
-    +'.frdet{font-size:10.5pt;color:#555;line-height:1.6;}'
+    +'.frname{font-size:12pt;font-weight:700;color:#111;margin-bottom:1mm;}'
+    // FROM address: bold, 12pt, auto line-height
+    +'.frdet{'
+    +'font-size:12pt;'
+    +'font-weight:700;'
+    +'color:#222;'
+    +'line-height:1.55;'
+    +'word-break:break-word;'
+    +'}'
     +'.cut{width:170mm;margin-top:6mm;padding-top:3mm;border-top:1px dashed #bbb;'
     +'text-align:center;font-size:8.5pt;color:#bbb;letter-spacing:2px;}';
 
@@ -1826,22 +1843,33 @@ function printLabel(){
     +'</div>'
     +'<div class="cut">&#8702;&#8702;&#8702; cut here &#8702;&#8702;&#8702;</div>';
 
+  // Auto-shrink addresses if too long — runs after page loads
+  const shrinkScript=''
+    +'window.onload=function(){'
+    +'  function shrink(el,minPt){'
+    +'    if(!el)return;'
+    +'    var size=parseFloat(window.getComputedStyle(el).fontSize);'
+    +'    while(el.scrollHeight>el.offsetHeight+2&&size>minPt){'
+    +'      size-=0.5;el.style.fontSize=size+"px";'
+    +'    }'
+    +'  }'
+    +'  shrink(document.getElementById("toaddr"),9);'
+    +'  shrink(document.getElementById("frdet"),9);'
+    +'  var go=function(){window.print();};'
+    +'  if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){setTimeout(go,500);});}else{setTimeout(go,1500);}'
+    +'};';
+
   const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
     +'<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet"/>'
     +'<style>'+css+'</style>'
-    +'<script>'
-    +'window.onload=function(){'
-    +'  var go=function(){window.print();};'
-    +'  if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){setTimeout(go,500);});}else{setTimeout(go,1500);}'
-    +'};'
-    +'<\/script>'
-    +'</head><body>'+body+'</body></html>';
+    +'<script>'+shrinkScript+'<\/script>'
+    +'</head><body>'+body.replace('class="toaddr"','class="toaddr" id="toaddr"').replace('class="frdet"','class="frdet" id="frdet"')+'</body></html>';
 
   const blob=new Blob([html],{type:'text/html'});
   const url=URL.createObjectURL(blob);
   const w=window.open(url,'_blank');
   if(!w){
-    toast('⚠️ Popup blocked — allow popups for this site in browser settings',5000);
+    toast('⚠️ Popup blocked — allow popups in browser settings',5000);
     URL.revokeObjectURL(url);
   }else{
     setTimeout(()=>URL.revokeObjectURL(url),30000);
