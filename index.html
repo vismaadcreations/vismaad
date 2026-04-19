@@ -1771,74 +1771,82 @@ function printLabel(){
   const fromAddr=(document.getElementById('lbl-from-addr')?.value||'Vismaad Creations').replace(/\n/g,'<br/>');
   const fromPh=document.getElementById('lbl-from-ph')?.value||'';
   const qrImg=qrB64
-    ?'<img src="'+qrB64+'" style="width:32mm;height:32mm;object-fit:contain;display:block;"/>'
-    :'<div style="width:32mm;height:32mm;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;font-size:8pt;color:#aaa;text-align:center;line-height:1.4;">Instagram<br/>QR</div>';
+    ?'<img src="'+qrB64+'" style="width:28mm;height:28mm;object-fit:contain;display:block;"/>'
+    :'<div style="width:28mm;height:28mm;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;font-size:7pt;color:#aaa;text-align:center;">QR</div>';
   const logoImg=logoB64
-    ?'<img src="'+logoB64+'" style="max-height:14mm;max-width:42mm;object-fit:contain;display:block;margin:0 auto;"/>'
-    :'<div style="font-size:12pt;font-weight:700;color:#5c3d1e;font-family:Georgia,serif;text-align:center;">Vismaad<br/>Creations</div>';
+    ?'<img src="'+logoB64+'" style="max-height:12mm;max-width:38mm;object-fit:contain;display:block;margin:0 auto;"/>'
+    :'<div style="font-size:11pt;font-weight:700;color:#5c3d1e;font-family:Georgia,serif;text-align:center;">Vismaad<br/>Creations</div>';
 
+  // Strategy: use full A4 portrait, print label in top half only.
+  // Give generous margins so it stays within every printer's printable area.
+  // Content fits inside 180mm x 120mm — well inside any printer's safe zone.
   const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
     +'<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet"/>'
     +'<style>'
     +'*{box-sizing:border-box;margin:0;padding:0;}'
-    // Exact half-A4 page — 210mm x 148.5mm, zero margins
-    +'@page{size:210mm 148.5mm;margin:0;}'
-    +'html,body{width:210mm;height:148.5mm;overflow:hidden;background:#fff;'
-    +'font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;'
-    +'-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
-    // Label fills page with padding
-    +'.lbl{width:210mm;height:148.5mm;padding:6mm;}'
-    // Border box fills available space
-    +'.box{width:198mm;height:136.5mm;border:1.5px solid #555;border-radius:2mm;padding:5mm;'
-    +'display:flex;flex-direction:column;overflow:hidden;}'
-    +'.ref{font-size:7.5pt;color:#999;text-align:right;height:5mm;line-height:5mm;flex-shrink:0;}'
-    +'.mid{display:flex;gap:5mm;align-items:flex-start;flex:1;min-height:0;'
-    +'border-bottom:0.5px solid #ddd;padding-bottom:3mm;margin-bottom:3mm;overflow:hidden;}'
-    +'.to{flex:1;min-width:0;overflow:hidden;}'
-    +'.to-lbl{font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#888;margin-bottom:1.5mm;}'
-    +'.to-name{font-size:14pt;font-weight:700;line-height:1.25;margin-bottom:1.5mm;word-break:break-word;}'
-    +'.to-addr{font-size:9.5pt;color:#444;line-height:1.55;word-break:break-word;}'
-    +'.to-ph{font-size:9.5pt;font-weight:600;margin-top:1.5mm;}'
-    +'.ty{text-align:center;border-bottom:0.5px solid #ddd;padding:2mm 0;margin-bottom:2.5mm;flex-shrink:0;}'
-    +'.ty span{font-family:"Great Vibes","Brush Script MT",cursive;font-size:22pt;color:#7B3F00;}'
+    +'@page{size:A4 portrait;margin:12mm 15mm;}'
+    +'html,body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;'
+    +'-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff;}'
+    // Label box: 180mm wide (210 - 2x15mm margins), 120mm tall — fits in top half of A4
+    +'.box{'
+    +'width:180mm;height:120mm;'
+    +'border:1.5px solid #555;border-radius:2mm;'
+    +'padding:5mm;'
+    +'display:flex;flex-direction:column;gap:3mm;'
+    +'overflow:hidden;'
+    +'}'
+    // Cut line hint below the box
+    +'.cut{width:180mm;margin-top:4mm;text-align:center;'
+    +'font-size:7.5pt;color:#bbb;letter-spacing:2px;'
+    +'border-top:1px dashed #ccc;padding-top:2mm;}'
+    +'.ref{font-size:7pt;color:#999;text-align:right;flex-shrink:0;line-height:1;}'
+    +'.mid{display:flex;gap:4mm;align-items:flex-start;flex:1;min-height:0;'
+    +'border-bottom:0.5px solid #ddd;padding-bottom:3mm;overflow:hidden;}'
+    +'.to{flex:1;min-width:0;}'
+    +'.to-lbl{font-size:6.5pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#888;margin-bottom:1.5mm;}'
+    +'.to-name{font-size:13pt;font-weight:700;line-height:1.2;margin-bottom:1.5mm;word-break:break-word;}'
+    +'.to-addr{font-size:9pt;color:#444;line-height:1.55;word-break:break-word;}'
+    +'.to-ph{font-size:9pt;font-weight:600;margin-top:1.5mm;}'
+    +'.ty{text-align:center;border-bottom:0.5px solid #ddd;padding:1.5mm 0;flex-shrink:0;}'
+    +'.ty span{font-family:"Great Vibes","Brush Script MT","Segoe Script",cursive;font-size:20pt;color:#7B3F00;line-height:1.3;}'
     +'.bot{display:flex;align-items:center;flex-shrink:0;}'
     +'.bot-l{flex:1;}'
     +'.bot-m{flex:1;text-align:center;}'
     +'.bot-r{flex:1;text-align:right;}'
-    +'.fr-lbl{font-size:7pt;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:1mm;}'
-    +'.fr-name{font-size:10pt;font-weight:700;}'
-    +'.fr-det{font-size:9pt;color:#555;line-height:1.5;}'
+    +'.fr-lbl{font-size:6.5pt;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:1mm;}'
+    +'.fr-name{font-size:9.5pt;font-weight:700;}'
+    +'.fr-det{font-size:8.5pt;color:#555;line-height:1.5;}'
     +'</style>'
     +'<script>'
     +'window.onload=function(){'
-    +'  if(document.fonts&&document.fonts.ready){'
-    +'    document.fonts.ready.then(function(){setTimeout(window.print,500);});'
-    +'  }else{setTimeout(window.print,1400);}'
+    +'  var go=function(){setTimeout(window.print,600);};'
+    +'  if(document.fonts&&document.fonts.ready){document.fonts.ready.then(go);}else{setTimeout(go,1500);}'
     +'};'
     +'<\/script>'
     +'</head><body>'
-    +'<div class="lbl"><div class="box">'
-    +'<div class="ref">'+(invNo?'Inv: '+invNo:'')+(track?(invNo?' · ':'')+track:'')+'</div>'
-    +'<div class="mid">'
-      +'<div class="to">'
-        +'<div class="to-lbl">To</div>'
-        +'<div class="to-name">'+name+'</div>'
-        +'<div class="to-addr">'+addr+'</div>'
-        +(ph?'<div class="to-ph">&#9990; '+ph+'</div>':'')
+    +'<div class="box">'
+      +'<div class="ref">'+(invNo?'Inv: '+invNo:'')+(track?(invNo?' &middot; ':'')+track:'')+'</div>'
+      +'<div class="mid">'
+        +'<div class="to">'
+          +'<div class="to-lbl">To</div>'
+          +'<div class="to-name">'+name+'</div>'
+          +'<div class="to-addr">'+addr+'</div>'
+          +(ph?'<div class="to-ph">&#9990; '+ph+'</div>':'')
+        +'</div>'
+        +qrImg
       +'</div>'
-      +qrImg
-    +'</div>'
-    +'<div class="ty"><span>Thank you for shopping with us!</span></div>'
-    +'<div class="bot">'
-      +'<div class="bot-l"></div>'
-      +'<div class="bot-m">'+logoImg+'</div>'
-      +'<div class="bot-r">'
-        +'<div class="fr-lbl">From</div>'
-        +'<div class="fr-name">Vismaad Creations</div>'
-        +'<div class="fr-det">'+fromAddr+(fromPh?'<br/>&#9990; '+fromPh:'')+'</div>'
+      +'<div class="ty"><span>Thank you for shopping with us!</span></div>'
+      +'<div class="bot">'
+        +'<div class="bot-l"></div>'
+        +'<div class="bot-m">'+logoImg+'</div>'
+        +'<div class="bot-r">'
+          +'<div class="fr-lbl">From</div>'
+          +'<div class="fr-name">Vismaad Creations</div>'
+          +'<div class="fr-det">'+fromAddr+(fromPh?'<br/>&#9990; '+fromPh:'')+'</div>'
+        +'</div>'
       +'</div>'
     +'</div>'
-    +'</div></div>'
+    +'<div class="cut">&#9988; cut here</div>'
     +'</body></html>';
 
   const blob=new Blob([html],{type:'text/html'});
@@ -1852,10 +1860,6 @@ function printLabel(){
     toast('🖨️ Label ready — print dialog opening…');
   }
 }
-
-// ═══════════════════════════════════════════
-// SYNC INFO
-// ═══════════════════════════════════════════
 function renderSyncInfo(){
   const el=document.getElementById('sync-info-rows');if(!el)return;
   el.innerHTML=`
