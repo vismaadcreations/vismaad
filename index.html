@@ -1260,10 +1260,28 @@ function buildInvoiceHTML(data){
     <tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(displayTaxable)}</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">${f(displayGST/2)}</td></tr>
     <tr><td style="padding:3px 8px;">SGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(displayTaxable)}</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">${f(displayGST/2)}</td></tr>`
     :`<tr><td style="padding:3px 8px;">IGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(displayTaxable)}</td><td style="padding:3px 8px;">5%</td><td style="padding:3px 8px;">${f(displayGST)}</td></tr>`;
+  // Build dispatch section before template literal to avoid nested backtick conflicts
+  const dispatchMethod2=data.dispatchMethod!=null?data.dispatchMethod:(data.tracking?'indiapost':'');
+  const courierLabel={indiapost:'India Post Parcel',courier:data.courierName||'Courier',hand:'Hand Delivery',walkin:'Walk-in / Collected in person','':''}[dispatchMethod2]||dispatchMethod2;
+  let dispatchHtml='';
+  if(dispatchMethod2==='walkin'){
+    dispatchHtml='<div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Delivery</div>'
+      +'<div style="font-size:13px;font-weight:700;">Walk-in / Collected in person</div>'
+      +(data.dispatchDate?'<div style="font-size:11px;color:#555;">📅 '+fd(data.dispatchDate)+'</div>':'');
+  }else if(dispatchMethod2==='hand'){
+    dispatchHtml='<div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Delivery</div>'
+      +'<div style="font-size:13px;font-weight:700;">Hand Delivery</div>'
+      +(data.dispatchDate?'<div style="font-size:11px;color:#555;">📅 '+fd(data.dispatchDate)+'</div>':'');
+  }else if(courierLabel){
+    dispatchHtml='<div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Dispatched Via</div>'
+      +'<div style="font-size:13px;font-weight:700;">'+courierLabel+'</div>'
+      +'<div style="font-size:11px;color:#555;">'+(data.tracking?'🔍 <strong>'+data.tracking+'</strong><br/>':'')+(data.dispatchDate?'📅 '+fd(data.dispatchDate):'')+'</div>';
+  }
+
   return`<div style="font-family:'DM Sans',sans-serif;font-size:12px;color:#1a1208;background:#fff;padding:20px;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
       <div>
-        ${data.logoB64?`<img src="${data.logoB64}" style="height:44px;object-fit:contain;display:block;margin-bottom:5px;"/>` :''}
+        ${data.logoB64?'<img src="'+data.logoB64+'" style="height:44px;object-fit:contain;display:block;margin-bottom:5px;"/>' :''}
         <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#5c3d1e;">Vismaad Creations</div>
         <div style="font-size:11px;color:#555;margin-top:4px;"><strong>GSTIN:</strong> ${data.gstin||S.gstin||'—'}</div>
         <div style="font-size:11px;color:#555;">${data.bizAddress||S.address||''}</div>
@@ -1282,35 +1300,9 @@ function buildInvoiceHTML(data){
       <div>
         <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Billed To</div>
         <div style="font-size:13px;font-weight:700;">${data.custName}</div>
-        <div style="font-size:11px;color:#555;line-height:1.6;">${data.custPhone?'📞 '+data.custPhone+'<br/>':''}${data.custAddress?data.custAddress.replace(/\n/g,'<br/>')+'<br/>':''}${data.custState?`<strong>${data.custState}</strong>`:''}</div>
+        <div style="font-size:11px;color:#555;line-height:1.6;">${data.custPhone?'📞 '+data.custPhone+'<br/>':''}${data.custAddress?data.custAddress.replace(/\n/g,'<br/>')+'<br/>':''}${data.custState?'<strong>'+data.custState+'</strong>':''}</div>
       </div>
-      <div>
-        ${(()=>{
-          const method=data.dispatchMethod!=null?data.dispatchMethod:(data.tracking?'indiapost':'');
-          const labels={
-            indiapost:'India Post Parcel',
-            courier:data.courierName||'Courier',
-            hand:'Hand Delivery',
-            walkin:'Walk-in / Collected in person',
-            '':'',
-          };
-          const label=labels[method]||method;
-          if(method==='walkin'){
-            return`<div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Delivery</div>
-              <div style="font-size:13px;font-weight:700;">Walk-in / Collected in person</div>
-              ${data.dispatchDate?`<div style="font-size:11px;color:#555;">📅 ${fd(data.dispatchDate)}</div>`:''}`;
-          }
-          if(method==='hand'){
-            return`<div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Delivery</div>
-              <div style="font-size:13px;font-weight:700;">Hand Delivery</div>
-              ${data.dispatchDate?`<div style="font-size:11px;color:#555;">📅 ${fd(data.dispatchDate)}</div>`:''}`;
-          }
-          if(!label)return'';
-          return`<div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Dispatched Via</div>
-            <div style="font-size:13px;font-weight:700;">${label}</div>
-            <div style="font-size:11px;color:#555;">${data.tracking?'🔍 <strong>'+data.tracking+'</strong><br/>':''}${data.dispatchDate?'📅 '+fd(data.dispatchDate):''}</div>`;
-        })()}
-      </div>
+      <div>${dispatchHtml}</div>
     </div>
     <hr style="border:none;border-top:1px solid #e2d4bc;margin:10px 0;"/>
     <table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
@@ -1447,9 +1439,34 @@ function bulkMarkShipped(shipped){
   })();
 }
 function bulkPrint(){
-  const sel=getSelectedInvoices();if(!sel.length){toast('⚠️ Select invoices first');return;}
-  document.getElementById('print-area').innerHTML=sel.map(inv=>`<div class="print-page">${getInvHtml(inv)}</div>`).join('');
-  window.print();toast('🖨️ Printing '+sel.length+'…');
+  const sel=getSelectedInvoices();
+  if(!sel.length){toast('⚠️ Select invoices first');return;}
+  toast('🖨️ Preparing '+sel.length+' invoice(s)…',4000);
+  // Build full HTML document and open in new window — avoids DOM overflow for 100+ invoices
+  setTimeout(()=>{
+    const pages=sel.map(inv=>'<div class="print-page">'+getInvHtml(inv)+'</div>').join('');
+    const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
+      +'<style>'
+      +'*{box-sizing:border-box;margin:0;padding:0;}'
+      +'body{font-family:\'DM Sans\',sans-serif;}'
+      +'@import url(\'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;600&display=swap\');'
+      +'.print-page{page-break-after:always;padding:10mm;}'
+      +'.print-page:last-child{page-break-after:auto;}'
+      +'</style></head><body>'+pages+'</body></html>';
+    const blob=new Blob([html],{type:'text/html'});
+    const url=URL.createObjectURL(blob);
+    const w=window.open(url,'_blank');
+    if(w){
+      w.onload=()=>{
+        setTimeout(()=>{w.print();URL.revokeObjectURL(url);},500);
+      };
+    }else{
+      // Fallback if popup blocked — use print-area
+      document.getElementById('print-area').innerHTML=pages;
+      window.print();
+      URL.revokeObjectURL(url);
+    }
+  },100);
 }
 function bulkDelete(){
   const sel=getSelectedInvoices();if(!sel.length){toast('⚠️ Select invoices first');return;}
