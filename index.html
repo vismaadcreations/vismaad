@@ -684,22 +684,32 @@ function setSyncStatus(st){
 }
 function gsRead(sheet){
   return new Promise((resolve,reject)=>{
-    const cb='_gs_'+Date.now();
+    const cb='_gs_'+sheet.replace(/\W/g,'')+'_'+Date.now();
     const s=document.createElement('script');
-    const timer=setTimeout(()=>{delete window[cb];try{document.head.removeChild(s);}catch{}reject(new Error('Timeout'));},15000);
-    window[cb]=data=>{clearTimeout(timer);delete window[cb];try{document.head.removeChild(s);}catch{}resolve(data.rows||[]);};
+    // 30 second timeout — larger sheets need more time
+    const timer=setTimeout(()=>{
+      delete window[cb];try{document.head.removeChild(s);}catch{}
+      reject(new Error('Timeout reading '+sheet+' — sheet may be too large'));
+    },30000);
+    window[cb]=data=>{
+      clearTimeout(timer);delete window[cb];
+      try{document.head.removeChild(s);}catch{}
+      resolve(data.rows||[]);
+    };
     s.src=`${SCRIPT_URL}?action=read&sheet=${encodeURIComponent(sheet)}&callback=${cb}`;
-    s.onerror=()=>{clearTimeout(timer);delete window[cb];reject(new Error('Network error'));};
+    s.onerror=()=>{clearTimeout(timer);delete window[cb];reject(new Error('Network error reading '+sheet));};
     document.head.appendChild(s);
   });
 }
 function gsWrite(sheet,data){
   const flat={...data};
-  delete flat.html;
-  delete flat.logoB64;delete flat.bizAddress;delete flat.bizPhone;delete flat.bizEmail;delete flat.gstin;
+  delete flat.html;delete flat.logoB64;
+  delete flat.bizAddress;delete flat.bizPhone;delete flat.bizEmail;delete flat.gstin;
   if(typeof flat.itemsArr==='object')flat.itemsArr=JSON.stringify(flat.itemsArr);
   const json=JSON.stringify(flat);
-  const params=new URLSearchParams({action:'write',sheet,data:json.length>3000?JSON.stringify({...flat,itemsArr:'[]'}):json});
+  // Strip itemsArr if still too large
+  const payload=json.length>3000?JSON.stringify({...flat,itemsArr:'[]'}):json;
+  const params=new URLSearchParams({action:'write',sheet,data:payload});
   fetch(SCRIPT_URL+'?'+params.toString(),{method:'GET',mode:'no-cors'}).catch(()=>{});
 }
 function gsDelete(sheet,id){
@@ -721,35 +731,61 @@ function flattenInvoice(inv){
 }
 function flattenProduct(p){return{...p};}
 function parseInventoryRow(r){
-  return{...r,prodNo:parseInt(r.prodNo)||0,qty:parseInt(r.qty)||0,qtyOriginal:parseInt(r.qtyOriginal)||0,qtySold:parseInt(r.qtySold)||0,cost:parseFloat(r.cost)||0,sellPrice:parseFloat(r.sellPrice)||0};
+  return{...r,prodNo:parseInt(r.prodNo)||0,qty:parseInt(r.qty)||0,
+    qtyOriginal:parseInt(r.qtyOriginal)||0,qtySold:parseInt(r.qtySold)||0,
+    cost:parseFloat(r.cost)||0,sellPrice:parseFloat(r.sellPrice)||0};
 }
+
 async function syncAll(){
   if(syncing)return;syncing=true;setSyncStatus('busy');
   try{
     const cleared=localStorage.getItem('vc_inv_cleared')==='1';
-    const[remInv,remStk,remPur,remSet]=await Promise.all([
-      gsRead(SHEETS.invoices),gsRead(SHEETS.inventory),gsRead(SHEETS.purchases),gsRead(SHEETS.settings)
-    ]);
+
+    // Read sheets SEQUENTIALLY — not in parallel — to avoid overwhelming the script
+    // and to give the slowest sheet (Invoices) its full timeout
+    setSyncStatus('busy');
+    const remInv  = cleared ? [] : await gsRead(SHEETS.invoices);
+    const remStk  = await gsRead(SHEETS.inventory);
+    const remPur  = await gsRead(SHEETS.purchases);
+    const remSet  = await gsRead(SHEETS.settings);
+
+    // INVOICES — merge: local wins for same ID, pull in remote-only records
     if(!cleared){
-      const m={};invoices.forEach(l=>{m[String(l.id)]=l;});
-      remInv.forEach(r=>{if(r.id&&!m[String(r.id)])m[String(r.id)]=r;});
-      invoices=Object.values(m).sort((a,b)=>(a.invDate||'')<(b.invDate||'')?-1:1);
+      const localIds=new Set(invoices.map(i=>String(i.id)));
+      // Only add records from remote that don't exist locally
+      const remoteOnly=remInv.filter(r=>r.id&&!localIds.has(String(r.id)));
+      if(remoteOnly.length>0){
+        invoices=[...invoices,...remoteOnly];
+        invoices.sort((a,b)=>(a.invDate||'')<(b.invDate||'')?-1:1);
+      }
     }
+
+    // INVENTORY — merge
     const sm={};inventory.forEach(l=>{sm[String(l.prodNo)]=l;});
     remStk.forEach(r=>{if(r.prodNo&&!sm[String(r.prodNo)])sm[String(r.prodNo)]=parseInventoryRow(r);});
     inventory=Object.values(sm).sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
+
+    // PURCHASES — merge
     const pm={};purchases.forEach(l=>{pm[String(l.id)]=l;});
     remPur.forEach(r=>{if(r.id&&!pm[String(r.id)])pm[String(r.id)]=r;});
     purchases=Object.values(pm).sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
+
+    // SETTINGS
     if(remSet.length>0){
       const rs=remSet[0];
-      S={gstin:rs.gstin||S.gstin||'',address:rs.address||S.address||'',phone:rs.phone||S.phone||'',email:rs.email||S.email||''};
+      S={gstin:rs.gstin||S.gstin||'',address:rs.address||S.address||'',
+         phone:rs.phone||S.phone||'',email:rs.email||S.email||''};
       lsSet('vc_s',S);
     }
+
     save();saveStk();savePur();
-    invoices.forEach(inv=>gsWrite(SHEETS.invoices,flattenInvoice(inv)));
+
+    // Only push inventory and purchases (small, fast)
+    // Do NOT push all invoices — they are already in sheets from when they were created
     inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
     purchases.forEach(p=>gsWrite(SHEETS.purchases,p));
+    if(S.gstin)gsWrite(SHEETS.settings,{id:'settings',...S});
+
     localStorage.removeItem('vc_inv_cleared');
     setInvNumber();
     setSyncStatus('ok');
@@ -759,7 +795,12 @@ async function syncAll(){
     toast('☁️ Synced — '+invoices.length+' invoices');
   }catch(e){
     setSyncStatus('err');
-    toast(e.message.includes('Timeout')?'⚠️ Sync timeout — redeploy Apps Script':'⚠️ Sync failed: '+e.message,5000);
+    const msg=e.message||'';
+    if(msg.includes('Timeout')){
+      toast('⚠️ '+msg,6000);
+    }else{
+      toast('⚠️ Sync failed: '+msg,5000);
+    }
   }finally{syncing=false;}
 }
 
