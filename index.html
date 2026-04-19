@@ -2053,14 +2053,23 @@ function _doExport(type,from,to,period){
 function buildBulkPage(){
   return`
     <div class="card">
-      <div class="card-title">📁 Upload Order Excel / CSV</div>
-      <div style="background:var(--goldp);border-radius:8px;padding:12px;font-size:12px;color:var(--brown);margin-bottom:14px;">
-        <strong>Required columns:</strong> Invoice Date, Customer Name, Phone, Address, State, Suit 1 Name, Suit 1 Price<br/>
-        <strong>Optional columns:</strong> Suit 1 Cost, Suit 2 Name, Suit 2 Price, Suit 2 Cost, Suit 3 Name, Suit 3 Price, Suit 3 Cost, Shipping Charged, Actual Shipping Cost, Discount, Tracking No, Channel
+      <div class="card-title">📁 Import Past Orders</div>
+      <div style="background:var(--goldp);border-radius:8px;padding:12px;font-size:13px;color:var(--brown);margin-bottom:16px;line-height:1.7;">
+        <strong>Step 1:</strong> Download the template below<br/>
+        <strong>Step 2:</strong> Fill in your past orders in Excel/Google Sheets<br/>
+        <strong>Step 3:</strong> Save as <strong>.xlsx or .csv</strong> and upload
       </div>
-      <button class="btn btn-o" onclick="document.getElementById('bulk-upload').click()">📂 Choose File</button>
+      <button class="btn btn-g" style="margin-bottom:12px;" onclick="downloadBulkTemplate()">⬇️ Download Template CSV</button>
+      <div style="border:2px dashed var(--border);border-radius:12px;padding:20px;text-align:center;margin-bottom:12px;" onclick="document.getElementById('bulk-upload').click()" id="drop-zone">
+        <div style="font-size:32px;margin-bottom:8px;">📤</div>
+        <div style="font-weight:600;color:var(--brown);margin-bottom:4px;">Tap to choose file</div>
+        <div style="font-size:12px;color:#888;">Supports .xlsx, .xls, .csv</div>
+      </div>
       <input type="file" id="bulk-upload" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleBulkUpload(event)"/>
-      <button class="btn btn-p btn-sm" style="margin-top:10px;width:auto;" onclick="downloadBulkTemplate()">⬇️ Download Template CSV</button>
+      <div style="font-size:12px;color:#888;margin-top:8px;line-height:1.6;">
+        <strong>Required columns:</strong> Invoice Date (DD/MM/YYYY), Customer Name, State, Suit 1 Name, Suit 1 Price<br/>
+        <strong>Optional:</strong> Phone, Address, Suit 1 Cost, Suit 2–5 Name/Price/Cost, Shipping Charged, Actual Shipping Cost, Discount, Tracking No, Channel
+      </div>
     </div>
     <div id="bulk-preview"></div>`;
 }
@@ -2070,84 +2079,125 @@ function downloadBulkTemplate(){
   toast('⬇️ Template downloaded!');
 }
 function handleBulkUpload(e){
-  const file=e.target.files[0];if(!file)return;
-  // Reset file input so same file can be re-uploaded
-  e.target.value='';
-  const reader=new FileReader();
+  const file=e.target.files[0];
+  if(!file){toast('⚠️ No file selected');return;}
+  e.target.value=''; // allow re-selecting same file
+
+  const fname=file.name.toLowerCase();
+  toast('📂 Reading file…',5000);
+  showLoading('Reading '+file.name+'…');
+
   const process=text=>{
-    const lines=text.trim().split('\n').filter(l=>l.trim());
-    if(lines.length<2){toast('⚠️ File empty or only header row');return;}
-    const headers=lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase());
-    const rows=[];
-    const skippedRows=[];
-    for(let i=1;i<lines.length;i++){
-      const cols=parseCsvLine(lines[i]);
-      const row={};headers.forEach((h,j)=>row[h]=(cols[j]||'').trim());
-      const rawDate=row['invoice date']||row['date']||'';
-      const rawName=row['customer name']||row['name']||'';
-      const rawState=row['state']||'';
+    hideLoading();
+    try{
+      if(!text||!text.trim()){toast('⚠️ File appears empty');return;}
+      const lines=text.trim().split(/\r?\n/).filter(l=>l.trim());
+      if(lines.length<2){toast('⚠️ Only header row found — no data');return;}
 
-      // Check for suits
-      const its=[];
-      for(let n=1;n<=5;n++){
-        const nm=row[`suit ${n} name`]||'';
-        const pr=parseFloat(row[`suit ${n} price`]||0)||0;
-        const co=parseFloat(row[`suit ${n} cost`]||0)||0;
-        if(nm&&pr>0)its.push({id:n,prodNo:'',desc:nm,hsn:'540754',qty:1,unitPrice:pr,costPrice:co});
+      const headers=lines[0].split(',').map(h=>h.trim().replace(/^"+|"+$/g,'').toLowerCase());
+
+      // Validate we have at least the minimum columns
+      const hasName=headers.some(h=>h.includes('customer')||h==='name');
+      const hasDate=headers.some(h=>h.includes('date'));
+      const hasSuit=headers.some(h=>h.includes('suit'));
+      if(!hasName||!hasDate||!hasSuit){
+        toast('⚠️ Wrong columns — download the template CSV for the correct format');
+        return;
       }
 
-      // Determine skip reason
-      let skipReason='';
-      if(!rawName)skipReason='Missing customer name';
-      else if(!rawDate)skipReason='Missing invoice date';
-      else if(!rawState)skipReason='Missing state';
-      else if(!its.length)skipReason='No suit with valid name + price found';
+      const rows=[];
+      const skippedRows=[];
+      for(let i=1;i<lines.length;i++){
+        const cols=parseCsvLine(lines[i]);
+        if(cols.every(c=>!c.trim()))continue; // skip blank rows
+        const row={};
+        headers.forEach((h,j)=>row[h]=(cols[j]||'').trim());
 
-      if(skipReason){
-        skippedRows.push({rowNum:i+1,rawName:rawName||'(blank)',rawDate,skipReason});
-        continue;
+        const rawDate=row['invoice date']||row['date']||'';
+        const rawName=row['customer name']||row['name']||'';
+        const rawState=row['state']||'';
+
+        const its=[];
+        for(let n=1;n<=5;n++){
+          const nm=row[`suit ${n} name`]||'';
+          const pr=parseFloat(row[`suit ${n} price`]||0)||0;
+          const co=parseFloat(row[`suit ${n} cost`]||0)||0;
+          if(nm&&pr>0)its.push({id:n,prodNo:'',desc:nm,hsn:'540754',qty:1,unitPrice:pr,costPrice:co});
+        }
+
+        let skipReason='';
+        if(!rawName)skipReason='Missing customer name';
+        else if(!rawDate)skipReason='Missing invoice date';
+        else if(!rawState)skipReason='Missing state';
+        else if(!its.length)skipReason='No suit found with both a name AND a price > 0';
+
+        if(skipReason){
+          skippedRows.push({rowNum:i+1,rawName:rawName||'(blank)',rawDate,skipReason});
+          continue;
+        }
+
+        rows.push({
+          invDate:normaliseDate(rawDate),
+          custName:rawName,
+          custPhone:row['phone']||'',
+          custAddress:row['address']||'',
+          custState:rawState,
+          itemsArr:its,
+          shipping:parseFloat(row['shipping charged']||row['shipping']||0)||0,
+          shippingCost:parseFloat(row['actual shipping cost']||row['actual shipping']||0)||0,
+          discount:parseFloat(row['discount']||0)||0,
+          tracking:row['tracking no']||row['tracking']||'',
+          channel:row['channel']||'',
+        });
       }
 
-      rows.push({
-        invDate:normaliseDate(rawDate),
-        custName:rawName,
-        custPhone:row['phone']||'',
-        custAddress:row['address']||'',
-        custState:rawState,
-        itemsArr:its,
-        shipping:parseFloat(row['shipping charged']||row['shipping']||0)||0,
-        shippingCost:parseFloat(row['actual shipping cost']||row['actual shipping']||0)||0,
-        discount:parseFloat(row['discount']||0)||0,
-        tracking:row['tracking no']||row['tracking']||'',
-        channel:row['channel']||'',
-        selected:true
-      });
+      if(!rows.length&&!skippedRows.length){
+        toast('⚠️ No valid rows found in file');
+        return;
+      }
+      showBulkPreview(rows,skippedRows);
+    }catch(err){
+      toast('❌ Parse error: '+err.message,5000);
     }
-    if(!rows.length&&!skippedRows.length){toast('⚠️ No data rows found');return;}
-    showBulkPreview(rows,skippedRows);
   };
-  if(file.name.toLowerCase().endsWith('.csv')){
-    reader.onload=ev=>process(ev.target.result);
+
+  if(fname.endsWith('.csv')){
+    const reader=new FileReader();
+    reader.onerror=()=>{hideLoading();toast('❌ Could not read file');};
+    reader.onload=ev=>{process(ev.target.result);};
     reader.readAsText(file);
-  }else{
-    if(!window.XLSX){
-      const s=document.createElement('script');
-      s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-      s.onload=()=>{
-        reader.onload=ev=>{
-          const wb=XLSX.read(ev.target.result,{type:'binary'});
-          process(XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]));
-        };
-        reader.readAsBinaryString(file);
-      };
-      document.head.appendChild(s);
-    }else{
+  }else if(fname.endsWith('.xlsx')||fname.endsWith('.xls')){
+    const loadAndProcess=()=>{
+      const reader=new FileReader();
+      reader.onerror=()=>{hideLoading();toast('❌ Could not read Excel file');};
       reader.onload=ev=>{
-        const wb=XLSX.read(ev.target.result,{type:'binary'});
-        process(XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]));
+        try{
+          const wb=XLSX.read(ev.target.result,{type:'binary',cellDates:false,raw:false});
+          const ws=wb.Sheets[wb.SheetNames[0]];
+          const csv=XLSX.utils.sheet_to_csv(ws,{blankrows:false});
+          process(csv);
+        }catch(err){
+          hideLoading();
+          toast('❌ Excel read error: '+err.message,5000);
+        }
       };
       reader.readAsBinaryString(file);
+    };
+    if(window.XLSX){
+      loadAndProcess();
+    }else{
+      const s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload=loadAndProcess;
+      s.onerror=()=>{
+        hideLoading();
+        toast('❌ Could not load Excel reader. Convert your file to CSV and try again.',6000);
+      };
+      document.head.appendChild(s);
     }
+  }else{
+    hideLoading();
+    toast('⚠️ Please upload a .csv, .xlsx or .xls file');
   }
 }
 function showBulkPreview(rows,skippedRows=[]){
