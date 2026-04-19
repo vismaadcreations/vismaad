@@ -304,14 +304,14 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="fg">
       <label>Dispatch Method</label>
       <select id="dispatch-method" onchange="updateDispatchFields()">
+        <option value="">— Select —</option>
         <option value="indiapost">India Post Parcel</option>
         <option value="courier">Other Courier</option>
         <option value="hand">Hand Delivery</option>
         <option value="walkin">Walk-in / Collected in person</option>
-        <option value="">Not specified</option>
       </select>
     </div>
-    <div id="dispatch-tracking-row" class="row2">
+    <div id="dispatch-tracking-row" class="row2" style="display:none;">
       <div class="fg"><label>Tracking No.</label><input id="tracking" placeholder="EE123456789IN"/></div>
       <div class="fg"><label>Dispatch Date</label><input type="date" id="dispatch-date"/></div>
     </div>
@@ -1194,7 +1194,7 @@ function resetInvoiceForm(){
   const sh=document.getElementById('shipping');if(sh)sh.value='0';
   const di=document.getElementById('discount');if(di)di.value='0';
   const sc2=document.getElementById('shipping-cost');if(sc2)sc2.value='0';
-  const dm=document.getElementById('dispatch-method');if(dm)dm.value='indiapost';
+  const dm=document.getElementById('dispatch-method');if(dm)dm.value='';
   const cn=document.getElementById('courier-name');if(cn)cn.value='';
   updateDispatchFields();
   const sc=document.getElementById('sale-channel');if(sc)sc.value='';
@@ -1286,7 +1286,7 @@ function buildInvoiceHTML(data){
       </div>
       <div>
         ${(()=>{
-          const method=data.dispatchMethod||'indiapost';
+          const method=data.dispatchMethod!=null?data.dispatchMethod:(data.tracking?'indiapost':'');
           const labels={
             indiapost:'India Post Parcel',
             courier:data.courierName||'Courier',
