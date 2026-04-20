@@ -2085,50 +2085,201 @@ function buildLabelPage(){
 }
 
 function buildExportPage(){
-  return`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
-    <button class="btn btn-o btn-sm" onclick="doExport('detailed','thismonth')">This Month</button>
-    <button class="btn btn-o btn-sm" onclick="doExport('detailed','lastmonth')">Last Month</button>
-    <button class="btn btn-o btn-sm" onclick="doExport('detailed','thisquarter')">This Quarter</button>
-    <button class="btn btn-o btn-sm" onclick="doExport('detailed','thisfy')">This FY</button>
-    <button class="btn btn-o btn-sm" onclick="doExport('detailed','all')">All Time</button>
-  </div>
-  <div class="card"><div class="card-title">📊 Export</div>
-    <button class="btn btn-p" style="margin-bottom:10px;" onclick="doExport('detailed','all')">📋 Sales Register (All time)</button>
-    <button class="btn btn-g" style="margin-bottom:10px;" onclick="doExport('gst','thisfy')">🧾 GST Summary (This FY)</button>
-    <button class="btn btn-o" onclick="doExport('inventory','all')">📦 Inventory Register</button>
+  const now=new Date();
+  const y=now.getFullYear(),m=now.getMonth();
+  // Month names for labels
+  const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const thisMonName=MONTHS[m]+' '+y;
+  const lastMonName=m===0?MONTHS[11]+' '+(y-1):MONTHS[m-1]+' '+y;
+  const fyStart=m>=3?y:y-1;
+  const fyLabel=fyStart+'-'+(fyStart+1).toString().slice(2);
+  // FY quarters (Apr-Jun, Jul-Sep, Oct-Dec, Jan-Mar)
+  const fyMonth=((m-3)+12)%12; // months since April
+  const qNum=Math.floor(fyMonth/3)+1;
+  const qStarts=[3,6,9,0]; // Apr=3,Jul=6,Oct=9,Jan=0
+  const qLabels=['Apr–Jun','Jul–Sep','Oct–Dec','Jan–Mar'];
+  const qLabel='Q'+qNum+' '+fyLabel+' ('+qLabels[qNum-1]+')';
+
+  return`<div class="card">
+    <div class="card-title">📊 Export Sales Data</div>
+
+    <div style="font-size:12px;font-weight:600;color:var(--brown);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Quick Periods</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+      <button class="btn btn-o" onclick="doExport('sales','thismonth')">📅 This Month — ${thisMonName}</button>
+      <button class="btn btn-o" onclick="doExport('sales','lastmonth')">📅 Last Month — ${lastMonName}</button>
+      <button class="btn btn-o" onclick="doExport('sales','thisquarter')">📅 Current FY Quarter — ${qLabel}</button>
+      <button class="btn btn-o" onclick="doExport('sales','thisfy')">📅 Full Financial Year — ${fyLabel} (1 Apr ${fyStart} – 31 Mar ${fyStart+1})</button>
+      <button class="btn btn-o" onclick="doExport('sales','all')">📅 All Time — Every invoice</button>
+    </div>
+
+    <div style="font-size:12px;font-weight:600;color:var(--brown);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Custom Date Range</div>
+    <div class="row2" style="margin-bottom:10px;">
+      <div class="fg"><label>From</label><input type="date" id="exp-from"/></div>
+      <div class="fg"><label>To</label><input type="date" id="exp-to" value="${now.toISOString().split('T')[0]}"/></div>
+    </div>
+    <button class="btn btn-p" style="margin-bottom:16px;" onclick="doExportCustom()">⬇️ Export Custom Range</button>
+
+    <div style="font-size:12px;font-weight:600;color:var(--brown);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Other Exports</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <button class="btn btn-g" onclick="doExport('gst','thisfy')">🧾 GST Summary — ${fyLabel}</button>
+      <button class="btn btn-o" onclick="doExport('inventory','all')">📦 Inventory Register</button>
+    </div>
   </div>`;
 }
-function doExport(type,period){
+
+function fmtExportDate(d){
+  // Convert YYYY-MM-DD to DD-MMM-YY
+  if(!d)return'';
+  try{
+    const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const parts=d.split('-');
+    const day=parseInt(parts[2]);
+    const mon=MONTHS[parseInt(parts[1])-1];
+    const yr=parts[0].slice(2);
+    return(day<10?'0'+day:day)+'-'+mon+'-'+yr;
+  }catch{return d;}
+}
+
+function getDateRange(period){
   const now=new Date(),y=now.getFullYear(),m=now.getMonth();
-  let from='',to='';
-  if(period==='thismonth'){from=new Date(y,m,1).toISOString().split('T')[0];to=new Date(y,m+1,0).toISOString().split('T')[0];}
-  else if(period==='lastmonth'){from=new Date(y,m-1,1).toISOString().split('T')[0];to=new Date(y,m,0).toISOString().split('T')[0];}
-  else if(period==='thisquarter'){const q=Math.floor(m/3);from=new Date(y,q*3,1).toISOString().split('T')[0];to=new Date(y,q*3+3,0).toISOString().split('T')[0];}
-  else if(period==='thisfy'){const fy=m>=3?y:y-1;from=new Date(fy,3,1).toISOString().split('T')[0];to=new Date(fy+1,2,31).toISOString().split('T')[0];}
-  const load=()=>_doExport(type,from,to,period);
+  if(period==='thismonth')return{
+    from:new Date(y,m,1).toISOString().split('T')[0],
+    to:new Date(y,m+1,0).toISOString().split('T')[0],
+    label:'This Month'
+  };
+  if(period==='lastmonth')return{
+    from:new Date(y,m-1,1).toISOString().split('T')[0],
+    to:new Date(y,m,0).toISOString().split('T')[0],
+    label:'Last Month'
+  };
+  if(period==='thisquarter'){
+    // FY quarters: Q1=Apr-Jun, Q2=Jul-Sep, Q3=Oct-Dec, Q4=Jan-Mar
+    const fyMonth=((m-3)+12)%12;
+    const q=Math.floor(fyMonth/3);
+    const qStartMonths=[3,6,9,0]; // months (0-indexed)
+    const fyStart=m>=3?y:y-1;
+    const qm=qStartMonths[q];
+    const qy=qm===0?fyStart+1:fyStart; // Jan belongs to next calendar year
+    return{
+      from:new Date(qy,qm,1).toISOString().split('T')[0],
+      to:new Date(qy,qm+3,0).toISOString().split('T')[0],
+      label:'Q'+(q+1)+' FY'
+    };
+  }
+  if(period==='thisfy'){
+    const fyStart=m>=3?y:y-1;
+    return{
+      from:new Date(fyStart,3,1).toISOString().split('T')[0],
+      to:new Date(fyStart+1,2,31).toISOString().split('T')[0],
+      label:'FY '+(fyStart)+'-'+(fyStart+1).toString().slice(2)
+    };
+  }
+  return{from:'',to:'',label:'All Time'};
+}
+
+function doExportCustom(){
+  const from=document.getElementById('exp-from')?.value;
+  const to=document.getElementById('exp-to')?.value;
+  if(!from||!to){toast('⚠️ Select both From and To dates');return;}
+  if(from>to){toast('⚠️ From date must be before To date');return;}
+  const load=()=>_doExport('sales',from,to,'custom_'+fmtExportDate(from)+'_to_'+fmtExportDate(to));
   if(!window.XLSX){const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=load;document.head.appendChild(s);}
   else load();
 }
-function _doExport(type,from,to,period){
+
+function doExport(type,period){
+  const{from,to,label}=getDateRange(period);
+  const load=()=>_doExport(type,from,to,label);
+  if(!window.XLSX){const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=load;document.head.appendChild(s);}
+  else load();
+}
+
+function _doExport(type,from,to,label){
+  // Filter invoices by date range
   const filtered=from?invoices.filter(i=>i.invDate>=from&&i.invDate<=to):invoices;
+  if(type!=='inventory'&&filtered.length===0){toast('⚠️ No invoices found for this period');return;}
+
   const wb=XLSX.utils.book_new();
+
   if(type==='inventory'){
     const hdr=['Prod No','Name','Date Added','Total Qty','Sold','In Stock','Cost Price (₹)','Sell Price (₹)','Notes'];
-    const rows=inventory.map(p=>[p.prodNo,p.name,p.dateAdded,p.qtyOriginal||p.qty,p.qtySold||0,p.qty||0,p.cost||0,p.sellPrice||0,p.notes||'']);
+    const rows=inventory.map(p=>[
+      p.prodNo, p.name,
+      fmtExportDate(p.dateAdded),
+      p.qtyOriginal||p.qty, p.qtySold||0, p.qty||0,
+      p.cost||0, p.sellPrice||0, p.notes||''
+    ]);
     const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
+    ws['!cols']=[{wch:8},{wch:30},{wch:14},{wch:10},{wch:8},{wch:10},{wch:14},{wch:14},{wch:24}];
     XLSX.utils.book_append_sheet(wb,ws,'Inventory');
-  }else{
-    const hdr=['Invoice No','Date','Customer','Phone','State','Tax Type','Items','Shipping ₹','Actual Ship ₹','Discount ₹','Cost ₹','Taxable ₹','GST ₹','Total ₹','Channel','Tracking','Status'];
-    const rows=filtered.map(inv=>{
+    XLSX.writeFile(wb,'Vismaad_Inventory.xlsx');
+    toast('✅ Inventory exported — '+inventory.length+' products');
+    return;
+  }
+
+  if(type==='gst'){
+    // GST summary grouped by month
+    const byMonth={};
+    filtered.forEach(inv=>{
+      const mon=inv.invDate?inv.invDate.slice(0,7):'Unknown';
+      if(!byMonth[mon])byMonth[mon]={month:mon,invoices:0,taxable:0,cgst:0,sgst:0,igst:0,total:0,itc:0};
+      const g=byMonth[mon];
+      g.invoices++;
       const tax=parseFloat((inv.taxableExcl||inv.grandTotal/1.05).toFixed(2));
       const gst=parseFloat((inv.gstAmt||(inv.grandTotal-tax)).toFixed(2));
-      return[inv.invNo,inv.invDate,inv.custName,inv.custPhone||'',inv.custState,inv.isIntra?'Intra':'Inter',inv.itemsSummary||'',inv.shipping||0,inv.shippingCost||0,inv.discount||0,inv.costPrice||0,tax,gst,inv.grandTotal||0,inv.channel||'',inv.tracking||'',inv.isShipped?'Shipped':'Pending'];
+      g.taxable+=tax;g.total+=parseFloat(inv.grandTotal||0);
+      if(inv.isIntra||inv.custState==='Punjab'){g.cgst+=gst/2;g.sgst+=gst/2;}
+      else g.igst+=gst;
     });
+    const hdr=['Month','Invoices','Taxable Amount (₹)','CGST 2.5% (₹)','SGST 2.5% (₹)','IGST 5% (₹)','Total GST (₹)','Gross Revenue (₹)'];
+    const rows=Object.values(byMonth).sort((a,b)=>a.month<b.month?-1:1).map(g=>[
+      g.month, g.invoices,
+      +g.taxable.toFixed(2), +g.cgst.toFixed(2), +g.sgst.toFixed(2), +g.igst.toFixed(2),
+      +(g.cgst+g.sgst+g.igst).toFixed(2), +g.total.toFixed(2)
+    ]);
+    // Totals row
+    const tot=rows.reduce((acc,r)=>{for(let i=2;i<r.length;i++)acc[i]=(acc[i]||0)+r[i];return acc;},['TOTAL',filtered.length]);
+    rows.push(tot);
     const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
-    XLSX.utils.book_append_sheet(wb,ws,'Sales');
+    ws['!cols']=[{wch:10},{wch:10},{wch:18},{wch:14},{wch:14},{wch:14},{wch:14},{wch:16}];
+    XLSX.utils.book_append_sheet(wb,ws,'GST Summary');
+    XLSX.writeFile(wb,'Vismaad_GST_'+label.replace(/\s/g,'_')+'.xlsx');
+    toast('✅ GST summary exported — '+filtered.length+' invoices');
+    return;
   }
-  XLSX.writeFile(wb,`Vismaad_${type}_${period||'all'}.xlsx`);
-  toast('✅ Excel downloaded!');
+
+  // Sales register (detailed)
+  const hdr=['Invoice No','Date','Customer Name','Phone','Address','State','Tax Type','Suit(s)','Shipping Charged (₹)','Actual Shipping Cost (₹)','Discount (₹)','Suit Cost (₹)','Taxable Amount (₹)','GST (₹)','Grand Total (₹)','Channel','Tracking No','Dispatch Method','Status'];
+  const rows=filtered.map(inv=>{
+    const tax=parseFloat((inv.taxableExcl||inv.grandTotal/1.05).toFixed(2));
+    const gst=parseFloat((inv.gstAmt||(inv.grandTotal-tax)).toFixed(2));
+    const dispMap={indiapost:'India Post',courier:inv.courierName||'Courier',hand:'Hand Delivery',walkin:'Walk-in','':(inv.tracking?'India Post':'')};
+    return[
+      inv.invNo,
+      fmtExportDate(inv.invDate),
+      inv.custName,
+      inv.custPhone||'',
+      inv.custAddress||'',
+      inv.custState,
+      inv.isIntra?'Intra-state (CGST+SGST)':'Inter-state (IGST)',
+      inv.itemsSummary||'',
+      parseFloat(inv.shipping||0),
+      parseFloat(inv.shippingCost||0),
+      parseFloat(inv.discount||0),
+      parseFloat(inv.costPrice||0),
+      tax, gst,
+      parseFloat(inv.grandTotal||0),
+      inv.channel||'',
+      inv.tracking||'',
+      dispMap[inv.dispatchMethod||'']||'',
+      inv.isShipped||inv.status==='Shipped'?'Shipped':'Pending'
+    ];
+  });
+  const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
+  ws['!cols']=[{wch:12},{wch:12},{wch:22},{wch:14},{wch:30},{wch:16},{wch:22},{wch:40},{wch:14},{wch:18},{wch:12},{wch:12},{wch:14},{wch:10},{wch:14},{wch:12},{wch:22},{wch:16},{wch:10}];
+  XLSX.utils.book_append_sheet(wb,ws,'Sales');
+  XLSX.writeFile(wb,'Vismaad_Sales_'+label.replace(/[\s/]/g,'_')+'.xlsx');
+  toast('✅ '+filtered.length+' invoices exported');
 }
 
 function buildBulkPage(){
