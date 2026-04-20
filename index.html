@@ -203,7 +203,7 @@ tbody tr:last-child td{border-bottom:none;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v2.7 · 20-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v2.8 · 20-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -2007,15 +2007,11 @@ function buildPLPage(){
   <div id="pl-content"><div style="color:#aaa;text-align:center;padding:30px;">Select a period above</div></div>`;
 }
 function setPLPeriod(p){
-  const now=new Date(),y=now.getFullYear(),m=now.getMonth();
-  let from,to;
-  if(p==='thismonth'){from=new Date(y,m,1);to=new Date(y,m+1,0);}
-  else if(p==='lastmonth'){from=new Date(y,m-1,1);to=new Date(y,m,0);}
-  else if(p==='thisquarter'){const q=Math.floor(m/3);from=new Date(y,q*3,1);to=new Date(y,q*3+3,0);}
-  else if(p==='thisfy'){const fy=m>=3?y:y-1;from=new Date(fy,3,1);to=new Date(fy+1,2,31);}
-  else{from=new Date('2026-03-02');to=new Date();}
-  const fd=from.toISOString().split('T')[0],td=to.toISOString().split('T')[0];
-  renderPLContent(invoices.filter(i=>i.invDate>=fd&&i.invDate<=td),purchases.filter(x=>x.date>=fd&&x.date<=td));
+  const{from,to}=p==='all'?{from:'2026-03-02',to:new Date().toISOString().split('T')[0]}:getDateRange(p);
+  renderPLContent(
+    invoices.filter(i=>i.invDate>=from&&i.invDate<=to),
+    purchases.filter(x=>x.date>=from&&x.date<=to)
+  );
 }
 function renderPLSubPage(){setPLPeriod('thismonth');}
 function renderPLContent(filtInv,filtPur){
@@ -2155,37 +2151,46 @@ function fmtExportDate(d){
 }
 
 function getDateRange(period){
-  const now=new Date(),y=now.getFullYear(),m=now.getMonth();
+  const now=new Date(),y=now.getFullYear(),m=now.getMonth(); // m is 0-indexed
+  const iso=d=>d.toISOString().split('T')[0];
+  const lastDay=(yr,mn)=>new Date(yr,mn+1,0); // day 0 of next month = last day of mn
+
   if(period==='thismonth')return{
-    from:new Date(y,m,1).toISOString().split('T')[0],
-    to:new Date(y,m+1,0).toISOString().split('T')[0],
-    label:'This Month'
+    from:iso(new Date(y,m,1)),
+    to:iso(lastDay(y,m)),
+    label:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m]+' '+y
   };
-  if(period==='lastmonth')return{
-    from:new Date(y,m-1,1).toISOString().split('T')[0],
-    to:new Date(y,m,0).toISOString().split('T')[0],
-    label:'Last Month'
-  };
+  if(period==='lastmonth'){
+    const lm=m===0?11:m-1;
+    const ly=m===0?y-1:y;
+    return{
+      from:iso(new Date(ly,lm,1)),
+      to:iso(lastDay(ly,lm)),
+      label:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][lm]+' '+ly
+    };
+  }
   if(period==='thisquarter'){
-    // FY quarters: Q1=Apr-Jun, Q2=Jul-Sep, Q3=Oct-Dec, Q4=Jan-Mar
+    // Indian FY quarters: Q1=Apr-Jun(3-5), Q2=Jul-Sep(6-8), Q3=Oct-Dec(9-11), Q4=Jan-Mar(0-2)
     const fyMonth=((m-3)+12)%12;
     const q=Math.floor(fyMonth/3);
-    const qStartMonths=[3,6,9,0]; // months (0-indexed)
+    const qStartMonths=[3,6,9,0];
     const fyStart=m>=3?y:y-1;
     const qm=qStartMonths[q];
-    const qy=qm===0?fyStart+1:fyStart; // Jan belongs to next calendar year
+    const qy=qm===0?fyStart+1:fyStart;
+    const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const qLabels=['Apr–Jun','Jul–Sep','Oct–Dec','Jan–Mar'];
     return{
-      from:new Date(qy,qm,1).toISOString().split('T')[0],
-      to:new Date(qy,qm+3,0).toISOString().split('T')[0],
-      label:'Q'+(q+1)+' FY'
+      from:iso(new Date(qy,qm,1)),
+      to:iso(lastDay(qy,qm+2)),
+      label:'Q'+(q+1)+' ('+qLabels[q]+') FY'+fyStart.toString().slice(2)+'-'+String(fyStart+1).slice(2)
     };
   }
   if(period==='thisfy'){
     const fyStart=m>=3?y:y-1;
     return{
-      from:new Date(fyStart,3,1).toISOString().split('T')[0],
-      to:new Date(fyStart+1,2,31).toISOString().split('T')[0],
-      label:'FY '+(fyStart)+'-'+(fyStart+1).toString().slice(2)
+      from:iso(new Date(fyStart,3,1)),    // 1 Apr
+      to:iso(new Date(fyStart+1,2,31)),   // 31 Mar
+      label:'FY '+fyStart+'-'+String(fyStart+1).slice(2)
     };
   }
   return{from:'',to:'',label:'All Time'};
