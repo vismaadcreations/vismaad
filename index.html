@@ -203,7 +203,7 @@ tbody tr:last-child td{border-bottom:none;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v2.8 · 20-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v2.9 · 20-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -2151,14 +2151,22 @@ function fmtExportDate(d){
 }
 
 function getDateRange(period){
-  const now=new Date(),y=now.getFullYear(),m=now.getMonth(); // m is 0-indexed
-  const iso=d=>d.toISOString().split('T')[0];
-  const lastDay=(yr,mn)=>new Date(yr,mn+1,0); // day 0 of next month = last day of mn
+  const now=new Date(),y=now.getFullYear(),m=now.getMonth();
+  // Format date as YYYY-MM-DD using LOCAL time (not UTC) to avoid timezone shift
+  function iso(d){
+    const yr=d.getFullYear();
+    const mn=String(d.getMonth()+1).padStart(2,'0');
+    const dy=String(d.getDate()).padStart(2,'0');
+    return yr+'-'+mn+'-'+dy;
+  }
+  // Last day of month mn (0-indexed) in year yr
+  function lastDay(yr,mn){return new Date(yr,mn+1,0);}
+  const MNAMES=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   if(period==='thismonth')return{
     from:iso(new Date(y,m,1)),
     to:iso(lastDay(y,m)),
-    label:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m]+' '+y
+    label:MNAMES[m]+' '+y
   };
   if(period==='lastmonth'){
     const lm=m===0?11:m-1;
@@ -2166,30 +2174,28 @@ function getDateRange(period){
     return{
       from:iso(new Date(ly,lm,1)),
       to:iso(lastDay(ly,lm)),
-      label:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][lm]+' '+ly
+      label:MNAMES[lm]+' '+ly
     };
   }
   if(period==='thisquarter'){
-    // Indian FY quarters: Q1=Apr-Jun(3-5), Q2=Jul-Sep(6-8), Q3=Oct-Dec(9-11), Q4=Jan-Mar(0-2)
     const fyMonth=((m-3)+12)%12;
     const q=Math.floor(fyMonth/3);
     const qStartMonths=[3,6,9,0];
     const fyStart=m>=3?y:y-1;
     const qm=qStartMonths[q];
     const qy=qm===0?fyStart+1:fyStart;
-    const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const qLabels=['Apr–Jun','Jul–Sep','Oct–Dec','Jan–Mar'];
     return{
       from:iso(new Date(qy,qm,1)),
       to:iso(lastDay(qy,qm+2)),
-      label:'Q'+(q+1)+' ('+qLabels[q]+') FY'+fyStart.toString().slice(2)+'-'+String(fyStart+1).slice(2)
+      label:'Q'+(q+1)+' ('+qLabels[q]+') FY'+String(fyStart).slice(2)+'-'+String(fyStart+1).slice(2)
     };
   }
   if(period==='thisfy'){
     const fyStart=m>=3?y:y-1;
     return{
-      from:iso(new Date(fyStart,3,1)),    // 1 Apr
-      to:iso(new Date(fyStart+1,2,31)),   // 31 Mar
+      from:iso(new Date(fyStart,3,1)),      // 1 Apr fyStart
+      to:iso(new Date(fyStart+1,2,31)),     // 31 Mar fyStart+1
       label:'FY '+fyStart+'-'+String(fyStart+1).slice(2)
     };
   }
