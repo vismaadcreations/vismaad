@@ -2249,33 +2249,80 @@ function _doExport(type,from,to,label){
   }
 
   if(type==='gst'){
-    // GST summary grouped by month
+    const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const byMonth={};
     filtered.forEach(inv=>{
-      const mon=inv.invDate?inv.invDate.slice(0,7):'Unknown';
-      if(!byMonth[mon])byMonth[mon]={month:mon,invoices:0,taxable:0,cgst:0,sgst:0,igst:0,total:0,itc:0};
-      const g=byMonth[mon];
+      // invDate slice for grouping key (YYYY-MM for sorting)
+      const isoMon=inv.invDate?String(inv.invDate).slice(0,7):'Unknown';
+      if(!byMonth[isoMon])byMonth[isoMon]={
+        isoMon,invoices:0,
+        taxable:0,cgst:0,sgst:0,igst:0,
+        totalGST:0,grossRev:0
+      };
+      const g=byMonth[isoMon];
       g.invoices++;
-      const tax=parseFloat((inv.taxableExcl||inv.grandTotal/1.05).toFixed(2));
-      const gst=parseFloat((inv.gstAmt||(inv.grandTotal-tax)).toFixed(2));
-      g.taxable+=tax;g.total+=parseFloat(inv.grandTotal||0);
-      if(inv.isIntra||inv.custState==='Punjab'){g.cgst+=gst/2;g.sgst+=gst/2;}
-      else g.igst+=gst;
+
+      const grand=parseFloat(inv.grandTotal)||0;
+
+      // Recalculate taxable and GST from grandTotal — most reliable since grandTotal is always stored
+      const taxable=parseFloat((grand/1.05).toFixed(2));
+      const gst=parseFloat((grand-taxable).toFixed(2));
+
+      g.grossRev+=grand;
+      g.taxable+=taxable;
+      g.totalGST+=gst;
+
+      // isIntra can be boolean true/false or string "true"/"false" after sheet sync
+      const intra=inv.isIntra===true||inv.isIntra==='true'||inv.custState==='Punjab';
+      if(intra){g.cgst+=gst/2;g.sgst+=gst/2;}
+      else{g.igst+=gst;}
     });
-    const hdr=['Month','Invoices','Taxable Amount (₹)','CGST 2.5% (₹)','SGST 2.5% (₹)','IGST 5% (₹)','Total GST (₹)','Gross Revenue (₹)'];
-    const rows=Object.values(byMonth).sort((a,b)=>a.month<b.month?-1:1).map(g=>[
-      g.month, g.invoices,
-      +g.taxable.toFixed(2), +g.cgst.toFixed(2), +g.sgst.toFixed(2), +g.igst.toFixed(2),
-      +(g.cgst+g.sgst+g.igst).toFixed(2), +g.total.toFixed(2)
-    ]);
+
+    // Readable month label: Mar-2026
+    function monLabel(isoMon){
+      if(isoMon==='Unknown')return'Unknown';
+      try{
+        const p=isoMon.split('-');
+        return MONTHS[parseInt(p[1])-1]+'-'+p[0];
+      }catch{return isoMon;}
+    }
+
+    const hdr=[
+      'Month','No. of Invoices',
+      'Gross Revenue (₹)','Taxable Value (₹)',
+      'CGST 2.5% (₹)','SGST 2.5% (₹)','IGST 5% (₹)',
+      'Total GST (₹)'
+    ];
+
+    const dataRows=Object.values(byMonth)
+      .sort((a,b)=>a.isoMon<b.isoMon?-1:1)
+      .map(g=>[
+        monLabel(g.isoMon),
+        g.invoices,
+        +g.grossRev.toFixed(2),
+        +g.taxable.toFixed(2),
+        +g.cgst.toFixed(2),
+        +g.sgst.toFixed(2),
+        +g.igst.toFixed(2),
+        +g.totalGST.toFixed(2)
+      ]);
+
     // Totals row
-    const tot=rows.reduce((acc,r)=>{for(let i=2;i<r.length;i++)acc[i]=(acc[i]||0)+r[i];return acc;},['TOTAL',filtered.length]);
-    rows.push(tot);
-    const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
-    ws['!cols']=[{wch:10},{wch:10},{wch:18},{wch:14},{wch:14},{wch:14},{wch:14},{wch:16}];
+    const totRow=['TOTAL', filtered.length, 0, 0, 0, 0, 0, 0];
+    dataRows.forEach(r=>{for(let i=2;i<8;i++)totRow[i]+=r[i];});
+    for(let i=2;i<8;i++)totRow[i]=+totRow[i].toFixed(2);
+
+    const ws=XLSX.utils.aoa_to_sheet([hdr,...dataRows,totRow]);
+    ws['!cols']=[{wch:12},{wch:14},{wch:18},{wch:16},{wch:14},{wch:14},{wch:14},{wch:14}];
+    // Bold the totals row
+    const totRowIdx=dataRows.length+1;
+    for(let c=0;c<8;c++){
+      const cell=ws[XLSX.utils.encode_cell({r:totRowIdx,c})];
+      if(cell)cell.s={font:{bold:true}};
+    }
     XLSX.utils.book_append_sheet(wb,ws,'GST Summary');
-    XLSX.writeFile(wb,'Vismaad_GST_'+label.replace(/\s/g,'_')+'.xlsx');
-    toast('✅ GST summary exported — '+filtered.length+' invoices');
+    XLSX.writeFile(wb,'Vismaad_GST_'+label.replace(/[\s/]/g,'_')+'.xlsx');
+    toast('✅ GST summary — '+filtered.length+' invoices across '+dataRows.length+' months');
     return;
   }
 
