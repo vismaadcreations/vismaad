@@ -647,7 +647,14 @@ function hideLoading(){
   if(ov)ov.classList.remove('show');
 }
 function today(){return new Date().toISOString().split('T')[0];}
-function fmtDate(d){if(!d)return'';try{const p=d.split('-');return p[2]+'/'+p[1]+'/'+p[0];}catch{return d;}}
+function fmtDate(d){
+  if(!d)return'';
+  try{
+    const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const p=d.split('-');
+    return p[2]+'-'+MONTHS[parseInt(p[1])-1]+'-'+p[0];
+  }catch{return d;}
+}
 function getFY(d){
   const dt=d?new Date(d+'T00:00:00'):new Date();
   const y=dt.getFullYear(),m=dt.getMonth();
@@ -1231,7 +1238,14 @@ function buildInvoiceHTML(data){
   const displayGST=parseFloat((displayGrand-displayTaxable).toFixed(2));
 
   const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
-  const fd=d=>{if(!d)return'';try{const p=d.split('-');return p[2]+'/'+p[1]+'/'+p[0];}catch{return d;}};
+  const fd=d=>{
+    if(!d)return'';
+    try{
+      const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const p=d.split('-');
+      return p[2]+'-'+MONTHS[parseInt(p[1])-1]+'-'+p[0];
+    }catch{return d;}
+  };
   const validItems=itemsArr.filter(i=>i.unitPrice>0);
   const hsnSet=[...new Set(validItems.map(i=>i.hsn||'540754'))];
   const hsnLabel=storedShipping>0?hsnSet.join('/')+'/9965':hsnSet.join('/');
@@ -2128,15 +2142,12 @@ function buildExportPage(){
 }
 
 function fmtExportDate(d){
-  // Convert YYYY-MM-DD to DD-MMM-YY
   if(!d)return'';
   try{
     const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const parts=d.split('-');
-    const day=parseInt(parts[2]);
-    const mon=MONTHS[parseInt(parts[1])-1];
-    const yr=parts[0].slice(2);
-    return(day<10?'0'+day:day)+'-'+mon+'-'+yr;
+    const p=d.split('-');
+    const day=parseInt(p[2]);
+    return(day<10?'0'+day:String(day))+'-'+MONTHS[parseInt(p[1])-1]+'-'+p[0];
   }catch{return d;}
 }
 
