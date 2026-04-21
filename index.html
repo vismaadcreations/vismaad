@@ -29,10 +29,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--ink);f
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
 /* ── SCROLL AREA ── */
-.scroll-area{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:calc(var(--nav-h) + 16px);}
+.scroll-area{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+  padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px);}
 
 /* ── BOTTOM NAV ── */
-.bnav{position:fixed;bottom:0;left:0;right:0;height:var(--nav-h);background:var(--warm);border-top:1.5px solid var(--border);display:flex;align-items:stretch;z-index:100;padding-bottom:env(safe-area-inset-bottom);}
+.bnav{position:fixed;bottom:0;left:0;right:0;background:var(--warm);border-top:1.5px solid var(--border);display:flex;align-items:stretch;z-index:100;
+  padding-bottom:env(safe-area-inset-bottom);
+  height:calc(var(--nav-h) + env(safe-area-inset-bottom));}
 .bnav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:none;background:transparent;cursor:pointer;padding:6px 2px;transition:all .15s;position:relative;}
 .bnav-btn.active{color:var(--gold);}
 .bnav-btn.active::after{content:'';position:absolute;top:0;left:20%;right:20%;height:2.5px;background:var(--gold);border-radius:0 0 3px 3px;}
@@ -126,7 +129,7 @@ tbody tr:last-child td{border-bottom:none;}
 .aging-tile .tile-age{font-size:11px;opacity:.85;}
 
 /* ── TOAST ── */
-.toast{position:fixed;bottom:calc(var(--nav-h) + 12px);left:16px;right:16px;z-index:9999;background:var(--brown);color:#fff;padding:14px 18px;border-radius:12px;font-size:14px;font-weight:500;box-shadow:0 4px 20px rgba(0,0,0,.2);transform:translateY(20px);opacity:0;transition:all .3s;text-align:center;}
+.toast{position:fixed;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px);left:16px;right:16px;z-index:9999;background:var(--brown);color:#fff;padding:14px 18px;border-radius:12px;font-size:14px;font-weight:500;box-shadow:0 4px 20px rgba(0,0,0,.2);transform:translateY(20px);opacity:0;transition:all .3s;text-align:center;}
 .toast.show{transform:translateY(0);opacity:1;}
 
 /* ── MODAL ── */
@@ -203,7 +206,7 @@ tbody tr:last-child td{border-bottom:none;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v2.9 · 20-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v3.0 · 21-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -564,8 +567,8 @@ tbody tr:last-child td{border-bottom:none;}
 </div>
 
 <!-- ════ SUB-PAGES (slide in from right) ════ -->
-<div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;overflow-y:auto;padding-bottom:80px;">
-  <div style="background:var(--brown);color:#fff;height:var(--header-h);display:flex;align-items:center;padding:0 16px;gap:12px;position:sticky;top:0;z-index:10;">
+<div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;overflow-y:auto;padding-bottom:calc(env(safe-area-inset-bottom) + 32px);">
+  <div style="background:var(--brown);color:#fff;height:var(--header-h);display:flex;align-items:center;padding:0 16px;padding-top:env(safe-area-inset-top);gap:12px;position:sticky;top:0;z-index:10;">
     <button onclick="closeSubPage()" style="background:rgba(255,255,255,.15);border:none;border-radius:8px;color:#fff;padding:8px 12px;font-size:14px;cursor:pointer;">← Back</button>
     <span id="sub-page-title" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;"></span>
   </div>
@@ -797,54 +800,51 @@ function parseInventoryRow(r){
     cost:parseFloat(r.cost)||0,sellPrice:parseFloat(r.sellPrice)||0};
 }
 
+
 async function syncAll(){
   if(syncing)return;syncing=true;setSyncStatus('busy');
   try{
     const cleared=localStorage.getItem('vc_inv_cleared')==='1';
+    // Read sheets sequentially — gives each sheet full timeout
+    const remInv = cleared ? [] : await gsRead(SHEETS.invoices);
+    const remStk = await gsRead(SHEETS.inventory);
+    const remPur = await gsRead(SHEETS.purchases);
+    const remSet = await gsRead(SHEETS.settings);
 
-    // Read sheets SEQUENTIALLY — not in parallel — to avoid overwhelming the script
-    // and to give the slowest sheet (Invoices) its full timeout
-    setSyncStatus('busy');
-    const remInv  = cleared ? [] : await gsRead(SHEETS.invoices);
-    const remStk  = await gsRead(SHEETS.inventory);
-    const remPur  = await gsRead(SHEETS.purchases);
-    const remSet  = await gsRead(SHEETS.settings);
-
-    // INVOICES — smart merge:
-    // - New remote records (not in local) → add them
-    // - Existing records → update mutable fields from remote (shipped status, tracking, channel, costs)
-    //   This ensures status changes made on one device propagate to others
     if(!cleared){
-      const localMap={};invoices.forEach(i=>{localMap[String(i.id)]=i;});
+      // Normalise all local IDs to trimmed strings for reliable comparison
+      // IDs from sheet come back as strings; local may be numbers — normalise both
+      const localMap={};
+      invoices.forEach(i=>{localMap[String(i.id).trim()]=i;});
+
       remInv.forEach(r=>{
         if(!r.id)return;
-        const local=localMap[String(r.id)];
+        const rid=String(r.id).trim();
+        const local=localMap[rid];
         if(!local){
-          // New record from remote — add it
-          localMap[String(r.id)]=r;
+          // Not in local — add from remote
+          localMap[rid]=r;
         }else{
-          // Update mutable fields from remote — remote is the source of truth for these
-          // since any device may have changed them
+          // Exists locally — sync mutable fields
+          // isShipped/status: remote ALWAYS wins — ensures status changes on any device propagate
           const remShipped=r.isShipped==='true'||r.isShipped===true||r.status==='Shipped';
-          const remStatus=r.status||'';
-          // Remote wins for shipped status if it differs
-          if(remShipped!==local.isShipped||remStatus!==local.status){
-            local.isShipped=remShipped;
-            local.status=remShipped?'Shipped':'Pending';
-          }
-          // Sync other editable fields if remote has them and local doesn't
+          local.isShipped=remShipped;
+          local.status=remShipped?'Shipped':'Pending';
+          // Other fields: remote fills blank only (never overwrites existing local data)
           if(r.tracking&&!local.tracking)local.tracking=r.tracking;
           if(r.channel&&!local.channel)local.channel=r.channel;
           if(r.costPrice&&!local.costPrice)local.costPrice=parseFloat(r.costPrice)||0;
           if(r.shippingCost&&!local.shippingCost)local.shippingCost=parseFloat(r.shippingCost)||0;
           if(r.custPhone&&!local.custPhone)local.custPhone=r.custPhone;
           if(r.custAddress&&!local.custAddress)local.custAddress=r.custAddress;
+          if(r.dispatchMethod&&!local.dispatchMethod)local.dispatchMethod=r.dispatchMethod;
+          if(r.courierName&&!local.courierName)local.courierName=r.courierName;
         }
       });
       invoices=Object.values(localMap).sort((a,b)=>(a.invDate||'')<(b.invDate||'')?-1:1);
     }
 
-    // INVENTORY — merge
+    // INVENTORY — local wins for same prodNo, remote adds new
     const sm={};inventory.forEach(l=>{sm[String(l.prodNo)]=l;});
     remStk.forEach(r=>{if(r.prodNo&&!sm[String(r.prodNo)])sm[String(r.prodNo)]=parseInventoryRow(r);});
     inventory=Object.values(sm).sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
@@ -854,18 +854,22 @@ async function syncAll(){
     remPur.forEach(r=>{if(r.id&&!pm[String(r.id)])pm[String(r.id)]=r;});
     purchases=Object.values(pm).sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
 
-    // SETTINGS
+    // SETTINGS — local wins (don't overwrite what user set on this device)
     if(remSet.length>0){
       const rs=remSet[0];
-      S={gstin:rs.gstin||S.gstin||'',address:rs.address||S.address||'',
-         phone:rs.phone||S.phone||'',email:rs.email||S.email||''};
+      S={
+        gstin:S.gstin||rs.gstin||'',
+        address:S.address||rs.address||'',
+        phone:S.phone||rs.phone||'',
+        email:S.email||rs.email||''
+      };
       lsSet('vc_s',S);
     }
 
     save();saveStk();savePur();
 
-    // Only push inventory and purchases (small, fast)
-    // Do NOT push all invoices — they are already in sheets from when they were created
+    // Push small datasets back — inventory and purchases only
+    // Invoices are already in sheet from when they were saved individually
     inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
     purchases.forEach(p=>gsWrite(SHEETS.purchases,p));
     if(S.gstin)gsWrite(SHEETS.settings,{id:'settings',...S});
@@ -880,11 +884,7 @@ async function syncAll(){
   }catch(e){
     setSyncStatus('err');
     const msg=e.message||'';
-    if(msg.includes('Timeout')){
-      toast('⚠️ '+msg,6000);
-    }else{
-      toast('⚠️ Sync failed: '+msg,5000);
-    }
+    toast(msg.includes('Timeout')?'⚠️ '+msg:'⚠️ Sync failed: '+msg,5000);
   }finally{syncing=false;}
 }
 
@@ -1597,10 +1597,12 @@ function checkResetConfirm(){
 function clearAllInvoices(){
   if(document.getElementById('reset-confirm-input')?.value.trim()!=='DELETE ALL'){toast('⚠️ Type DELETE ALL first');return;}
   invoices=[];invCtr=0;save();localStorage.setItem('vc_ctr','0');
+  // Set cleared flag so sync doesn't re-pull old invoices from sheet
   localStorage.setItem('vc_inv_cleared','1');
-  gsClearSheet(SHEETS.invoices);
+  // DO NOT wipe Google Sheet — other devices still need their data
+  // Sheet will be updated when invoices are re-added
   closeDangerZone();renderSales();renderDashboard();
-  toast('🗑 All invoices deleted',4000);
+  toast('🗑 All invoices cleared from this device',4000);
 }
 
 // ═══════════════════════════════════════════
