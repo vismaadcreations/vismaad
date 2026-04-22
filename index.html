@@ -206,7 +206,7 @@ tbody tr:last-child td{border-bottom:none;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v3.0 · 21-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v3.1 · 21-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -567,12 +567,12 @@ tbody tr:last-child td{border-bottom:none;}
 </div>
 
 <!-- ════ SUB-PAGES (slide in from right) ════ -->
-<div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;overflow-y:auto;padding-bottom:calc(env(safe-area-inset-bottom) + 32px);">
+<div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;overflow-y:auto;padding-bottom:calc(env(safe-area-inset-bottom) + 80px);">
   <div style="background:var(--brown);color:#fff;height:var(--header-h);display:flex;align-items:center;padding:0 16px;padding-top:env(safe-area-inset-top);gap:12px;position:sticky;top:0;z-index:10;">
     <button onclick="closeSubPage()" style="background:rgba(255,255,255,.15);border:none;border-radius:8px;color:#fff;padding:8px 12px;font-size:14px;cursor:pointer;">← Back</button>
     <span id="sub-page-title" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;"></span>
   </div>
-  <div id="sub-page-content" style="padding:16px;"></div>
+  <div id="sub-page-content" style="padding:16px;padding-bottom:32px;"></div>
 </div>
 
 </div><!-- end scroll-area -->
@@ -2096,7 +2096,8 @@ function buildLabelPage(){
     <div class="card"><div class="card-title">🏠 From Address</div>
     <div class="fg"><label>Address</label><textarea id="lbl-from-addr" placeholder="Vismaad Creations&#10;Your address&#10;City, Punjab, Pincode" rows="3"></textarea></div>
     <div class="fg"><label>Phone</label><input id="lbl-from-ph" placeholder="+91 XXXXX XXXXX"/></div></div>
-    <button class="btn btn-g" onclick="printLabel()">🖨️ Print Label (Half A4)</button>`;
+    <button class="btn btn-g" style="margin-bottom:24px;" onclick="printLabel()">🖨️ Print Label (Half A4)</button>
+    <div style="height:env(safe-area-inset-bottom);"></div>`;
 }
 
 function buildExportPage(){
