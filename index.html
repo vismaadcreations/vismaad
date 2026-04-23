@@ -209,7 +209,7 @@ tbody tr:last-child td{border-bottom:none;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v3.5 · 23-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v3.6 · 23-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -698,9 +698,22 @@ function fmtDate(d){
   if(!d)return'';
   try{
     const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const p=d.split('-');
-    return p[2]+'-'+MONTHS[parseInt(p[1])-1]+'-'+p[0];
-  }catch{return d;}
+    // If it's a Date object or a long date string, convert via Date constructor
+    let str=String(d).trim();
+    // Already DD-MMM-YYYY — return as is
+    if(/^\d{2}-[A-Za-z]{3}-\d{4}$/.test(str))return str;
+    // YYYY-MM-DD — split directly
+    if(/^\d{4}-\d{2}-\d{2}$/.test(str)){
+      const p=str.split('-');
+      return p[2]+'-'+MONTHS[parseInt(p[1])-1]+'-'+p[0];
+    }
+    // Anything else — parse via Date and extract local date parts
+    const dt=new Date(str);
+    if(!isNaN(dt.getTime())){
+      return String(dt.getDate()).padStart(2,'0')+'-'+MONTHS[dt.getMonth()]+'-'+dt.getFullYear();
+    }
+    return str;
+  }catch{return String(d);}
 }
 function getFY(d){
   const dt=d?new Date(d+'T00:00:00'):new Date();
@@ -1286,9 +1299,18 @@ function buildInvoiceHTML(data){
     if(!d)return'';
     try{
       const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const p=d.split('-');
-      return p[2]+'-'+MONTHS[parseInt(p[1])-1]+'-'+p[0];
-    }catch{return d;}
+      const str=String(d).trim();
+      if(/^\d{2}-[A-Za-z]{3}-\d{4}$/.test(str))return str;
+      if(/^\d{4}-\d{2}-\d{2}$/.test(str)){
+        const p=str.split('-');
+        return p[2]+'-'+MONTHS[parseInt(p[1])-1]+'-'+p[0];
+      }
+      const dt=new Date(str);
+      if(!isNaN(dt.getTime())){
+        return String(dt.getDate()).padStart(2,'0')+'-'+MONTHS[dt.getMonth()]+'-'+dt.getFullYear();
+      }
+      return str;
+    }catch{return String(d);}
   };
   const validItems=itemsArr.filter(i=>i.unitPrice>0);
   const hsnSet=[...new Set(validItems.map(i=>i.hsn||'540754'))];
