@@ -209,7 +209,7 @@ tbody tr:last-child td{border-bottom:none;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v3.3 · 21-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v3.4 · 23-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -359,8 +359,9 @@ tbody tr:last-child td{border-bottom:none;}
       <div id="inv-preview-html"></div>
     </div>
     <button class="btn btn-g" onclick="printCurrentInvoice()" style="margin-bottom:10px;">🖨️ Print Invoice</button>
+    <button class="btn btn-p" onclick="openShareModal(currentInv)" style="margin-bottom:10px;">📤 Share Invoice</button>
     <button class="btn btn-o" onclick="goToLabel()" style="margin-bottom:10px;">📦 Create Shipping Label</button>
-    <button class="btn btn-p" onclick="resetInvoiceForm()">+ New Invoice</button>
+    <button class="btn btn-o" onclick="resetInvoiceForm()">+ New Invoice</button>
   </div>
 </div>
 
@@ -565,6 +566,43 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="btn-row">
       <button class="btn btn-p" onclick="saveInvoiceEdit()">💾 Save Changes</button>
       <button class="btn btn-o" onclick="closeEditModal()" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SHARE MODAL ════ -->
+<div class="modal-bg" id="share-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeShareModal()">✕</button>
+    <div class="modal-title">📤 Share</div>
+    <div style="font-size:13px;color:#888;margin-bottom:16px;" id="share-modal-subtitle"></div>
+
+    <!-- Phone input — shown if no phone stored -->
+    <div class="fg" id="share-phone-row" style="display:none;">
+      <label>Customer WhatsApp Number</label>
+      <div style="display:flex;gap:8px;">
+        <input id="share-phone-input" placeholder="91XXXXXXXXXX" style="flex:1;"
+          type="tel" inputmode="numeric"/>
+        <div style="font-size:11px;color:#888;align-self:flex-end;padding-bottom:4px;">with country code</div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <button class="btn btn-g" style="text-align:left;justify-content:flex-start;gap:12px;" onclick="shareInvoiceWhatsApp()">
+        <span style="font-size:20px;">💬</span>
+        <div><div style="font-weight:700;">Send Invoice on WhatsApp</div>
+        <div style="font-size:12px;opacity:.8;font-weight:400;">Invoice summary as text message</div></div>
+      </button>
+      <button class="btn btn-o" style="text-align:left;justify-content:flex-start;gap:12px;" onclick="shareInvoicePDF()">
+        <span style="font-size:20px;">📄</span>
+        <div><div style="font-weight:700;">Print / Save as PDF</div>
+        <div style="font-size:12px;opacity:.8;font-weight:400;">Then share from PDF viewer</div></div>
+      </button>
+      <button class="btn btn-o" id="share-tracking-btn" style="text-align:left;justify-content:flex-start;gap:12px;" onclick="shareTrackingWhatsApp()">
+        <span style="font-size:20px;">🚚</span>
+        <div><div style="font-weight:700;">Share Tracking on WhatsApp</div>
+        <div style="font-size:12px;opacity:.8;font-weight:400;" id="share-tracking-no"></div></div>
+      </button>
     </div>
   </div>
 </div>
@@ -1422,7 +1460,7 @@ function renderSales(){
           ${inv.channel?`<div style="font-size:12px;color:#888;margin-top:2px;">${chIcon[inv.channel]||''} ${inv.channel}</div>`:''}
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;padding-bottom:4px;">
             <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="viewInvoiceByIdx(${idx})">👁 View</button>
-            <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="printInvoiceByIdx(${idx})">🖨️</button>
+            <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="openShareModal(salesFiltered[${idx}])">📤 Share</button>
             <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="editInvoiceByIdx(${idx})">✏️ Edit</button>
             <button class="btn btn-sm ${shipped?'btn-o':'btn-g'}" style="min-height:44px;" onclick="toggleShippedByIdx(${idx})">${shipped?'↩':'🚚'}</button>
             <button class="btn btn-d btn-sm" style="min-height:44px;" onclick="deleteInvoiceByIdx(${idx})">🗑</button>
@@ -1543,6 +1581,104 @@ function editInvoiceByIdx(idx){
   document.getElementById('edit-modal').classList.add('open');
 }
 function closeEditModal(){document.getElementById('edit-modal').classList.remove('open');editingInvId=null;}
+
+// ═══════════════════════════════════════════
+// SHARE / WHATSAPP
+// ═══════════════════════════════════════════
+let sharingInv=null;
+
+function openShareModal(inv){
+  if(!inv)return;
+  sharingInv=inv;
+  // Subtitle
+  document.getElementById('share-modal-subtitle').textContent=
+    (inv.invNo||'—')+'  ·  '+(inv.custName||'—')+'  ·  '+fmtDate(inv.invDate);
+  // Phone row — show if no phone stored
+  const phoneRow=document.getElementById('share-phone-row');
+  const phoneInput=document.getElementById('share-phone-input');
+  if(!inv.custPhone){
+    phoneRow.style.display='block';
+    if(phoneInput)phoneInput.value='';
+  }else{
+    phoneRow.style.display='none';
+  }
+  // Tracking button — show only if tracking exists
+  const trackBtn=document.getElementById('share-tracking-btn');
+  const trackNo=document.getElementById('share-tracking-no');
+  if(inv.tracking){
+    trackBtn.style.display='flex';
+    if(trackNo)trackNo.textContent=inv.tracking;
+  }else{
+    trackBtn.style.display='none';
+  }
+  document.getElementById('share-modal').classList.add('open');
+}
+
+function closeShareModal(){
+  document.getElementById('share-modal').classList.remove('open');
+  sharingInv=null;
+}
+
+function getSharePhone(){
+  if(!sharingInv)return null;
+  // Use stored phone or what user typed in the prompt
+  let ph=sharingInv.custPhone||document.getElementById('share-phone-input')?.value||'';
+  ph=ph.replace(/\D/g,''); // strip non-digits
+  if(!ph){toast('⚠️ Enter customer WhatsApp number');return null;}
+  // Add country code if not present
+  if(ph.length===10)ph='91'+ph;
+  return ph;
+}
+
+function shareInvoiceWhatsApp(){
+  const ph=getSharePhone();if(!ph)return;
+  const inv=sharingInv;
+  const items=expandItems(inv.itemsArr).filter(i=>i.unitPrice>0);
+  const itemList=items.map(i=>i.desc+(i.qty>1?' (x'+i.qty+')':'')).join(', ');
+  const msg=
+    'Dear '+inv.custName+',\n\n'+
+    'Thank you for shopping with Vismaad Creations! 🙏\n\n'+
+    'Invoice No: '+(inv.invNo||'—')+'\n'+
+    'Date: '+fmtDate(inv.invDate)+'\n'+
+    'Items: '+itemList+'\n'+
+    'Amount: ₹'+parseFloat(inv.grandTotal||0).toLocaleString('en-IN')+'\n\n'+
+    '— Vismaad Creations';
+  const url='https://wa.me/'+ph+'?text='+encodeURIComponent(msg);
+  window.open(url,'_blank');
+  closeShareModal();
+}
+
+function shareInvoicePDF(){
+  const inv=sharingInv;if(!inv)return;
+  closeShareModal();
+  // Print the invoice — on iPhone Safari this gives Share → Save to Files / WhatsApp
+  document.getElementById('print-area').innerHTML=
+    '<div class="print-page">'+getInvHtml(inv)+'</div>';
+  window.print();
+}
+
+function shareTrackingWhatsApp(){
+  const ph=getSharePhone();if(!ph)return;
+  const inv=sharingInv;
+  const track=inv.tracking||'';
+  if(!track){toast('⚠️ No tracking number on this invoice');return;}
+  const msg=
+    'Dear '+inv.custName+',\n\n'+
+    'Your order from Vismaad Creations has been dispatched! 🚚📦\n\n'+
+    'Tracking No: '+track+'\n\n'+
+    'Track your parcel:\n'+
+    '1. Go to www.indiapost.gov.in\n'+
+    '2. Click "Track Consignment"\n'+
+    '3. Enter tracking number: '+track+'\n'+
+    '4. Click Search\n\n'+
+    'Estimated delivery: 7-10 working days.\n\n'+
+    '📹 IMPORTANT: Please make a video while opening the package — without any cuts or edits. '+
+    'Refund or exchange requests will not be entertained without an unboxing video.\n\n'+
+    '— Vismaad Creations';
+  const url='https://wa.me/'+ph+'?text='+encodeURIComponent(msg);
+  window.open(url,'_blank');
+  closeShareModal();
+}
 function recalcEditTotal(){
   const sc=parseFloat(document.getElementById('edit-ship-charged')?.value)||0;
   const di=parseFloat(document.getElementById('edit-discount')?.value)||0;
