@@ -138,7 +138,7 @@ tbody tr:last-child td{border-bottom:none;}
 /* ── MODAL ── */
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(26,18,8,.55);z-index:200;align-items:flex-end;justify-content:center;}
 .modal-bg.open{display:flex;}
-.modal{background:var(--warm);border-radius:20px 20px 0 0;padding:20px 16px;padding-bottom:calc(24px + env(safe-area-inset-bottom));width:100%;max-height:92vh;overflow-y:auto;}
+.modal{background:var(--warm);border-radius:20px 20px 0 0;padding:20px 16px;padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px);width:100%;max-height:92vh;overflow-y:auto;}
 .modal-title{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;color:var(--brown);margin-bottom:16px;}
 .modal-close{float:right;background:var(--border);border:none;border-radius:50%;width:36px;height:36px;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;}
 
@@ -209,7 +209,7 @@ tbody tr:last-child td{border-bottom:none;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v3.4 · 23-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v3.5 · 23-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
