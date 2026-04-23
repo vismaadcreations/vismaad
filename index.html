@@ -17,7 +17,7 @@ html,body{height:100%;overflow:hidden;}
 body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--ink);font-size:15px;display:flex;flex-direction:column;}
 
 /* ── HEADER ── */
-.hdr{background:var(--brown);color:#fff;height:var(--header-h);display:flex;align-items:center;justify-content:space-between;padding:0 16px;flex-shrink:0;position:relative;z-index:50;}
+.hdr{background:var(--brown);color:#fff;min-height:var(--header-h);display:flex;align-items:center;justify-content:space-between;padding:0 16px;padding-top:env(safe-area-inset-top);flex-shrink:0;position:relative;z-index:50;}
 .hdr-brand{display:flex;align-items:center;gap:10px;}
 .hdr-logo{height:36px;width:auto;object-fit:contain;display:none;}
 .hdr-name{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;}
@@ -209,7 +209,7 @@ tbody tr:last-child td{border-bottom:none;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v3.6 · 23-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v3.8 · 23-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -273,7 +273,10 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="card-title">👤 Customer</div>
     <div class="fg"><label>Name *</label><input id="c-name" placeholder="Customer full name"/></div>
     <div class="row2">
-      <div class="fg"><label>Phone</label><input id="c-phone" type="tel" placeholder="Mobile number"/></div>
+      <div class="fg"><label>Shipping Phone</label><input id="c-phone" type="tel" placeholder="For shipping label"/></div>
+      <div class="fg"><label>WhatsApp Number</label><input id="c-whatsapp" type="tel" placeholder="For messages (if different)"/></div>
+    </div>
+    <div class="row2">
       <div class="fg"><label>State *</label>
         <select id="c-state" onchange="updateTaxType()">
           <option value="">Select state</option>
@@ -555,8 +558,11 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="fg"><label>India Post Tracking No.</label>
       <input id="edit-tracking" placeholder="EE123456789IN"/></div>
 
-    <div class="fg"><label>Customer Phone</label>
+    <div class="fg"><label>Customer Phone (Shipping)</label>
       <input id="edit-phone" placeholder="Mobile number"/></div>
+
+    <div class="fg"><label>Customer WhatsApp <span style="font-weight:400;color:#aaa;">(if different)</span></label>
+      <input id="edit-whatsapp" placeholder="WhatsApp number"/></div>
 
     <div class="fg"><label>Customer Address</label>
       <textarea id="edit-address" rows="2" placeholder="Full address"></textarea></div>
@@ -609,8 +615,8 @@ tbody tr:last-child td{border-bottom:none;}
 
 <!-- ════ SUB-PAGES (slide in from right) ════ -->
 <div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;overflow-y:auto;padding-bottom:calc(env(safe-area-inset-bottom) + 80px);">
-  <div style="background:var(--brown);color:#fff;height:var(--header-h);display:flex;align-items:center;padding:0 16px;padding-top:env(safe-area-inset-top);gap:12px;position:sticky;top:0;z-index:10;">
-    <button onclick="closeSubPage()" style="background:rgba(255,255,255,.15);border:none;border-radius:8px;color:#fff;padding:8px 12px;font-size:14px;cursor:pointer;">← Back</button>
+  <div style="background:var(--brown);color:#fff;min-height:var(--header-h);display:flex;align-items:center;padding:0 16px;padding-top:calc(env(safe-area-inset-top) + 8px);padding-bottom:8px;gap:12px;position:sticky;top:0;z-index:10;">
+    <button onclick="closeSubPage()" style="background:rgba(255,255,255,.15);border:none;border-radius:8px;color:#fff;padding:10px 14px;font-size:15px;cursor:pointer;min-height:44px;flex-shrink:0;">← Back</button>
     <span id="sub-page-title" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;"></span>
   </div>
   <div id="sub-page-content" style="padding:16px;padding-bottom:32px;"></div>
@@ -1198,6 +1204,7 @@ function generateInvoice(){
   const courierName=document.getElementById('courier-name')?.value||'';
   const isIntra=custState==='Punjab';
   const custPhone=document.getElementById('c-phone')?.value||'';
+  const custWhatsapp=document.getElementById('c-whatsapp')?.value||'';
   const custAddress=document.getElementById('c-address')?.value||'';
   const channel=document.getElementById('sale-channel')?.value||'';
 
@@ -1207,7 +1214,7 @@ function generateInvoice(){
   const saved={
     id:Date.now(),
     invNo,invDate,fy:getFY(invDate),
-    custName,custPhone,custAddress,custState,isIntra,
+    custName,custPhone,custWhatsapp,custAddress,custState,isIntra,
     shipping:ship,shippingCost,discount:disc,tracking,dispatchDate,
     dispatchMethod,courierName,channel,
     grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
@@ -1252,7 +1259,7 @@ function resetInvoiceForm(){
     invCtr=Math.max(...nums,invCtr);
   }
   const el=document.getElementById('inv-no');if(el)el.value='INV-'+String(invCtr+1).padStart(3,'0');
-  ['c-name','c-phone','c-address','tracking'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['c-name','c-phone','c-whatsapp','c-address','tracking'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   const cs=document.getElementById('c-state');if(cs)cs.value='';
   const td=document.getElementById('tax-display');if(td)td.value='';
   const sh=document.getElementById('shipping');if(sh)sh.value='0';
@@ -1380,7 +1387,7 @@ function buildInvoiceHTML(data){
       <div>
         <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Billed To</div>
         <div style="font-size:13px;font-weight:700;">${data.custName}</div>
-        <div style="font-size:11px;color:#555;line-height:1.6;">${data.custPhone?'📞 '+data.custPhone+'<br/>':''}${data.custAddress?data.custAddress.replace(/\n/g,'<br/>')+'<br/>':''}${data.custState?'<strong>'+data.custState+'</strong>':''}</div>
+        <div style="font-size:11px;color:#555;line-height:1.6;">${data.custPhone?'📞 '+data.custPhone+'<br/>':''}${data.custWhatsapp&&data.custWhatsapp!==data.custPhone?'💬 '+data.custWhatsapp+'<br/>':''}${data.custAddress?data.custAddress.replace(/\n/g,'<br/>')+'<br/>':''}${data.custState?'<strong>'+data.custState+'</strong>':''}</div>
       </div>
       <div>${dispatchHtml}</div>
     </div>
@@ -1598,6 +1605,7 @@ function editInvoiceByIdx(idx){
   document.getElementById('edit-channel').value=inv.channel||'';
   document.getElementById('edit-tracking').value=inv.tracking||'';
   document.getElementById('edit-phone').value=inv.custPhone||'';
+  document.getElementById('edit-whatsapp').value=inv.custWhatsapp||'';
   document.getElementById('edit-address').value=inv.custAddress||'';
   recalcEditTotal();
   document.getElementById('edit-modal').classList.add('open');
@@ -1615,10 +1623,10 @@ function openShareModal(inv){
   // Subtitle
   document.getElementById('share-modal-subtitle').textContent=
     (inv.invNo||'—')+'  ·  '+(inv.custName||'—')+'  ·  '+fmtDate(inv.invDate);
-  // Phone row — show if no phone stored
+  // Phone row — show if neither phone stored
   const phoneRow=document.getElementById('share-phone-row');
   const phoneInput=document.getElementById('share-phone-input');
-  if(!inv.custPhone){
+  if(!inv.custWhatsapp&&!inv.custPhone){
     phoneRow.style.display='block';
     if(phoneInput)phoneInput.value='';
   }else{
@@ -1643,11 +1651,10 @@ function closeShareModal(){
 
 function getSharePhone(){
   if(!sharingInv)return null;
-  // Use stored phone or what user typed in the prompt
-  let ph=sharingInv.custPhone||document.getElementById('share-phone-input')?.value||'';
-  ph=ph.replace(/\D/g,''); // strip non-digits
+  // Prefer WhatsApp number, fall back to shipping phone, then prompt
+  let ph=sharingInv.custWhatsapp||sharingInv.custPhone||document.getElementById('share-phone-input')?.value||'';
+  ph=ph.replace(/\D/g,'');
   if(!ph){toast('⚠️ Enter customer WhatsApp number');return null;}
-  // Add country code if not present
   if(ph.length===10)ph='91'+ph;
   return ph;
 }
@@ -1723,6 +1730,7 @@ function saveInvoiceEdit(){
   inv.channel=document.getElementById('edit-channel').value;
   inv.tracking=document.getElementById('edit-tracking').value;
   inv.custPhone=document.getElementById('edit-phone').value;
+  inv.custWhatsapp=document.getElementById('edit-whatsapp').value;
   inv.custAddress=document.getElementById('edit-address').value;
   inv.grandTotal=grandIncl;inv.gstAmt=gstAmt;inv.taxableExcl=taxableExcl;
   delete inv.html;
@@ -1927,7 +1935,8 @@ function updateInventoryStats(){
 // ═══════════════════════════════════════════
 function loadLabelDefaults(){
   setTimeout(()=>{
-    const fa=document.getElementById('lbl-from-addr');if(fa&&!fa.value)fa.value='Vismaad Creations\n'+(S.address||'');
+    const fa=document.getElementById('lbl-from-addr');
+    if(fa&&!fa.value)fa.value=S.address||'';  // address only — name printed separately
     const fp=document.getElementById('lbl-from-ph');if(fp&&!fp.value)fp.value=S.phone||'';
   },50);
 }
@@ -2027,7 +2036,7 @@ function printLabel(){
         +'<div class="botr">'
           +'<div class="frlbl">From</div>'
           +'<div class="frname">Vismaad Creations</div>'
-          +'<div class="frdet" id="frdet">'+fromAddr+(fromPh?'<br/>&#9990; '+fromPh:'')+'</div>'
+          +'<div class="frdet" id="frdet">'+(fromAddr||'')+(fromPh?'<br/>&#9990; '+fromPh:'')+'</div>'
         +'</div>'
       +'</div>'
     +'</div>'
@@ -2255,7 +2264,8 @@ function buildLabelPage(){
       <div class="fg"><label>Tracking No.</label><input id="lbl-tracking2" placeholder="EE123456789IN"/></div>
     </div></div>
     <div class="card"><div class="card-title">🏠 From Address</div>
-    <div class="fg"><label>Address</label><textarea id="lbl-from-addr" placeholder="Vismaad Creations&#10;Your address&#10;City, Punjab, Pincode" rows="3"></textarea></div>
+    <div style="font-size:12px;color:#888;margin-bottom:10px;">Brand name "Vismaad Creations" is printed automatically — enter address only below.</div>
+    <div class="fg"><label>Address</label><textarea id="lbl-from-addr" placeholder="Street, City, Punjab, Pincode" rows="3"></textarea></div>
     <div class="fg"><label>Phone</label><input id="lbl-from-ph" placeholder="+91 XXXXX XXXXX"/></div></div>
     <button class="btn btn-g" style="margin-bottom:24px;" onclick="printLabel()">🖨️ Print Label (Half A4)</button>
     <div style="height:env(safe-area-inset-bottom);"></div>`;
