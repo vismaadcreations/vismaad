@@ -165,6 +165,7 @@ tbody tr:last-child td{border-bottom:none;}
   .print-page:last-child{page-break-after:auto;}
   .print-label-page{width:210mm;height:148mm;padding:8mm;page-break-after:always;}
 }
+@page{margin:0;}
 
 /* ── DESKTOP ENHANCEMENTS ── */
 @media(min-width:768px){
@@ -209,7 +210,7 @@ tbody tr:last-child td{border-bottom:none;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v3.8 · 23-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v4.0 · 25-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -1534,6 +1535,7 @@ function bulkPrint(){
     const pages=sel.map(inv=>'<div class="print-page">'+getInvHtml(inv)+'</div>').join('');
     const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
       +'<style>'
+      +'@page{margin:0;}'
       +'*{box-sizing:border-box;margin:0;padding:0;}'
       +'body{font-family:\'DM Sans\',sans-serif;}'
       +'@import url(\'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;600&display=swap\');'
@@ -1979,6 +1981,8 @@ function printLabel(){
 
   const css=''
     +'*{box-sizing:border-box;margin:0;padding:0;}'
+    // Remove browser default print headers/footers (blob URL, date, page number)
+    +'@page{margin:0;size:A4 portrait;}'
     +'body{font-family:Arial,Helvetica,sans-serif;background:#fff;'
     +'padding:8mm 10mm;'
     +'-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
@@ -2126,21 +2130,29 @@ function buildPurchasesPage(){
     <div class="stat-card"><div class="stat-val">₹${tot.toLocaleString('en-IN')}</div><div class="stat-lbl">Total Spent</div></div>
     <div class="stat-card"><div class="stat-val" style="color:#27ae60;">₹${itc.toLocaleString('en-IN')}</div><div class="stat-lbl">ITC Available</div></div>
   </div>
-  <div class="card"><div class="card-title">➕ Add Purchase</div>
+  <div class="card"><div class="card-title">➕ Add Purchase / Expense</div>
+    <div style="font-size:12px;color:#888;margin-bottom:12px;">Enter suit purchases (5% GST) and India Post receipts (18% GST) here to track ITC.</div>
     <div class="row2"><div class="fg"><label>Date</label><input type="date" id="pp-date" value="${today()}"/></div>
-    <div class="fg"><label>Supplier *</label><input id="pp-sup" placeholder="Supplier name"/></div></div>
-    <div class="row2"><div class="fg"><label>Description</label><input id="pp-desc" placeholder="Suit Purchase"/></div>
-    <div class="fg"><label>Qty</label><input type="number" id="pp-qty" placeholder="0" min="0"/></div></div>
+    <div class="fg"><label>Type / Supplier *</label><input id="pp-sup" placeholder="e.g. Suit Supplier / India Post"/></div></div>
+    <div class="row2"><div class="fg"><label>Description</label><input id="pp-desc" placeholder="e.g. Suit Purchase / Parcel Booking"/></div>
+    <div class="fg"><label>Qty (suits / parcels)</label><input type="number" id="pp-qty" placeholder="0" min="0"/></div></div>
     <div class="row3">
-      <div class="fg"><label>Amount (₹)</label><input type="number" id="pp-amt" placeholder="0" oninput="calcPurGST()"/></div>
-      <div class="fg"><label>GST</label><select id="pp-gst" onchange="calcPurGST()"><option value="none">No GST</option><option value="5">5%</option><option value="12">12%</option></select></div>
-      <div class="fg"><label>ITC (₹)</label><input id="pp-itc" readonly style="background:#f0e8d8;"/></div>
+      <div class="fg"><label>Total Amount Paid (₹ incl. GST)</label><input type="number" id="pp-amt" placeholder="0" oninput="calcPurGST()"/></div>
+      <div class="fg"><label>GST Rate Paid</label>
+        <select id="pp-gst" onchange="calcPurGST()">
+          <option value="none">No GST</option>
+          <option value="5">5% GST (Suit Purchases)</option>
+          <option value="12">12% GST</option>
+          <option value="18">18% GST (India Post / Courier)</option>
+        </select>
+      </div>
+      <div class="fg"><label>ITC Claimable (₹) — auto calculated</label><input id="pp-itc" readonly style="background:#f0e8d8;"/></div>
     </div>
     <div class="row2">
-      <div class="fg"><label>Supplier GSTIN</label><input id="pp-gstin" placeholder="Optional" style="text-transform:uppercase"/></div>
-      <div class="fg"><label>Bill No.</label><input id="pp-billno" placeholder="Bill number"/></div>
+      <div class="fg"><label>Supplier GSTIN (for ITC claim)</label><input id="pp-gstin" placeholder="e.g. 03AAAGH0058J1ZS" style="text-transform:uppercase"/></div>
+      <div class="fg"><label>Bill / Receipt No.</label><input id="pp-billno" placeholder="Bill or receipt number"/></div>
     </div>
-    <button class="btn btn-p" onclick="savePurchaseEntry()">💾 Save Purchase</button>
+    <button class="btn btn-p" onclick="savePurchaseEntry()">💾 Save Entry</button>
   </div>
   <div class="card"><div class="card-title">📋 Register</div>${rows||'<div style="color:#aaa;text-align:center;padding:20px;">No purchases yet</div>'}</div>`;
 }
@@ -2169,14 +2181,21 @@ function deletePurchase(id){
 }
 
 function buildPLPage(){
-  return`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
-    <button class="btn btn-o btn-sm" onclick="setPLPeriod('thismonth')">This Month</button>
-    <button class="btn btn-o btn-sm" onclick="setPLPeriod('lastmonth')">Last Month</button>
-    <button class="btn btn-o btn-sm" onclick="setPLPeriod('thisquarter')">This Quarter</button>
-    <button class="btn btn-o btn-sm" onclick="setPLPeriod('thisfy')">This FY</button>
-    <button class="btn btn-o btn-sm" onclick="setPLPeriod('all')">All Time</button>
+  const now=new Date(),y=now.getFullYear(),m=now.getMonth();
+  const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fyStart=m>=3?y:y-1;
+  return`<div class="card" style="margin-bottom:0;">
+    <div class="card-title">📊 Profit & Loss</div>
+    <div style="font-size:12px;color:#888;margin-bottom:10px;">Select a period to view your P&L statement:</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <button class="btn btn-o" onclick="setPLPeriod('thismonth')">📅 This Month (${MONTHS[m]} ${y})</button>
+      <button class="btn btn-o" onclick="setPLPeriod('lastmonth')">📅 Last Month (${m===0?MONTHS[11]+' '+(y-1):MONTHS[m-1]+' '+y})</button>
+      <button class="btn btn-o" onclick="setPLPeriod('thisquarter')">📅 This FY Quarter</button>
+      <button class="btn btn-o" onclick="setPLPeriod('thisfy')">📅 Full Financial Year (${fyStart}–${fyStart+1})</button>
+      <button class="btn btn-o" onclick="setPLPeriod('all')">📅 All Time</button>
+    </div>
   </div>
-  <div id="pl-content"><div style="color:#aaa;text-align:center;padding:30px;">Select a period above</div></div>`;
+  <div id="pl-content" style="margin-top:14px;"><div style="color:#aaa;text-align:center;padding:30px;">Select a period above</div></div>`;
 }
 function setPLPeriod(p){
   const{from,to}=p==='all'?{from:'2026-03-02',to:new Date().toISOString().split('T')[0]}:getDateRange(p);
@@ -2187,71 +2206,183 @@ function setPLPeriod(p){
 }
 function renderPLSubPage(){setPLPeriod('thismonth');}
 function renderPLContent(filtInv,filtPur){
-  const f=n=>n.toLocaleString('en-IN',{minimumFractionDigits:2});
-  const grossRev=filtInv.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0);
-  const totalGSTOut=filtInv.reduce((s,i)=>s+(parseFloat(i.gstAmt)||0),0);
-  const netRev=parseFloat((grossRev-totalGSTOut).toFixed(2));
-  const shipCharged=filtInv.reduce((s,i)=>s+(parseFloat(i.shipping)||0),0);
-  const shipChargedExcl=parseFloat((shipCharged/1.05).toFixed(2));
-  const shipActual=filtInv.reduce((s,i)=>s+(parseFloat(i.shippingCost)||0),0);
-  const shipPL=parseFloat((shipChargedExcl-shipActual).toFixed(2));
-  const suitRev=parseFloat((netRev-shipChargedExcl).toFixed(2));
-  const purIncl=filtPur.reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
-  const itc=filtPur.reduce((s,p)=>s+(parseFloat(p.gstAmt)||0),0);
-  const purExcl=parseFloat((purIncl-itc).toFixed(2));
-  const invCostForSold=filtInv.reduce((s,inv)=>{
-    const arr=expandItems(inv.itemsArr);
-    return s+arr.filter(it=>it.unitPrice>0).reduce((ss,it)=>{
-      const prod=inventory.find(p=>parseInt(p.prodNo)===parseInt(it.prodNo));
-      return ss+(prod&&prod.cost?parseFloat(prod.cost)*(it.qty||1):0);
-    },0);
-  },0);
-  const cogs=purExcl>0?purExcl:invCostForSold;
-  const cogsSource=purExcl>0?'purchase register':invCostForSold>0?'inventory cost prices':'not entered yet';
-  const grossProfit=parseFloat((suitRev-cogs).toFixed(2));
-  const netProfit=parseFloat((grossProfit+shipPL).toFixed(2));
-  const margin=suitRev>0?parseFloat(((grossProfit/suitRev)*100).toFixed(1)):0;
-  const gstPayable=parseFloat((totalGSTOut-itc).toFixed(2));
-  const row=(l,v,c,sub)=>`<div class="list-row"><div><span style="color:#555;">${l}</span>${sub?`<div style="font-size:11px;color:#aaa;">${sub}</div>`:''}</div><strong style="color:${c||'var(--ink)'};">₹${f(v)}</strong></div>`;
-  const head=t=>`<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--brown);background:var(--goldp);padding:5px 8px;border-radius:4px;margin:12px 0 4px;">${t}</div>`;
-  const profBox=(l,v,sub)=>`<div style="background:${v>=0?'#dff0d8':'#fde8e8'};border-radius:8px;padding:12px 14px;margin:6px 0;">
-    <div style="display:flex;justify-content:space-between;"><strong>${l}</strong><strong style="color:${v>=0?'#27ae60':'#c0392b'};font-size:16px;">₹${f(v)}</strong></div>
-    ${sub?`<div style="font-size:11px;color:#888;margin-top:4px;">${sub}</div>`:''}
-  </div>`;
-  const channels={};filtInv.forEach(i=>{const ch=i.channel||'Not specified';channels[ch]=(channels[ch]||0)+(parseFloat(i.grandTotal)||0);});
+  const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
+  const pct=(a,b)=>b>0?parseFloat(((a/b)*100).toFixed(1)):0;
+
+  // ── REVENUE ──
+  const grossRev      = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0).toFixed(2));
+  const gstOnSuits    = parseFloat(filtInv.reduce((s,i)=>{
+    // GST on suits only (excluding shipping GST)
+    const shipGST=parseFloat((parseFloat(i.shipping||0)-parseFloat(i.shipping||0)/1.05).toFixed(2));
+    const totalGST=parseFloat(i.grandTotal||0)-parseFloat((parseFloat(i.grandTotal||0)/1.05).toFixed(2));
+    return s+(totalGST-shipGST);
+  },0).toFixed(2));
+  const shipCharged   = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.shipping)||0),0).toFixed(2));
+  const gstOnShip     = parseFloat((shipCharged-shipCharged/1.05).toFixed(2));
+  const totalOutGST   = parseFloat((gstOnSuits+gstOnShip).toFixed(2));
+  const shipChargedExcl = parseFloat((shipCharged/1.05).toFixed(2));
+  const suitRevIncl   = parseFloat((grossRev-shipCharged).toFixed(2));
+  const suitRevExcl   = parseFloat((suitRevIncl/1.05).toFixed(2));
+  const netRev        = parseFloat((suitRevExcl+shipChargedExcl).toFixed(2));
+
+  // ── COST OF GOODS — Suit Purchases ──
+  // Split purchases by type: suit purchases (5% GST) vs India Post (18% GST)
+  const suitPurchases = filtPur.filter(p=>parseFloat(p.gstRate||0)<=5);
+  const ipPurchases   = filtPur.filter(p=>parseFloat(p.gstRate||0)>5);
+
+  const suitCostIncl  = parseFloat(suitPurchases.reduce((s,p)=>s+(parseFloat(p.amount)||0),0).toFixed(2));
+  const itcOnSuits    = parseFloat(suitPurchases.reduce((s,p)=>s+(parseFloat(p.gstAmt)||0),0).toFixed(2));
+  const suitCostExcl  = parseFloat((suitCostIncl-itcOnSuits).toFixed(2));
+
+  // Fallback to invoice-level costPrice if no purchases entered
+  const invCostIncl   = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.costPrice)||0),0).toFixed(2));
+  const invItcOnCost  = parseFloat((invCostIncl-invCostIncl/1.05).toFixed(2));
+  const invCostExcl   = parseFloat((invCostIncl-invItcOnCost).toFixed(2));
+
+  const usePurchReg   = suitCostIncl>0;
+  const cogs          = usePurchReg ? suitCostExcl : invCostExcl;
+  const cogsIncl      = usePurchReg ? suitCostIncl : invCostIncl;
+  const itcSuits      = usePurchReg ? itcOnSuits : invItcOnCost;
+  const cogsSource    = usePurchReg ? 'From Purchases Register' : invCostIncl>0 ? 'From invoice cost prices (enter in Purchases Register for better accuracy)' : 'Not entered — add cost prices to invoices or use Purchases Register';
+
+  const grossProfit   = parseFloat((suitRevExcl-cogs).toFixed(2));
+  const grossMargin   = pct(grossProfit,suitRevExcl);
+
+  // ── SHIPPING P&L ──
+  const shipActual    = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.shippingCost)||0),0).toFixed(2));
+  const ipCostIncl    = ipPurchases.reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
+  const itcOnIP       = ipPurchases.reduce((s,p)=>s+(parseFloat(p.gstAmt)||0),0);
+  const ipCostExcl    = parseFloat((ipCostIncl-itcOnIP).toFixed(2));
+  // Use purchases register India Post cost if available, else invoice shippingCost
+  const shipCostUsed  = ipCostIncl>0 ? ipCostIncl : shipActual;
+  const shipNetCost   = ipCostIncl>0 ? ipCostExcl : shipActual; // net of ITC if from register
+  const shipProfit    = parseFloat((shipChargedExcl-shipNetCost).toFixed(2));
+
+  // ── NET PROFIT ──
+  const netProfit     = parseFloat((grossProfit+shipProfit).toFixed(2));
+
+  // ── GST POSITION ──
+  const totalITC      = parseFloat((itcSuits+itcOnIP).toFixed(2));
+  const gstPayable    = parseFloat((totalOutGST-totalITC).toFixed(2));
+
+  // ── UI HELPERS ──
+  const row=(label,val,color,note)=>`
+    <div class="list-row" style="padding:8px 0;">
+      <div style="flex:1;">
+        <div style="color:#444;font-size:13px;">${label}</div>
+        ${note?`<div style="font-size:11px;color:#aaa;margin-top:2px;">${note}</div>`:''}
+      </div>
+      <strong style="color:${color||'var(--ink)'};font-size:14px;">${f(val)}</strong>
+    </div>`;
+  const subrow=(label,val,color)=>`
+    <div style="display:flex;justify-content:space-between;padding:4px 0 4px 12px;border-left:2px solid var(--border);">
+      <span style="font-size:12px;color:#888;">${label}</span>
+      <span style="font-size:12px;color:${color||'#888'};">${f(val)}</span>
+    </div>`;
+  const head=t=>`<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--brown);background:var(--goldp);padding:6px 10px;border-radius:4px;margin:14px 0 6px;letter-spacing:.5px;">${t}</div>`;
+  const profBox=(label,val,note)=>`
+    <div style="background:${val>=0?'#dff0d8':'#fde8e8'};border-radius:10px;padding:14px;margin:8px 0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <strong style="font-size:14px;">${label}</strong>
+        <strong style="color:${val>=0?'#27ae60':'#c0392b'};font-size:18px;">${f(val)}</strong>
+      </div>
+      ${note?`<div style="font-size:12px;color:#888;margin-top:6px;">${note}</div>`:''}
+    </div>`;
+  const divider=`<div style="border-top:1px solid var(--border);margin:6px 0;"></div>`;
+
+  // ── CHANNELS ──
+  const channels={};
+  filtInv.forEach(i=>{const ch=i.channel||'Not specified';channels[ch]=(channels[ch]||0)+(parseFloat(i.grandTotal)||0);});
   const chEntries=Object.entries(channels).sort((a,b)=>b[1]-a[1]);
   const chIcons={WhatsApp:'💬',Instagram:'📸',Facebook:'👍',Website:'🌐',Offline:'🏪','Not specified':'❓'};
+
   const el=document.getElementById('pl-content');if(!el)return;
   el.innerHTML=`
     <div class="stat-grid" style="margin-bottom:14px;">
-      <div class="stat-card"><div class="stat-val">₹${f(grossRev)}</div><div class="stat-lbl">Revenue</div></div>
-      <div class="stat-card"><div class="stat-val" style="color:${netProfit>=0?'#27ae60':'#c0392b'};">₹${f(netProfit)}</div><div class="stat-lbl">Net Profit</div></div>
+      <div class="stat-card"><div class="stat-val">₹${grossRev.toLocaleString('en-IN')}</div><div class="stat-lbl">Total Revenue</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:${netProfit>=0?'#27ae60':'#c0392b'};">₹${netProfit.toLocaleString('en-IN')}</div><div class="stat-lbl">Net Profit</div></div>
     </div>
-    <div class="card"><div class="card-title">📊 P&L Statement</div>
-      ${head('📥 Revenue')}${row('Gross Sales (incl. GST)',grossRev)}${row('Less: Output GST',totalGSTOut,'#c0392b')}${row('Net Sales (excl. GST)',netRev)}
-      ${row('→ Suit Sales',suitRev,null,'excl. GST')}${row('→ Shipping Collected',shipChargedExcl,null,'excl. GST')}
-      ${head('📦 Cost of Goods')}${row('Suit Purchase Cost',cogs,null,'Source: '+cogsSource)}
-      ${profBox('Gross Profit on Suits',grossProfit,margin>0?'Margin: '+margin+'%':'')}
-      ${head('🚚 Shipping P&L')}${row('Shipping Charged (excl. GST)',shipChargedExcl)}
-      ${row('Actual Shipping Cost',shipActual,shipActual>shipChargedExcl?'#c0392b':null,filtInv.filter(i=>parseFloat(i.shippingCost)>0).length+' of '+filtInv.length+' invoices have actual cost')}
-      ${profBox('Shipping Profit/(Loss)',shipPL,shipActual===0?'Add actual shipping costs to invoices':'')}
-      ${profBox('Net Profit (Suits + Shipping)',netProfit,filtInv.length+' sale(s) · '+filtPur.length+' purchase(s)')}
+
+    <div class="card">
+      <div class="card-title">📊 P&L Statement — ${filtInv.length} invoice(s)</div>
+
+      ${head('💰 Revenue')}
+      ${row('Gross Sales collected from customers (incl. 5% GST)',grossRev)}
+      ${subrow('GST on Suits collected (Output GST)',gstOnSuits,'#c0392b')}
+      ${subrow('GST on Shipping collected (Output GST)',gstOnShip,'#c0392b')}
+      ${subrow('Total Output GST collected',totalOutGST,'#c0392b')}
+      ${divider}
+      ${row('Net Suit Sales (excl. GST — your actual income from suits)',suitRevExcl)}
+      ${row('Net Shipping collected (excl. GST)',shipChargedExcl)}
+      ${row('Total Net Revenue (excl. GST)',netRev,null,filtInv.length+' invoices')}
+
+      ${head('📦 Cost of Suits Sold')}
+      ${row('Total paid for suits (incl. 5% GST)',cogsIncl,null,cogsSource)}
+      ${subrow('ITC (Input Tax Credit) on suit purchases at 5%',itcSuits,'#27ae60')}
+      ${row('Net suit cost (excl. GST — your true cost)',cogs)}
+      ${profBox('Gross Profit on Suits',grossProfit,
+        cogs>0?'Gross Margin: '+grossMargin+'% · Net Suit Revenue: '+f(suitRevExcl)+' · Net Cost: '+f(cogs):
+        '⚠️ Add cost prices to invoices or enter purchases in Purchases Register')}
+
+      ${head('🚚 Shipping')}
+      ${row('Shipping charged to customers (incl. 5% GST)',shipCharged)}
+      ${row('Shipping charged to customers (excl. GST)',shipChargedExcl)}
+      ${row('Actual shipping paid to India Post (incl. 18% GST)',shipCostUsed,
+        null,ipCostIncl>0?'From Purchases Register':'From invoice actual shipping cost field')}
+      ${itcOnIP>0?subrow('ITC on India Post shipping (18% GST)',itcOnIP,'#27ae60'):''}
+      ${row('Net shipping cost (after ITC)',shipNetCost)}
+      ${profBox('Shipping Profit / (Loss)',shipProfit,
+        shipCostUsed===0?'⚠️ Enter India Post receipts in Purchases Register to track shipping P&L':
+        'Shipping collected (excl. GST): '+f(shipChargedExcl)+' · Net India Post cost: '+f(shipNetCost))}
+
+      ${profBox('Net Operating Profit',netProfit,
+        filtInv.length+' sale(s) · '+filtPur.length+' purchase(s) entered · Consult your CA before filing')}
     </div>
-    <div class="card"><div class="card-title">🧾 GST Position</div>
-      ${row('Output GST collected',totalGSTOut)}${row('Input Tax Credit',itc,'#27ae60')}
-      <div style="background:${gstPayable>=0?'#fff8ee':'#dff0d8'};border-radius:8px;padding:12px 14px;display:flex;justify-content:space-between;margin-top:8px;">
-        <strong>${gstPayable>=0?'GST Payable':'GST Credit'}</strong>
-        <strong style="color:${gstPayable>=0?'#c0392b':'#27ae60'};font-size:15px;">₹${f(Math.abs(gstPayable))}</strong>
+
+    <div class="card">
+      <div class="card-title">🧾 GST Position</div>
+      <div style="font-size:12px;color:#888;margin-bottom:12px;">Summary for GSTR-3B filing. Share with your CA.</div>
+
+      ${head('📤 Output GST (GST you collected from customers)')}
+      ${row('GST on Suit Sales (5% on taxable suit value)',gstOnSuits)}
+      ${row('GST on Shipping charged to customers (5%)',gstOnShip)}
+      ${row('Total Output GST',totalOutGST)}
+
+      ${head('📥 Input Tax Credit — ITC (GST you paid to suppliers)')}
+      ${row('ITC on Suit Purchases (5% GST paid to suit supplier)',itcSuits,
+        '#27ae60',usePurchReg?suitPurchases.length+' purchase(s) in register':invCostIncl>0?'Calculated from invoice cost prices':'⚠️ Not entered')}
+      ${row('ITC on India Post Shipping (18% GST paid to India Post)',itcOnIP,
+        '#27ae60',ipPurchases.length>0?ipPurchases.length+' India Post receipt(s) in register':'⚠️ Enter India Post receipts in Purchases Register to claim this ITC')}
+      ${row('Total ITC',totalITC,'#27ae60')}
+
+      ${divider}
+      <div style="background:${gstPayable>=0?'#fff8ee':'#dff0d8'};border-radius:10px;padding:14px;margin-top:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <strong style="font-size:15px;">${gstPayable>=0?'Net GST Payable':'GST Credit (Excess ITC)'}</strong>
+            <div style="font-size:12px;color:#888;margin-top:3px;">${gstPayable>=0?'Pay this in GSTR-3B':'Carry forward to next period'}</div>
+          </div>
+          <strong style="color:${gstPayable>=0?'#c0392b':'#27ae60'};font-size:20px;">${f(Math.abs(gstPayable))}</strong>
+        </div>
       </div>
-      <div style="font-size:11px;color:#aaa;margin-top:8px;">Consult your CA before filing.</div>
+      <div style="font-size:11px;color:#aaa;margin-top:10px;line-height:1.6;">
+        ⚠️ This is an estimate. Consult your CA before filing. ITC claims require valid GST invoices from registered suppliers.
+      </div>
     </div>
-    <div class="card"><div class="card-title">📱 Sales by Channel</div>
-      ${chEntries.length?chEntries.map(([ch,amt])=>{const pct=grossRev>0?((amt/grossRev)*100).toFixed(1):0;
-        return`<div style="margin-bottom:10px;">
-          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>${chIcons[ch]||'📌'} ${ch}</span><strong>₹${f(amt)} <span style="font-size:11px;color:#888;">${pct}%</span></strong></div>
-          <div style="background:#e2d4bc;border-radius:3px;height:6px;"><div style="background:var(--gold);border-radius:3px;height:6px;width:${pct}%;"></div></div>
-        </div>`;}).join(''):'<div style="color:#aaa;text-align:center;padding:16px;">No sales</div>'}
+
+    <div class="card">
+      <div class="card-title">📱 Sales by Channel</div>
+      ${chEntries.length?chEntries.map(([ch,amt])=>{
+        const p=grossRev>0?((amt/grossRev)*100).toFixed(1):0;
+        return`<div style="margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+            <span>${chIcons[ch]||'📌'} ${ch}</span>
+            <strong>${f(amt)} <span style="font-size:11px;color:#888;">${p}%</span></strong>
+          </div>
+          <div style="background:#e2d4bc;border-radius:3px;height:6px;"><div style="background:var(--gold);border-radius:3px;height:6px;width:${p}%;"></div></div>
+        </div>`;}).join(''):'<div style="color:#aaa;text-align:center;padding:16px;">No sales data</div>'}
     </div>`;
+}
 }
 
 function buildLabelPage(){
@@ -2514,36 +2645,78 @@ function _doExport(type,from,to,label){
     return;
   }
 
-  // Sales register (detailed)
-  const hdr=['Invoice No','Date','Customer Name','Phone','Address','State','Tax Type','Suit(s)','Shipping Charged (₹)','Actual Shipping Cost (₹)','Discount (₹)','Suit Cost (₹)','Taxable Amount (₹)','GST (₹)','Grand Total (₹)','Channel','Tracking No','Dispatch Method','Status'];
+  // Sales register (detailed) — all columns self-explanatory
+  const hdr=[
+    'Invoice No.',
+    'Invoice Date',
+    'Customer Name',
+    'Customer Phone (Shipping Label)',
+    'Customer WhatsApp Number',
+    'Delivery Address',
+    'Customer State',
+    'Tax Type',
+    'Suit Description',
+    'Gross Suit Amount incl. 5% GST (Rs)',
+    'GST Collected on Suits (Rs)',
+    'Net Suit Amount excl. GST (Rs)',
+    'Shipping Charged to Customer incl. 5% GST (Rs)',
+    'GST Collected on Shipping (Rs)',
+    'Net Shipping Charged excl. GST (Rs)',
+    'Discount Given (Rs)',
+    'Grand Total Collected from Customer (Rs)',
+    'Cost Paid for Suits incl. 5% GST (Rs)',
+    'ITC on Suit Cost at 5% (Rs)',
+    'Net Suit Cost excl. GST (Rs)',
+    'Actual Shipping Paid to India Post incl. 18% GST (Rs)',
+    'ITC on India Post Shipping at 18% (Rs)',
+    'Net India Post Cost excl. GST (Rs)',
+    'Sale Channel',
+    'Dispatch Method',
+    'Tracking Number',
+    'Shipment Status'
+  ];
   const rows=filtered.map(inv=>{
-    const tax=parseFloat((inv.taxableExcl||inv.grandTotal/1.05).toFixed(2));
-    const gst=parseFloat((inv.gstAmt||(inv.grandTotal-tax)).toFixed(2));
-    const dispMap={indiapost:'India Post',courier:inv.courierName||'Courier',hand:'Hand Delivery',walkin:'Walk-in','':(inv.tracking?'India Post':'')};
+    const grand=parseFloat(inv.grandTotal)||0;
+    const ship=parseFloat(inv.shipping)||0;
+    const disc=parseFloat(inv.discount)||0;
+    const costIncl=parseFloat(inv.costPrice)||0;
+    const itcCost=parseFloat((costIncl-costIncl/1.05).toFixed(2));
+    const costExcl=parseFloat((costIncl/1.05).toFixed(2));
+    const shipActual=parseFloat(inv.shippingCost)||0;
+    const itcShip=parseFloat((shipActual-shipActual/1.18).toFixed(2));
+    const shipExcl18=parseFloat((shipActual/1.18).toFixed(2));
+    const suitIncl=parseFloat((grand-ship+disc).toFixed(2));
+    const suitGST=parseFloat((suitIncl-suitIncl/1.05).toFixed(2));
+    const suitExcl=parseFloat((suitIncl/1.05).toFixed(2));
+    const shipGST5=parseFloat((ship-ship/1.05).toFixed(2));
+    const shipExcl5=parseFloat((ship/1.05).toFixed(2));
+    const intra=inv.isIntra===true||inv.isIntra==='true'||inv.custState==='Punjab';
+    const dispMap={indiapost:'India Post Parcel',courier:inv.courierName||'Other Courier',hand:'Hand Delivery',walkin:'Walk-in / Collected in person','':(inv.tracking?'India Post Parcel':'Not specified')};
     return[
       inv.invNo,
       fmtExportDate(inv.invDate),
-      inv.custName,
+      inv.custName||'',
       inv.custPhone||'',
+      inv.custWhatsapp||'',
       inv.custAddress||'',
-      inv.custState,
-      inv.isIntra?'Intra-state (CGST+SGST)':'Inter-state (IGST)',
+      inv.custState||'',
+      intra?'Intra-State Punjab (CGST 2.5% + SGST 2.5%)':'Inter-State (IGST 5%)',
       inv.itemsSummary||'',
-      parseFloat(inv.shipping||0),
-      parseFloat(inv.shippingCost||0),
-      parseFloat(inv.discount||0),
-      parseFloat(inv.costPrice||0),
-      tax, gst,
-      parseFloat(inv.grandTotal||0),
+      suitIncl, suitGST, suitExcl,
+      ship, shipGST5, shipExcl5,
+      disc,
+      grand,
+      costIncl||'', itcCost||'', costExcl||'',
+      shipActual||'', itcShip||'', shipExcl18||'',
       inv.channel||'',
-      inv.tracking||'',
       dispMap[inv.dispatchMethod||'']||'',
+      inv.tracking||'',
       inv.isShipped||inv.status==='Shipped'?'Shipped':'Pending'
     ];
   });
   const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
-  ws['!cols']=[{wch:12},{wch:12},{wch:22},{wch:14},{wch:30},{wch:16},{wch:22},{wch:40},{wch:14},{wch:18},{wch:12},{wch:12},{wch:14},{wch:10},{wch:14},{wch:12},{wch:22},{wch:16},{wch:10}];
-  XLSX.utils.book_append_sheet(wb,ws,'Sales');
+  ws['!cols']=hdr.map((h,i)=>({wch:Math.min(Math.max(h.length,12),40)}));
+  XLSX.utils.book_append_sheet(wb,ws,'Sales Register');
   XLSX.writeFile(wb,'Vismaad_Sales_'+label.replace(/[\s/]/g,'_')+'.xlsx');
   toast('✅ '+filtered.length+' invoices exported');
 }
