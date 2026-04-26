@@ -220,7 +220,7 @@ tbody tr:last-child td{border-bottom:none;}
 </div>
 
 <!-- ════ FIRST LAUNCH SETUP SCREEN ════ -->
-<div id="setup-screen" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:999;flex-direction:column;align-items:center;justify-content:center;padding:24px;overflow-y:auto;">
+<div id="setup-screen" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:999;flex-direction:column;align-items:center;overflow-y:auto;padding:24px;padding-top:calc(env(safe-area-inset-top) + 24px);padding-bottom:calc(env(safe-area-inset-bottom) + 80px);">
   <div style="width:100%;max-width:480px;">
     <div style="text-align:center;margin-bottom:28px;">
       <div style="font-family:'Playfair Display',serif;font-size:26px;font-weight:700;color:var(--brown);">🙏 Welcome to</div>
@@ -258,7 +258,7 @@ tbody tr:last-child td{border-bottom:none;}
           <div style="font-size:13px;color:#888;">Tap to upload your Instagram QR<br/><span style="font-size:11px;">Shown on shipping labels</span></div>
         </div>
       </div>
-      <button class="btn btn-p" onclick="completeSetup()">✅ Start Using App →</button>
+      <button class="btn btn-p" style="min-height:54px;font-size:16px;margin-top:8px;" onclick="completeSetup()">✅ Start Using App →</button>
     </div>
   </div>
 </div>
