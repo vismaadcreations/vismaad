@@ -210,12 +210,56 @@ tbody tr:last-child td{border-bottom:none;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v4.0 · 25-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.0 · 26-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
     <div class="sync-dot" id="sync-dot"></div>
     <span id="sync-label">Tap to sync</span>
+  </div>
+</div>
+
+<!-- ════ FIRST LAUNCH SETUP SCREEN ════ -->
+<div id="setup-screen" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:999;flex-direction:column;align-items:center;justify-content:center;padding:24px;overflow-y:auto;">
+  <div style="width:100%;max-width:480px;">
+    <div style="text-align:center;margin-bottom:28px;">
+      <div style="font-family:'Playfair Display',serif;font-size:26px;font-weight:700;color:var(--brown);">🙏 Welcome to</div>
+      <div style="font-family:'Playfair Display',serif;font-size:26px;font-weight:700;color:var(--brown);">Vismaad Creations</div>
+      <div style="font-size:14px;color:#888;margin-top:8px;">Let's set up your business details before you start</div>
+    </div>
+    <div class="card">
+      <div class="card-title">⚙️ Business Details</div>
+      <div class="fg"><label>Your GSTIN *</label>
+        <input id="setup-gstin" placeholder="03XXXXX1234Z5" maxlength="15" style="text-transform:uppercase"
+          oninput="this.value=this.value.toUpperCase()"/></div>
+      <div class="fg"><label>Business Address *</label>
+        <input id="setup-address" placeholder="Street, City, Punjab, Pincode"/></div>
+      <div class="fg"><label>Phone / WhatsApp</label>
+        <input id="setup-phone" placeholder="+91 XXXXX XXXXX" type="tel"/></div>
+      <div class="fg"><label>Email (optional)</label>
+        <input id="setup-email" placeholder="your@email.com" type="email"/></div>
+      <div class="fg">
+        <label>Business Logo (optional)</label>
+        <div style="display:flex;align-items:center;gap:12px;margin-top:4px;">
+          <div id="setup-logo-thumb" onclick="document.getElementById('setup-logo-upload').click()"
+            style="width:64px;height:64px;border-radius:10px;border:2px dashed var(--border);display:flex;align-items:center;justify-content:center;color:#aaa;font-size:11px;cursor:pointer;overflow:hidden;">Logo</div>
+          <input type="file" id="setup-logo-upload" accept="image/*" style="display:none;"
+            onchange="handleSetupLogo(event)"/>
+          <div style="font-size:13px;color:#888;">Tap to upload your brand logo<br/><span style="font-size:11px;">Shown on invoices and shipping labels</span></div>
+        </div>
+      </div>
+      <div class="fg">
+        <label>Instagram QR Code (optional)</label>
+        <div style="display:flex;align-items:center;gap:12px;margin-top:4px;">
+          <div id="setup-qr-thumb" onclick="document.getElementById('setup-qr-upload').click()"
+            style="width:64px;height:64px;border-radius:10px;border:2px dashed var(--border);display:flex;align-items:center;justify-content:center;color:#aaa;font-size:11px;cursor:pointer;overflow:hidden;">QR</div>
+          <input type="file" id="setup-qr-upload" accept="image/*" style="display:none;"
+            onchange="handleSetupQR(event)"/>
+          <div style="font-size:13px;color:#888;">Tap to upload your Instagram QR<br/><span style="font-size:11px;">Shown on shipping labels</span></div>
+        </div>
+      </div>
+      <button class="btn btn-p" onclick="completeSetup()">✅ Start Using App →</button>
+    </div>
   </div>
 </div>
 
@@ -231,7 +275,7 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
   <div class="stat-grid" id="dash-stats">
     <div class="stat-card"><div class="stat-val" id="ds-orders">—</div><div class="stat-lbl">Orders</div></div>
-    <div class="stat-card"><div class="stat-val" id="ds-revenue">—</div><div class="stat-lbl">Revenue</div></div>
+    <div class="stat-card"><div class="stat-val" id="ds-revenue">—</div><div class="stat-lbl">Revenue (incl. GST)</div></div>
     <div class="stat-card"><div class="stat-val" id="ds-stock">—</div><div class="stat-lbl">In Stock</div></div>
     <div class="stat-card"><div class="stat-val" id="ds-products">—</div><div class="stat-lbl">Products</div></div>
   </div>
@@ -291,11 +335,15 @@ tbody tr:last-child td{border-bottom:none;}
           <option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option>
           <option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option>
           <option>Uttarakhand</option><option>West Bengal</option><option>Delhi</option>
-          <option>Jammu & Kashmir</option><option>Ladakh</option><option>Chandigarh</option><option>Other UT</option>
+          <option>Jammu & Kashmir</option><option>Ladakh</option><option>Chandigarh</option>
+          <option>Puducherry</option><option>Andaman & Nicobar Islands</option>
+          <option>Dadra & Nagar Haveli and Daman & Diu</option><option>Lakshadweep</option>
         </select>
       </div>
     </div>
-    <div class="fg"><label>Address</label><textarea id="c-address" placeholder="House No, Street, City, Pincode" rows="2"></textarea></div>
+    <div class="fg"><label>Address</label><textarea id="c-address" placeholder="House No, Street, City, State — 141001 (include pincode)" rows="2"></textarea></div>
+    <div class="fg"><label>Buyer GSTIN <span style="font-weight:400;color:#aaa;">(only for B2B — leave blank for retail customers)</span></label>
+      <input id="c-gstin" placeholder="Leave blank for B2C retail" style="text-transform:uppercase"/></div>
     <div class="fg"><label style="font-size:11px;color:#888;">Tax Type (Auto)</label><input id="tax-display" readonly placeholder="Select state first" style="background:#f0e8d8;font-size:13px;padding:10px 12px;"/></div>
   </div>
 
@@ -388,7 +436,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="fg"><label>Product Name *</label><input id="ip-name" placeholder="e.g. Floral Georgette Suit"/></div>
     <div class="row3">
       <div class="fg"><label>Qty</label><input type="number" id="ip-qty" value="1" min="1"/></div>
-      <div class="fg"><label>Cost (₹)</label><input type="number" id="ip-cost" placeholder="0"/></div>
+      <div class="fg"><label>Cost Price Paid (₹ incl. 5% GST)</label><input type="number" id="ip-cost" placeholder="0"/></div>
       <div class="fg"><label>Sell Price (₹)</label><input type="number" id="ip-sell" placeholder="0"/></div>
     </div>
     <div class="fg"><label>Notes</label><input id="ip-notes" placeholder="Colour, design details…"/></div>
@@ -464,7 +512,7 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- Danger zone -->
   <div id="sales-danger" style="display:none;background:#fde8e8;border:2px solid #e74c3c;border-radius:12px;padding:16px;margin-bottom:10px;">
     <div style="font-size:15px;font-weight:700;color:#c0392b;margin-bottom:8px;">⚠️ Delete All Invoices</div>
-    <div style="font-size:13px;color:#666;margin-bottom:12px;line-height:1.6;">This will permanently delete <strong>all invoices</strong> from this device and your Google Sheet. This <strong>cannot be undone</strong>.<br/><br/>To confirm, type <strong>DELETE ALL</strong> in the box below:</div>
+    <div style="font-size:13px;color:#666;margin-bottom:12px;line-height:1.6;">This will delete all invoices from <strong>this device only</strong>. Your Google Sheet data remains intact. After deleting, tap Sync to restore data from Google Sheets.<br/><br/>To confirm, type <strong>DELETE ALL</strong> in the box below:</div>
     <input type="text" id="reset-confirm-input" placeholder="Type DELETE ALL here" oninput="checkResetConfirm()"
       style="width:100%;padding:12px 14px;border-radius:8px;border:2px solid #e74c3c;font-size:15px;background:#fff;margin-bottom:10px;font-family:'DM Sans',sans-serif;"/>
     <div style="display:flex;gap:10px;">
@@ -476,7 +524,6 @@ tbody tr:last-child td{border-bottom:none;}
 
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
     <span id="sales-count" style="font-size:13px;color:#888;"></span>
-    <button class="btn btn-d btn-sm" onclick="toggleDangerZone()">⚠️ Reset All</button>
   </div>
 
   <div id="sales-list"></div>
@@ -490,11 +537,11 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="card">
     <div class="card-title">⚡ Quick Actions</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-      <button class="btn btn-o btn-sm" onclick="showSubPage('purchases')">🛒 Purchases</button>
+      <button class="btn btn-o btn-sm" onclick="showSubPage('purchases')">🛒 Purchases Register</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('pl')">📈 P&L Report</button>
-      <button class="btn btn-o btn-sm" onclick="showSubPage('labels')">📦 Ship Label</button>
+      <button class="btn btn-o btn-sm" onclick="showSubPage('labels')">📦 Shipping Labels</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('bulk')">📊 Bulk Import</button>
-      <button class="btn btn-o btn-sm" onclick="showSubPage('export')">⬇️ Export Excel</button>
+      <button class="btn btn-o btn-sm" onclick="showSubPage('export')">⬇️ Export to Excel</button>
       <button class="btn btn-o btn-sm" onclick="toggleSettings()">⚙️ Settings</button>
     </div>
   </div>
@@ -517,6 +564,10 @@ tbody tr:last-child td{border-bottom:none;}
       <input type="file" id="qr-upload" accept="image/*" style="display:none;" onchange="handleQRUpload(event)"/>
     </div>
     <button class="btn btn-p" onclick="saveSettings()">💾 Save Settings</button>
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+      <div style="font-size:13px;font-weight:600;color:#c0392b;margin-bottom:8px;">⚠️ Danger Zone</div>
+      <button class="btn btn-d btn-sm" style="width:100%;" onclick="toggleDangerZone()">🗑 Reset All Invoices (This Device Only)</button>
+    </div>
   </div>
 
   <!-- Sync info -->
@@ -534,7 +585,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="modal-title">✏️ Edit Invoice</div>
     <div style="font-size:13px;color:#888;margin-bottom:14px;" id="edit-modal-subtitle"></div>
 
-    <div class="fg"><label>Cost Price paid for suits (₹) <span style="font-weight:400;color:#aaa;">excl. GST — for P&L</span></label>
+    <div class="fg"><label>Total paid to supplier for suits (₹ incl. 5% GST)</label>
       <input type="number" id="edit-cost" placeholder="Total cost you paid for all suits in this order"/></div>
 
     <div class="fg"><label>Actual Shipping Cost — India Post (₹)</label>
@@ -649,6 +700,23 @@ tbody tr:last-child td{border-bottom:none;}
 
 <script>
 'use strict';
+'use strict';
+// ═══════════════════════════════════════════
+// STATE CODES — GST compliance
+// ═══════════════════════════════════════════
+const STATE_CODES={
+  'Jammu & Kashmir':'01','Himachal Pradesh':'02','Punjab':'03','Chandigarh':'04',
+  'Uttarakhand':'05','Haryana':'06','Delhi':'07','Rajasthan':'08',
+  'Uttar Pradesh':'09','Bihar':'10','Sikkim':'11','Arunachal Pradesh':'12',
+  'Nagaland':'13','Manipur':'14','Mizoram':'15','Tripura':'16',
+  'Meghalaya':'17','Assam':'18','West Bengal':'19','Jharkhand':'20',
+  'Odisha':'21','Chhattisgarh':'22','Madhya Pradesh':'23','Gujarat':'24',
+  'Dadra & Nagar Haveli and Daman & Diu':'26','Maharashtra':'27',
+  'Andhra Pradesh':'28','Karnataka':'29','Goa':'30','Lakshadweep':'31',
+  'Kerala':'32','Tamil Nadu':'33','Puducherry':'34',
+  'Andaman & Nicobar Islands':'35','Telangana':'36','Ladakh':'38'
+};
+function getStateCode(state){return STATE_CODES[state]||'';}
 // ═══════════════════════════════════════════
 // SAFE STORAGE — never crash on bad data
 // ═══════════════════════════════════════════
@@ -991,6 +1059,24 @@ function closeSubPage(){
 // ═══════════════════════════════════════════
 function init(){
   try{
+    // Normalise all invoice dates to YYYY-MM-DD on load
+    invoices.forEach(inv=>{
+      if(inv.invDate){
+        const d=String(inv.invDate).trim();
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){
+          const dt=new Date(d);
+          if(!isNaN(dt.getTime())){
+            inv.invDate=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+          }
+        }
+      }
+    });
+    save();
+    // Show first launch setup if GSTIN not set
+    if(!S.gstin){
+      showSetupScreen();
+      return;
+    }
     loadSettings();
     setInvNumber();
     setDates();
@@ -1002,6 +1088,35 @@ function init(){
     console.error('Init error:',e);
     toast('⚠️ Load error — please refresh',5000);
   }
+}
+
+function showSetupScreen(){
+  const el=document.getElementById('setup-screen');
+  if(el)el.style.display='flex';
+}
+function completeSetup(){
+  const gstin=(document.getElementById('setup-gstin')?.value||'').trim().toUpperCase();
+  const address=(document.getElementById('setup-address')?.value||'').trim();
+  if(!gstin){toast('⚠️ GSTIN is required');return;}
+  if(!address){toast('⚠️ Business address is required');return;}
+  S={
+    gstin,
+    address,
+    phone:(document.getElementById('setup-phone')?.value||'').trim(),
+    email:(document.getElementById('setup-email')?.value||'').trim(),
+  };
+  lsSet('vc_s',S);
+  gsWrite(SHEETS.settings,{id:'settings',...S});
+  const el=document.getElementById('setup-screen');
+  if(el)el.style.display='none';
+  loadSettings();
+  setInvNumber();
+  setDates();
+  addItem();
+  renderDashboard();
+  loadAssetThumbs();
+  setTimeout(()=>syncAll(),1000);
+  toast('✅ Setup complete! Welcome to Vismaad Creations');
 }
 function loadSettings(){
   ['gstin','address','phone','email'].forEach(k=>{
@@ -1206,6 +1321,7 @@ function generateInvoice(){
   const isIntra=custState==='Punjab';
   const custPhone=document.getElementById('c-phone')?.value||'';
   const custWhatsapp=document.getElementById('c-whatsapp')?.value||'';
+  const custGstin=(document.getElementById('c-gstin')?.value||'').trim().toUpperCase();
   const custAddress=document.getElementById('c-address')?.value||'';
   const channel=document.getElementById('sale-channel')?.value||'';
 
@@ -1215,7 +1331,7 @@ function generateInvoice(){
   const saved={
     id:Date.now(),
     invNo,invDate,fy:getFY(invDate),
-    custName,custPhone,custWhatsapp,custAddress,custState,isIntra,
+    custName,custPhone,custWhatsapp,custGstin,custAddress,custState,isIntra,
     shipping:ship,shippingCost,discount:disc,tracking,dispatchDate,
     dispatchMethod,courierName,channel,
     grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
@@ -1243,6 +1359,13 @@ function generateInvoice(){
   if(ph)ph.innerHTML=getInvHtml(saved);
   const ps=document.getElementById('inv-preview-section');
   if(ps){ps.style.display='block';ps.scrollIntoView({behavior:'smooth'});}
+  // Update preview card title
+  const pt=document.querySelector('#inv-preview-section .card-title');
+  if(pt)pt.textContent='Invoice Preview — '+invNo+' · '+custName;
+  // E-way bill warning
+  if(grandIncl>=50000){
+    toast('⚠️ Order value ≥ ₹50,000 — E-way Bill required at ewaybillgst.gov.in before dispatch',7000);
+  }
   localStorage.setItem('vc_ctr',invCtr);
   toast('✅ Invoice '+invNo+' saved!');
 }
@@ -1260,7 +1383,7 @@ function resetInvoiceForm(){
     invCtr=Math.max(...nums,invCtr);
   }
   const el=document.getElementById('inv-no');if(el)el.value='INV-'+String(invCtr+1).padStart(3,'0');
-  ['c-name','c-phone','c-whatsapp','c-address','tracking'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['c-name','c-phone','c-whatsapp','c-gstin','c-address','tracking'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   const cs=document.getElementById('c-state');if(cs)cs.value='';
   const td=document.getElementById('tax-display');if(td)td.value='';
   const sh=document.getElementById('shipping');if(sh)sh.value='0';
@@ -1371,7 +1494,7 @@ function buildInvoiceHTML(data){
       <div>
         ${data.logoB64?'<img src="'+data.logoB64+'" style="height:44px;object-fit:contain;display:block;margin-bottom:5px;"/>' :''}
         <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#5c3d1e;">Vismaad Creations</div>
-        <div style="font-size:11px;color:#555;margin-top:4px;"><strong>GSTIN:</strong> ${data.gstin||S.gstin||'—'}</div>
+        <div style="font-size:11px;color:#555;margin-top:4px;"><strong>GSTIN:</strong> ${data.gstin||S.gstin||'—'} &nbsp;|&nbsp; <strong>State Code:</strong> 03 (Punjab)</div>
         <div style="font-size:11px;color:#555;">${data.bizAddress||S.address||''}</div>
         <div style="font-size:11px;color:#555;">${data.bizPhone||S.phone||''}${(data.bizEmail||S.email)?' | '+(data.bizEmail||S.email):''}</div>
       </div>
@@ -1380,6 +1503,8 @@ function buildInvoiceHTML(data){
         <div style="font-size:12px;color:#555;margin-top:3px;"><strong>No:</strong> ${data.invNo}</div>
         <div style="font-size:12px;color:#555;"><strong>Date:</strong> ${fd(data.invDate)}</div>
         <div style="font-size:12px;color:#555;"><strong>FY:</strong> ${data.fy||''}</div>
+        <div style="font-size:11px;color:#555;margin-top:4px;"><strong>Place of Supply:</strong> ${data.custState||'—'} (${getStateCode(data.custState)||'—'})</div>
+        <div style="font-size:11px;color:#555;"><strong>Reverse Charge:</strong> No</div>
         <div style="margin-top:5px;display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:${data.isIntra?'#dff0d8':'#e8f4fd'};color:${data.isIntra?'#27ae60':'#2980b9'};">${data.isIntra?'Intra-State (Punjab)':'Inter-State'}</div>
       </div>
     </div>
@@ -1388,7 +1513,8 @@ function buildInvoiceHTML(data){
       <div>
         <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Billed To</div>
         <div style="font-size:13px;font-weight:700;">${data.custName}</div>
-        <div style="font-size:11px;color:#555;line-height:1.6;">${data.custPhone?'📞 '+data.custPhone+'<br/>':''}${data.custWhatsapp&&data.custWhatsapp!==data.custPhone?'💬 '+data.custWhatsapp+'<br/>':''}${data.custAddress?data.custAddress.replace(/\n/g,'<br/>')+'<br/>':''}${data.custState?'<strong>'+data.custState+'</strong>':''}</div>
+        <div style="font-size:11px;color:#555;line-height:1.6;">${data.custPhone?'📞 '+data.custPhone+'<br/>':''}${data.custWhatsapp&&data.custWhatsapp!==data.custPhone?'💬 '+data.custWhatsapp+'<br/>':''}${data.custAddress?data.custAddress.replace(/\n/g,'<br/>')+'<br/>':''}${data.custState?'<strong>'+data.custState+'</strong> ('+getStateCode(data.custState)+')':''}</div>
+        ${data.custGstin?'<div style="font-size:11px;color:#555;margin-top:3px;"><strong>Buyer GSTIN:</strong> '+data.custGstin+'</div>':''}
       </div>
       <div>${dispatchHtml}</div>
     </div>
@@ -1664,8 +1790,8 @@ function getSharePhone(){
 function shareInvoiceWhatsApp(){
   const ph=getSharePhone();if(!ph)return;
   const inv=sharingInv;
-  const items=expandItems(inv.itemsArr).filter(i=>i.unitPrice>0);
-  const itemList=items.map(i=>i.desc+(i.qty>1?' (x'+i.qty+')':'')).join(', ');
+  const items=expandItems(inv.itemsArr).filter(i=>i.unitPrice>0&&i.desc&&i.desc.trim());
+  const itemList=items.map(i=>i.desc.trim()+(i.qty>1?' (x'+i.qty+')':'')).join(', ');
   const msg=
     'Dear '+inv.custName+',\n\n'+
     'Thank you for shopping with Vismaad Creations! 🙏\n\n'+
@@ -1786,7 +1912,7 @@ function renderDashboard(){
   const stk=inventory.reduce((s,p)=>s+(parseInt(p.qty)||0),0);
   const dstk=document.getElementById('ds-stock');if(dstk)dstk.textContent=stk;
   const dprod=document.getElementById('ds-products');if(dprod)dprod.textContent=inventory.length;
-  const recent=[...invoices].reverse().slice(0,5);
+  const recent=[...invoices].sort((a,b)=>(b.invDate||'')<(a.invDate||'')?-1:1).slice(0,5);
   const dord=document.getElementById('dash-orders');
   if(dord)dord.innerHTML=recent.length?recent.map(inv=>`<div class="list-row">
     <div><div class="list-main">${inv.custName}</div><div class="list-sub">${inv.invNo||'—'} · ${fmtDate(inv.invDate)}</div></div>
@@ -2105,6 +2231,8 @@ function loadAssetThumbs(){
 }
 function handleLogoUpload(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{logoB64=ev.target.result;localStorage.setItem('vc_logo',logoB64);loadAssetThumbs();toast('✅ Logo uploaded!');};r.readAsDataURL(f);}
 function handleQRUpload(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{qrB64=ev.target.result;localStorage.setItem('vc_qr',qrB64);loadAssetThumbs();toast('✅ QR uploaded!');};r.readAsDataURL(f);}
+function handleSetupLogo(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{logoB64=ev.target.result;localStorage.setItem('vc_logo',logoB64);const t=document.getElementById('setup-logo-thumb');if(t)t.innerHTML='<img src="'+logoB64+'" style="width:100%;height:100%;object-fit:contain;border-radius:8px;"/>';toast('✅ Logo uploaded!');};r.readAsDataURL(f);}
+function handleSetupQR(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{qrB64=ev.target.result;localStorage.setItem('vc_qr',qrB64);const t=document.getElementById('setup-qr-thumb');if(t)t.innerHTML='<img src="'+qrB64+'" style="width:100%;height:100%;object-fit:contain;border-radius:8px;"/>';toast('✅ QR uploaded!');};r.readAsDataURL(f);}
 
 // ═══════════════════════════════════════════
 // SUB PAGES
@@ -2160,7 +2288,7 @@ function calcPurGST(){
   const amt=parseFloat(document.getElementById('pp-amt')?.value)||0;
   const rate=document.getElementById('pp-gst')?.value;
   const el=document.getElementById('pp-itc');if(!el)return;
-  if(!rate||rate==='none'){el.value='0';return;}
+  if(!rate||rate==='none'){el.value='0.00';return;}
   el.value=parseFloat((amt*parseFloat(rate)/100/(1+parseFloat(rate)/100)).toFixed(2));
 }
 function savePurchaseEntry(){
@@ -2448,10 +2576,26 @@ function fmtExportDate(d){
   if(!d)return'';
   try{
     const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const p=d.split('-');
-    const day=parseInt(p[2]);
-    return(day<10?'0'+day:String(day))+'-'+MONTHS[parseInt(p[1])-1]+'-'+p[0];
-  }catch{return d;}
+    const str=String(d).trim();
+    // Already DD-MMM-YYYY
+    if(/^\d{2}-[A-Za-z]{3}-\d{4}$/.test(str))return str;
+    // YYYY-MM-DD
+    if(/^\d{4}-\d{2}-\d{2}$/.test(str)){
+      const p=str.split('-');
+      return p[2]+'-'+MONTHS[parseInt(p[1])-1]+'-'+p[0];
+    }
+    // DD/MM/YYYY or DD-MM-YYYY
+    if(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(str)){
+      const p=str.split(/[\/\-]/);
+      return p[0].padStart(2,'0')+'-'+MONTHS[parseInt(p[1])-1]+'-'+p[2];
+    }
+    // Full Date string e.g. "Tue Apr 07 2026 00:00:00 GMT+0530"
+    const dt=new Date(str);
+    if(!isNaN(dt.getTime())){
+      return String(dt.getDate()).padStart(2,'0')+'-'+MONTHS[dt.getMonth()]+'-'+dt.getFullYear();
+    }
+    return str;
+  }catch{return String(d);}
 }
 
 function getDateRange(period){
@@ -2528,16 +2672,18 @@ function _doExport(type,from,to,label){
   function toISO(d){
     if(!d)return'';
     d=String(d).trim();
-    // Already YYYY-MM-DD
     if(/^\d{4}-\d{2}-\d{2}$/.test(d))return d;
-    // DD/MM/YYYY or DD-MM-YYYY
-    if(/^\d{2}[\/\-]\d{2}[\/\-]\d{4}$/.test(d)){
-      const p=d.split(/[\/\-]/);return p[2]+'-'+p[1]+'-'+p[0];
+    if(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(d)){
+      const p=d.split(/[\/\-]/);return p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0');
     }
-    // DD-MMM-YYYY e.g. 02-Mar-2026
     const MONTHS={jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
     const m2=d.match(/^(\d{1,2})[- ]([a-zA-Z]{3})[- ](\d{4})$/);
     if(m2)return m2[3]+'-'+(MONTHS[m2[2].toLowerCase()]||'01')+'-'+m2[1].padStart(2,'0');
+    // Full Date object string e.g. "Tue Apr 07 2026 00:00:00 GMT+0530"
+    const dt=new Date(d);
+    if(!isNaN(dt.getTime())){
+      return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+    }
     return d;
   }
 
@@ -2612,35 +2758,46 @@ function _doExport(type,from,to,label){
       'Total GST (₹)'
     ];
 
-    const dataRows=Object.values(byMonth)
-      .sort((a,b)=>a.isoMon<b.isoMon?-1:1)
-      .map(g=>[
-        monLabel(g.isoMon),
-        g.invoices,
-        +g.grossRev.toFixed(2),
-        +g.taxable.toFixed(2),
-        +g.cgst.toFixed(2),
-        +g.sgst.toFixed(2),
-        +g.igst.toFixed(2),
-        +g.totalGST.toFixed(2)
-      ]);
+    const sortedMonths=Object.values(byMonth).sort((a,b)=>a.isoMon<b.isoMon?-1:1);
 
-    // Totals row
-    const totRow=['TOTAL', filtered.length, 0, 0, 0, 0, 0, 0];
-    dataRows.forEach(r=>{for(let i=2;i<8;i++)totRow[i]+=r[i];});
-    for(let i=2;i<8;i++)totRow[i]=+totRow[i].toFixed(2);
-
-    const ws=XLSX.utils.aoa_to_sheet([hdr,...dataRows,totRow]);
-    ws['!cols']=[{wch:12},{wch:14},{wch:18},{wch:16},{wch:14},{wch:14},{wch:14},{wch:14}];
-    // Bold the totals row
-    const totRowIdx=dataRows.length+1;
-    for(let c=0;c<8;c++){
-      const cell=ws[XLSX.utils.encode_cell({r:totRowIdx,c})];
-      if(cell)cell.s={font:{bold:true}};
+    // Build rows with FY subtotals inserted between financial years
+    function getFYLabel(isoMon){
+      if(!isoMon||isoMon==='Unknown')return'Unknown';
+      const[yr,mn]=isoMon.split('-').map(Number);
+      const fyStart=mn>=4?yr:yr-1;
+      return'FY '+fyStart+'-'+String(fyStart+1).slice(2);
     }
+    const allRows=[];
+    let curFY='',fyAccum=[0,0,0,0,0,0];
+    let fyInvCount=0;
+    sortedMonths.forEach((g,i)=>{
+      const fy=getFYLabel(g.isoMon);
+      if(curFY&&fy!==curFY){
+        // Insert FY subtotal row
+        const fyTot=[curFY+' TOTAL',fyInvCount,...fyAccum.map(v=>+v.toFixed(2))];
+        allRows.push(fyTot);
+        fyAccum=[0,0,0,0,0,0];fyInvCount=0;
+      }
+      curFY=fy;
+      const row=[monLabel(g.isoMon),g.invoices,+g.grossRev.toFixed(2),+g.taxable.toFixed(2),+g.cgst.toFixed(2),+g.sgst.toFixed(2),+g.igst.toFixed(2),+g.totalGST.toFixed(2)];
+      allRows.push(row);
+      fyAccum[0]+=g.grossRev;fyAccum[1]+=g.taxable;fyAccum[2]+=g.cgst;fyAccum[3]+=g.sgst;fyAccum[4]+=g.igst;fyAccum[5]+=g.totalGST;
+      fyInvCount+=g.invoices;
+    });
+    // Last FY subtotal
+    if(curFY){allRows.push([curFY+' TOTAL',fyInvCount,...fyAccum.map(v=>+v.toFixed(2))]);}
+
+    // Grand total row
+    const totRow=['GRAND TOTAL', filtered.length, 0, 0, 0, 0, 0, 0];
+    sortedMonths.forEach(g=>{totRow[2]+=g.grossRev;totRow[3]+=g.taxable;totRow[4]+=g.cgst;totRow[5]+=g.sgst;totRow[6]+=g.igst;totRow[7]+=g.totalGST;});
+    for(let i=2;i<8;i++)totRow[i]=+totRow[i].toFixed(2);
+    allRows.push(totRow);
+
+    const ws=XLSX.utils.aoa_to_sheet([hdr,...allRows]);
+    ws['!cols']=[{wch:16},{wch:14},{wch:20},{wch:16},{wch:14},{wch:14},{wch:14},{wch:14}];
     XLSX.utils.book_append_sheet(wb,ws,'GST Summary');
     XLSX.writeFile(wb,'Vismaad_GST_'+label.replace(/[\s/]/g,'_')+'.xlsx');
-    toast('✅ GST summary — '+filtered.length+' invoices across '+dataRows.length+' months');
+    toast('✅ GST summary — '+filtered.length+' invoices across '+sortedMonths.length+' months');
     return;
   }
 
@@ -2890,6 +3047,7 @@ function showBulkPreview(rows,skipped=[]){
       <div class="list-right"><div class="list-amt">₹${(r.itemsArr.reduce((s,it)=>s+it.unitPrice,0)+r.shipping-r.discount).toLocaleString('en-IN')}</div></div>
     </div>`).join('')}
     </div>
+    ${rows.length>5?`<div style="text-align:center;padding:8px;font-size:13px;color:#888;background:var(--goldp);border-radius:8px;margin-top:4px;">...and ${rows.length-5} more rows</div>`:''}
     <div style="margin-top:16px;display:flex;flex-direction:column;gap:10px;">
       <button class="btn btn-p" onclick="bulkSaveOnly()">💾 Save All to Sales</button>
       <button class="btn btn-o" onclick="bulkSaveAndPrint()">🖨️ Save + Print All</button>
