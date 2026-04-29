@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.2 · 29-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.3 · 29-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -2427,18 +2427,23 @@ function renderPLContent(filtInv,filtPur){
 
   // ── REVENUE ──
   const grossRev      = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0).toFixed(2));
-  const gstOnSuits    = parseFloat(filtInv.reduce((s,i)=>{
-    // GST on suits only (excluding shipping GST)
+  // Only calculate GST on Tax Invoices (isGST:true)
+  const gstInvs       = filtInv.filter(i=>i.isGST===true||i.isGST==='true');
+  const nonGstInvs    = filtInv.filter(i=>!(i.isGST===true||i.isGST==='true'));
+  const anyGST        = gstInvs.length>0;
+  const gstOnSuits    = parseFloat(gstInvs.reduce((s,i)=>{
     const shipGST=parseFloat((parseFloat(i.shipping||0)-parseFloat(i.shipping||0)/1.05).toFixed(2));
     const totalGST=parseFloat(i.grandTotal||0)-parseFloat((parseFloat(i.grandTotal||0)/1.05).toFixed(2));
     return s+(totalGST-shipGST);
   },0).toFixed(2));
   const shipCharged   = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.shipping)||0),0).toFixed(2));
-  const gstOnShip     = parseFloat((shipCharged-shipCharged/1.05).toFixed(2));
+  const gstOnShip     = parseFloat(gstInvs.reduce((s,i)=>{const sh=parseFloat(i.shipping||0);return s+(sh-sh/1.05);},0).toFixed(2));
   const totalOutGST   = parseFloat((gstOnSuits+gstOnShip).toFixed(2));
-  const shipChargedExcl = parseFloat((shipCharged/1.05).toFixed(2));
+  const shipChargedExcl = parseFloat((shipCharged - gstOnShip).toFixed(2));
+  const gstRevenue    = parseFloat(gstInvs.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0).toFixed(2));
+  const nonGstRevenue = parseFloat(nonGstInvs.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0).toFixed(2));
   const suitRevIncl   = parseFloat((grossRev-shipCharged).toFixed(2));
-  const suitRevExcl   = parseFloat((suitRevIncl/1.05).toFixed(2));
+  const suitRevExcl   = parseFloat((suitRevIncl-(anyGST?gstOnSuits:0)).toFixed(2));
   const netRev        = parseFloat((suitRevExcl+shipChargedExcl).toFixed(2));
 
   // ── COST OF GOODS — Suit Purchases ──
@@ -2555,7 +2560,7 @@ function renderPLContent(filtInv,filtPur){
         filtInv.length+' sale(s) · '+filtPur.length+' purchase(s) entered · Consult your CA before filing')}
     </div>
 
-    <div class="card">
+    ${anyGST?`<div class="card">
       <div class="card-title">🧾 GST Position</div>
       <div style="font-size:12px;color:#888;margin-bottom:12px;">Summary for GSTR-3B filing. Share with your CA.</div>
 
@@ -2584,7 +2589,14 @@ function renderPLContent(filtInv,filtPur){
       <div style="font-size:11px;color:#aaa;margin-top:10px;line-height:1.6;">
         ⚠️ This is an estimate. Consult your CA before filing. ITC claims require valid GST invoices from registered suppliers.
       </div>
-    </div>
+    </div>`:''}
+
+    ${!anyGST?`<div class="card" style="background:var(--goldp);">
+      <div style="font-size:13px;color:var(--brown);line-height:1.7;">
+        <strong>GST Mode is OFF</strong> — all records in this period are Bills of Supply. No GST was collected and no ITC is applicable.<br/>
+        Turn GST Mode ON in Settings when you re-register.
+      </div>
+    </div>`:''}
 
     <div class="card">
       <div class="card-title">📱 Sales by Channel</div>
@@ -2889,69 +2901,86 @@ function _doExport(type,from,to,label){
     return;
   }
 
-  // Sales register (detailed) — all columns self-explanatory
+  // Sales register — columns adapt per invoice (Tax Invoice vs Bill of Supply)
   const hdr=[
-    'Invoice No.',
-    'Invoice Date',
+    'Document Type',
+    'Bill / Invoice No.',
+    'Date',
     'Customer Name',
-    'Customer Phone (Shipping Label)',
-    'Customer WhatsApp Number',
+    'Customer Phone (Shipping)',
+    'Customer WhatsApp',
     'Delivery Address',
     'Customer State',
     'Tax Type',
     'Suit Description',
-    'Gross Suit Amount incl. 5% GST (Rs)',
-    'GST Collected on Suits (Rs)',
+    'Total Amount (Rs)',
+    'Suit Amount (Rs)',
+    'GST on Suits (Rs)',
     'Net Suit Amount excl. GST (Rs)',
-    'Shipping Charged to Customer incl. 5% GST (Rs)',
-    'GST Collected on Shipping (Rs)',
-    'Net Shipping Charged excl. GST (Rs)',
-    'Discount Given (Rs)',
-    'Grand Total Collected from Customer (Rs)',
-    'Cost Paid for Suits incl. 5% GST (Rs)',
-    'ITC on Suit Cost at 5% (Rs)',
+    'Shipping Charged (Rs)',
+    'GST on Shipping (Rs)',
+    'Net Shipping excl. GST (Rs)',
+    'Discount (Rs)',
+    'Grand Total (Rs)',
+    'Cost Paid for Suits incl. GST (Rs)',
+    'ITC on Suit Cost (Rs)',
     'Net Suit Cost excl. GST (Rs)',
-    'Actual Shipping Paid to India Post incl. 18% GST (Rs)',
-    'ITC on India Post Shipping at 18% (Rs)',
-    'Net India Post Cost excl. GST (Rs)',
+    'Actual Shipping Paid (Rs)',
+    'ITC on Shipping (Rs)',
+    'Net Shipping Cost excl. GST (Rs)',
     'Sale Channel',
     'Dispatch Method',
     'Tracking Number',
-    'Shipment Status'
+    'Status'
   ];
   const rows=filtered.map(inv=>{
+    const gst=inv.isGST===true||inv.isGST==='true';
     const grand=parseFloat(inv.grandTotal)||0;
     const ship=parseFloat(inv.shipping)||0;
     const disc=parseFloat(inv.discount)||0;
     const costIncl=parseFloat(inv.costPrice)||0;
-    const itcCost=parseFloat((costIncl-costIncl/1.05).toFixed(2));
-    const costExcl=parseFloat((costIncl/1.05).toFixed(2));
     const shipActual=parseFloat(inv.shippingCost)||0;
-    const itcShip=parseFloat((shipActual-shipActual/1.18).toFixed(2));
-    const shipExcl18=parseFloat((shipActual/1.18).toFixed(2));
-    const suitIncl=parseFloat((grand-ship+disc).toFixed(2));
-    const suitGST=parseFloat((suitIncl-suitIncl/1.05).toFixed(2));
-    const suitExcl=parseFloat((suitIncl/1.05).toFixed(2));
-    const shipGST5=parseFloat((ship-ship/1.05).toFixed(2));
-    const shipExcl5=parseFloat((ship/1.05).toFixed(2));
     const intra=inv.isIntra===true||inv.isIntra==='true'||inv.custState==='Punjab';
     const dispMap={indiapost:'India Post Parcel',courier:inv.courierName||'Other Courier',hand:'Hand Delivery',walkin:'Walk-in / Collected in person','':(inv.tracking?'India Post Parcel':'Not specified')};
+
+    // GST calculations — only meaningful for Tax Invoices
+    const suitIncl=parseFloat((grand-ship+disc).toFixed(2));
+    const suitGST=gst?parseFloat((suitIncl-suitIncl/1.05).toFixed(2)):0;
+    const suitExcl=gst?parseFloat((suitIncl/1.05).toFixed(2)):suitIncl;
+    const shipGST=gst?parseFloat((ship-ship/1.05).toFixed(2)):0;
+    const shipExcl=gst?parseFloat((ship/1.05).toFixed(2)):ship;
+    const itcCost=gst?parseFloat((costIncl-costIncl/1.05).toFixed(2)):0;
+    const costExcl=gst?parseFloat((costIncl/1.05).toFixed(2)):costIncl;
+    const itcShip=gst?parseFloat((shipActual-shipActual/1.18).toFixed(2)):0;
+    const shipActualExcl=gst?parseFloat((shipActual/1.18).toFixed(2)):shipActual;
+    const taxType=gst?(intra?'Intra-State (CGST+SGST)':'Inter-State (IGST)'):'Not Applicable (Bill of Supply)';
+
     return[
-      inv.invNo,
+      gst?'Tax Invoice':'Bill of Supply',
+      inv.invNo||'',
       fmtExportDate(inv.invDate),
       inv.custName||'',
       inv.custPhone||'',
       inv.custWhatsapp||'',
       inv.custAddress||'',
       inv.custState||'',
-      intra?'Intra-State Punjab (CGST 2.5% + SGST 2.5%)':'Inter-State (IGST 5%)',
+      taxType,
       inv.itemsSummary||'',
-      suitIncl, suitGST, suitExcl,
-      ship, shipGST5, shipExcl5,
+      grand,
+      suitIncl,
+      gst?suitGST:'N/A',
+      gst?suitExcl:'N/A',
+      ship,
+      gst?shipGST:'N/A',
+      gst?shipExcl:'N/A',
       disc,
       grand,
-      costIncl||'', itcCost||'', costExcl||'',
-      shipActual||'', itcShip||'', shipExcl18||'',
+      costIncl||'',
+      gst?(itcCost||''):'N/A',
+      gst?(costExcl||''):'N/A',
+      shipActual||'',
+      gst?(itcShip||''):'N/A',
+      gst?(shipActualExcl||''):'N/A',
       inv.channel||'',
       dispMap[inv.dispatchMethod||'']||'',
       inv.tracking||'',
@@ -2959,10 +2988,10 @@ function _doExport(type,from,to,label){
     ];
   });
   const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
-  ws['!cols']=hdr.map((h,i)=>({wch:Math.min(Math.max(h.length,12),40)}));
+  ws['!cols']=hdr.map(h=>({wch:Math.min(Math.max(h.length,12),40)}));
   XLSX.utils.book_append_sheet(wb,ws,'Sales Register');
   XLSX.writeFile(wb,'Vismaad_Sales_'+label.replace(/[\s/]/g,'_')+'.xlsx');
-  toast('✅ '+filtered.length+' invoices exported');
+  toast('✅ '+filtered.length+' records exported');
 }
 
 function buildBulkPage(){
