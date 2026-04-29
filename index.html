@@ -179,7 +179,9 @@ tbody tr:last-child td{border-bottom:none;}
   .modal-bg{align-items:center;}
 }
 
-/* ── PULL TO REFRESH INDICATOR ── */
+/* ── GST MODE ── */
+.gst-only{display:none;}
+body.gst-mode .gst-only{display:block;}
 .ptr{text-align:center;padding:8px;font-size:12px;color:#888;display:none;}
 .ptr.show{display:block;}
 
@@ -210,7 +212,7 @@ tbody tr:last-child td{border-bottom:none;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.0 · 26-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.2 · 29-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -229,9 +231,29 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
     <div class="card">
       <div class="card-title">⚙️ Business Details</div>
-      <div class="fg"><label>Your GSTIN *</label>
+
+      <!-- GST Registration toggle -->
+      <div class="fg" style="margin-bottom:16px;">
+        <label style="font-size:14px;font-weight:600;">Are you GST Registered?</label>
+        <div style="display:flex;gap:10px;margin-top:8px;">
+          <button id="setup-gst-yes" class="btn btn-o" style="flex:1;min-height:44px;"
+            onclick="setSetupGST(true)">✅ Yes</button>
+          <button id="setup-gst-no" class="btn btn-p" style="flex:1;min-height:44px;"
+            onclick="setSetupGST(false)">❌ No</button>
+        </div>
+      </div>
+
+      <!-- GSTIN field — shown only if GST Yes -->
+      <div id="setup-gstin-row" class="fg" style="display:none;">
+        <label>Your GSTIN *</label>
         <input id="setup-gstin" placeholder="03XXXXX1234Z5" maxlength="15" style="text-transform:uppercase"
-          oninput="this.value=this.value.toUpperCase()"/></div>
+          oninput="this.value=this.value.toUpperCase()"/>
+      </div>
+      <!-- No GST note -->
+      <div id="setup-no-gst-note" style="background:var(--goldp);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--brown);margin-bottom:12px;display:none;">
+        You will issue <strong>Bills of Supply</strong> instead of Tax Invoices. You can add your GSTIN later in Settings when you re-register.
+      </div>
+
       <div class="fg"><label>Business Address *</label>
         <input id="setup-address" placeholder="Street, City, Punjab, Pincode"/></div>
       <div class="fg"><label>Phone / WhatsApp</label>
@@ -245,7 +267,7 @@ tbody tr:last-child td{border-bottom:none;}
             style="width:64px;height:64px;border-radius:10px;border:2px dashed var(--border);display:flex;align-items:center;justify-content:center;color:#aaa;font-size:11px;cursor:pointer;overflow:hidden;">Logo</div>
           <input type="file" id="setup-logo-upload" accept="image/*" style="display:none;"
             onchange="handleSetupLogo(event)"/>
-          <div style="font-size:13px;color:#888;">Tap to upload your brand logo<br/><span style="font-size:11px;">Shown on invoices and shipping labels</span></div>
+          <div style="font-size:13px;color:#888;">Tap to upload your brand logo<br/><span style="font-size:11px;">Shown on bills and shipping labels</span></div>
         </div>
       </div>
       <div class="fg">
@@ -295,9 +317,9 @@ tbody tr:last-child td{border-bottom:none;}
 
   <!-- Invoice details -->
   <div class="card">
-    <div class="card-title">🧾 Invoice Details</div>
+    <div class="card-title" id="inv-form-title">🧾 Bill Details</div>
     <div class="row2">
-      <div class="fg"><label>Invoice No.</label><input id="inv-no" readonly/></div>
+      <div class="fg"><label id="inv-no-label">Bill No.</label><input id="inv-no" readonly/></div>
       <div class="fg"><label>Date</label><input type="date" id="inv-date" oninput="onInvDateChange()"/></div>
     </div>
     <div class="fg"><label>Financial Year</label><input id="inv-fy" readonly/></div>
@@ -342,9 +364,9 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
     </div>
     <div class="fg"><label>Address</label><textarea id="c-address" placeholder="House No, Street, City, State — 141001 (include pincode)" rows="2"></textarea></div>
-    <div class="fg"><label>Buyer GSTIN <span style="font-weight:400;color:#aaa;">(only for B2B — leave blank for retail customers)</span></label>
+    <div class="fg gst-only"><label>Buyer GSTIN <span style="font-weight:400;color:#aaa;">(only for B2B — leave blank for retail customers)</span></label>
       <input id="c-gstin" placeholder="Leave blank for B2C retail" style="text-transform:uppercase"/></div>
-    <div class="fg"><label style="font-size:11px;color:#888;">Tax Type (Auto)</label><input id="tax-display" readonly placeholder="Select state first" style="background:#f0e8d8;font-size:13px;padding:10px 12px;"/></div>
+    <div class="fg gst-only"><label style="font-size:11px;color:#888;">Tax Type (Auto)</label><input id="tax-display" readonly placeholder="Select state first" style="background:#f0e8d8;font-size:13px;padding:10px 12px;"/></div>
   </div>
 
   <!-- Items -->
@@ -549,7 +571,18 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- Settings -->
   <div class="card" id="settings-card" style="display:none;">
     <div class="card-title">⚙️ Settings</div>
-    <div class="fg"><label>Your GSTIN</label><input id="ms-gstin" placeholder="03XXXXX1234Z5" maxlength="15" style="text-transform:uppercase"/></div>
+
+    <!-- GST Toggle — top of settings -->
+    <div style="background:var(--goldp);border-radius:10px;padding:12px 14px;margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:8px;">GST Registration Status</div>
+      <div style="display:flex;gap:10px;">
+        <button id="gst-toggle-on" class="btn btn-o" style="flex:1;min-height:44px;" onclick="setGSTMode(true)">✅ GST Registered</button>
+        <button id="gst-toggle-off" class="btn btn-o" style="flex:1;min-height:44px;" onclick="setGSTMode(false)">❌ Not Registered</button>
+      </div>
+      <div id="gst-toggle-note" style="font-size:12px;color:var(--brown);margin-top:8px;"></div>
+    </div>
+
+    <div id="ms-gstin-row" class="fg"><label>Your GSTIN</label><input id="ms-gstin" placeholder="03XXXXX1234Z5" maxlength="15" style="text-transform:uppercase"/></div>
     <div class="fg"><label>Business Address</label><input id="ms-address" placeholder="Street, City, Punjab, Pincode"/></div>
     <div class="fg"><label>Phone / WhatsApp</label><input id="ms-phone" placeholder="+91 XXXXX XXXXX"/></div>
     <div class="fg"><label>Email (optional)</label><input id="ms-email" placeholder="your@email.com"/></div>
@@ -646,14 +679,14 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
 
     <div style="display:flex;flex-direction:column;gap:10px;">
-      <button class="btn btn-g" style="text-align:left;justify-content:flex-start;gap:12px;" onclick="shareInvoiceWhatsApp()">
+      <button id="share-inv-wa-btn" class="btn btn-g" style="text-align:left;justify-content:flex-start;gap:12px;" onclick="shareInvoiceWhatsApp()">
         <span style="font-size:20px;">💬</span>
-        <div><div style="font-weight:700;">Send Invoice on WhatsApp</div>
-        <div style="font-size:12px;opacity:.8;font-weight:400;">Invoice summary as text message</div></div>
+        <div><div class="share-inv-title" style="font-weight:700;">Send Bill of Supply on WhatsApp</div>
+        <div class="share-inv-sub" style="font-size:12px;opacity:.8;font-weight:400;">Bill summary as text message</div></div>
       </button>
-      <button class="btn btn-o" style="text-align:left;justify-content:flex-start;gap:12px;" onclick="shareInvoicePDF()">
+      <button id="share-pdf-btn" class="btn btn-o" style="text-align:left;justify-content:flex-start;gap:12px;" onclick="shareInvoicePDF()">
         <span style="font-size:20px;">📄</span>
-        <div><div style="font-weight:700;">Print / Save as PDF</div>
+        <div><div class="share-pdf-title" style="font-weight:700;">Print / Save Bill as PDF</div>
         <div style="font-size:12px;opacity:.8;font-weight:400;">Then share from PDF viewer</div></div>
       </button>
       <button class="btn btn-o" id="share-tracking-btn" style="text-align:left;justify-content:flex-start;gap:12px;" onclick="shareTrackingWhatsApp()">
@@ -990,7 +1023,8 @@ async function syncAll(){
         gstin:S.gstin||rs.gstin||'',
         address:S.address||rs.address||'',
         phone:S.phone||rs.phone||'',
-        email:S.email||rs.email||''
+        email:S.email||rs.email||'',
+        gstEnabled:S.gstEnabled!==undefined?S.gstEnabled:(rs.gstEnabled==='true'||rs.gstEnabled===true),
       };
       lsSet('vc_s',S);
     }
@@ -1072,12 +1106,13 @@ function init(){
       }
     });
     save();
-    // Show first launch setup if GSTIN not set
-    if(!S.gstin){
+    // Show first launch setup if no address set (GSTIN optional)
+    if(!S.address){
       showSetupScreen();
       return;
     }
     loadSettings();
+    applyGSTMode();
     setInvNumber();
     setDates();
     addItem();
@@ -1094,55 +1129,92 @@ function showSetupScreen(){
   const el=document.getElementById('setup-screen');
   if(el)el.style.display='flex';
 }
-function completeSetup(){
-  const gstin=(document.getElementById('setup-gstin')?.value||'').trim().toUpperCase();
-  const address=(document.getElementById('setup-address')?.value||'').trim();
-  if(!gstin){toast('⚠️ GSTIN is required');return;}
-  if(!address){toast('⚠️ Business address is required');return;}
-  S={
-    gstin,
-    address,
-    phone:(document.getElementById('setup-phone')?.value||'').trim(),
-    email:(document.getElementById('setup-email')?.value||'').trim(),
-  };
+// ═══════════════════════════════════════════
+// GST MODE
+// ═══════════════════════════════════════════
+function isGSTEnabled(){return S.gstEnabled===true||S.gstEnabled==='true';}
+
+function applyGSTMode(){
+  const on=isGSTEnabled();
+  document.body.classList.toggle('gst-mode',on);
+  const invTitle=document.getElementById('inv-form-title');
+  if(invTitle)invTitle.textContent=on?'🧾 Invoice Details':'🧾 Bill Details';
+  const invNoLabel=document.getElementById('inv-no-label');
+  if(invNoLabel)invNoLabel.textContent=on?'Invoice No.':'Bill No.';
+  const btnOn=document.getElementById('gst-toggle-on');
+  const btnOff=document.getElementById('gst-toggle-off');
+  const note=document.getElementById('gst-toggle-note');
+  const gstinRow=document.getElementById('ms-gstin-row');
+  if(btnOn){btnOn.style.background=on?'var(--brown)':'';btnOn.style.color=on?'#fff':'';}
+  if(btnOff){btnOff.style.background=!on?'var(--brown)':'';btnOff.style.color=!on?'#fff':'';}
+  if(note)note.textContent=on?'Issuing Tax Invoices with full GST breakdown.':'Issuing Bills of Supply — no GST. Toggle ON when GST registration is restored.';
+  if(gstinRow)gstinRow.style.display=on?'block':'none';
+}
+
+function setGSTMode(on){
+  S.gstEnabled=on;
   lsSet('vc_s',S);
+  if(!on){invoices.forEach(inv=>{if(inv.isGST===undefined)inv.isGST=false;});save();}
+  applyGSTMode();
   gsWrite(SHEETS.settings,{id:'settings',...S});
-  const el=document.getElementById('setup-screen');
-  if(el)el.style.display='none';
-  loadSettings();
-  setInvNumber();
-  setDates();
-  addItem();
-  renderDashboard();
-  loadAssetThumbs();
+  toast(on?'✅ GST Mode ON — issuing Tax Invoices':'✅ GST Mode OFF — issuing Bills of Supply');
+}
+
+let _setupGSTEnabled=false;
+function setSetupGST(on){
+  _setupGSTEnabled=on;
+  const yBtn=document.getElementById('setup-gst-yes');
+  const nBtn=document.getElementById('setup-gst-no');
+  const gRow=document.getElementById('setup-gstin-row');
+  const note=document.getElementById('setup-no-gst-note');
+  if(yBtn){yBtn.style.background=on?'var(--brown)':'';yBtn.style.color=on?'#fff':'';}
+  if(nBtn){nBtn.style.background=!on?'var(--brown)':'';nBtn.style.color=!on?'#fff':'';}
+  if(gRow)gRow.style.display=on?'block':'none';
+  if(note)note.style.display=!on?'block':'none';
+}
+
+function completeSetup(){
+  const address=(document.getElementById('setup-address')?.value||'').trim();
+  if(!address){toast('⚠️ Business address is required');return;}
+  if(_setupGSTEnabled){
+    const gstin=(document.getElementById('setup-gstin')?.value||'').trim().toUpperCase();
+    if(!gstin){toast('⚠️ GSTIN is required when GST registered');return;}
+    S={gstin,address,phone:(document.getElementById('setup-phone')?.value||'').trim(),email:(document.getElementById('setup-email')?.value||'').trim(),gstEnabled:true};
+  }else{
+    S={gstin:'',address,phone:(document.getElementById('setup-phone')?.value||'').trim(),email:(document.getElementById('setup-email')?.value||'').trim(),gstEnabled:false};
+    invoices.forEach(inv=>{if(inv.isGST===undefined)inv.isGST=false;});save();
+  }
+  lsSet('vc_s',S);gsWrite(SHEETS.settings,{id:'settings',...S});
+  const el=document.getElementById('setup-screen');if(el)el.style.display='none';
+  applyGSTMode();loadSettings();setInvNumber();setDates();addItem();renderDashboard();loadAssetThumbs();
   setTimeout(()=>syncAll(),1000);
   toast('✅ Setup complete! Welcome to Vismaad Creations');
 }
+
 function loadSettings(){
   ['gstin','address','phone','email'].forEach(k=>{
-    ['s-','ms-'].forEach(pfx=>{
-      const el=document.getElementById(pfx+k);
-      if(el&&S[k])el.value=S[k];
-    });
+    ['s-','ms-'].forEach(pfx=>{const el=document.getElementById(pfx+k);if(el&&S[k])el.value=S[k];});
   });
+  applyGSTMode();
 }
+
 function saveSettings(){
   const g=v=>document.getElementById('ms-'+v)||document.getElementById('s-'+v);
-  S={
-    gstin:(g('gstin')?.value||'').trim().toUpperCase(),
+  S={...S,
+    gstin:isGSTEnabled()?(g('gstin')?.value||'').trim().toUpperCase():'',
     address:(g('address')?.value||'').trim(),
     phone:(g('phone')?.value||'').trim(),
     email:(g('email')?.value||'').trim(),
   };
-  lsSet('vc_s',S);
-  gsWrite(SHEETS.settings,{id:'settings',...S});
-  toast('✅ Settings saved!');
-  loadSettings();
+  lsSet('vc_s',S);gsWrite(SHEETS.settings,{id:'settings',...S});
+  applyGSTMode();toast('✅ Settings saved!');loadSettings();
 }
+
 function toggleSettings(){
   const c=document.getElementById('settings-card');
   if(c)c.style.display=c.style.display==='none'?'block':'none';
 }
+
 
 // ═══════════════════════════════════════════
 // DATES
@@ -1257,14 +1329,16 @@ function recalc(){
     <div class="list-row"><span>Shipping charged</span><strong>${f(ship)}</strong></div>`;
   if(disc>0)h+=`<div class="list-row" style="color:#c0392b;"><span>Discount</span><strong>−${f(disc)}</strong></div>`;
   h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>Taxable (excl. GST)</span><span>${f(taxableExcl)}</span></div>`;
-  if(isIntra){
-    h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>CGST 2.5%</span><span>${f(gstAmt/2)}</span></div>`;
-    h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>SGST 2.5%</span><span>${f(gstAmt/2)}</span></div>`;
-  }else{
-    h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>IGST 5%</span><span>${f(gstAmt)}</span></div>`;
+  if(isGSTEnabled()){
+    if(isIntra){
+      h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>CGST 2.5%</span><span>${f(gstAmt/2)}</span></div>`;
+      h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>SGST 2.5%</span><span>${f(gstAmt/2)}</span></div>`;
+    }else{
+      h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>IGST 5%</span><span>${f(gstAmt)}</span></div>`;
+    }
   }
   h+=`<div class="list-row" style="font-size:17px;border-top:2px solid var(--brown);margin-top:4px;padding-top:10px;">
-    <strong>Grand Total</strong><strong style="color:var(--brown);">${f(grandIncl)}</strong></div>`;
+    <strong>${isGSTEnabled()?'Grand Total':'Total Amount'}</strong><strong style="color:var(--brown);">${f(grandIncl)}</strong></div>`;
   const sb=document.getElementById('summary-box');if(sb)sb.innerHTML=h;
 }
 function setChannel(el,val){
@@ -1298,7 +1372,7 @@ function generateInvoice(){
   const custState=document.getElementById('c-state')?.value;
   if(!custName){toast('⚠️ Enter customer name');return;}
   if(!custState){toast('⚠️ Select customer state');return;}
-  if(!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
+  if(isGSTEnabled()&&!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
   if(items.every(i=>!i.unitPrice)){toast('⚠️ Add at least one suit with price');return;}
 
   // Derive correct next number
@@ -1412,15 +1486,15 @@ function resetInvoiceForm(){
 // BUILD INVOICE HTML
 // ═══════════════════════════════════════════
 function buildInvoiceHTML(data){
-  // Use stored grandTotal if available — don't recalculate (avoids discrepancy from edits)
+  // isGST flag determines Tax Invoice vs Bill of Supply
+  const gstMode=data.isGST===true||data.isGST==='true';
+
   const storedGrand=parseFloat(data.grandTotal)||0;
   const storedShipping=parseFloat(data.shipping)||0;
   const storedDiscount=parseFloat(data.discount)||0;
   const itemsArr=data.itemsArr||[];
 
-  // Recalc only for tax breakdown — using actual items
   const{suitsTotal,grandIncl,taxableExcl,gstAmt}=calcTotals(itemsArr,storedShipping,storedDiscount);
-  // Use stored grand total for display — fall back to recalculated only if not stored
   const displayGrand=storedGrand>0?storedGrand:grandIncl;
   const displayTaxable=parseFloat((displayGrand/1.05).toFixed(2));
   const displayGST=parseFloat((displayGrand-displayTaxable).toFixed(2));
@@ -1449,28 +1523,33 @@ function buildInvoiceHTML(data){
   const itemRows=validItems.map((it,i)=>{
     const lineIncl=(it.qty||1)*(it.unitPrice||0);
     const lineTax=parseFloat((lineIncl/1.05).toFixed(2));
-    return`<tr style="border-bottom:1px solid #e2d4bc;">
-      <td style="padding:6px 8px;">${i+1}</td>
-      <td style="padding:6px 8px;"><strong>${it.desc||'Unstitched Suit'}</strong>${it.prodNo?` <span style="font-size:10px;color:#888;">#${it.prodNo}</span>`:''}</td>
-      <td style="padding:6px 8px;">${it.hsn||'540754'}</td>
-      <td style="padding:6px 8px;text-align:center;">${it.qty||1}</td>
-      <td style="padding:6px 8px;text-align:right;">${f(it.unitPrice||0)}</td>
-      <td style="padding:6px 8px;text-align:right;">${f(lineTax)}</td>
-      <td style="padding:6px 8px;text-align:right;font-weight:600;">${f(lineIncl)}</td>
-    </tr>`;
+    return'<tr style="border-bottom:1px solid #e2d4bc;">'
+      +'<td style="padding:6px 8px;">'+(i+1)+'</td>'
+      +'<td style="padding:6px 8px;"><strong>'+(it.desc||'Unstitched Suit')+'</strong>'+(it.prodNo?'<span style="font-size:10px;color:#888;"> #'+it.prodNo+'</span>':'')+'</td>'
+      +(gstMode?'<td style="padding:6px 8px;">'+(it.hsn||'540754')+'</td>':'')
+      +'<td style="padding:6px 8px;text-align:center;">'+(it.qty||1)+'</td>'
+      +'<td style="padding:6px 8px;text-align:right;">'+f(it.unitPrice||0)+'</td>'
+      +(gstMode?'<td style="padding:6px 8px;text-align:right;">'+f(lineTax)+'</td>':'')
+      +'<td style="padding:6px 8px;text-align:right;font-weight:600;">'+f(lineIncl)+'</td>'
+      +'</tr>';
   }).join('');
-  const shipRow=storedShipping>0?`<tr style="border-bottom:1px solid #e2d4bc;">
-    <td style="padding:6px 8px;">${validItems.length+1}</td>
-    <td style="padding:6px 8px;"><strong>Shipping Charges</strong>${data.tracking?`<br/><span style="font-size:10px;color:#888;">${data.tracking}</span>`:''}</td>
-    <td style="padding:6px 8px;">9965</td><td style="padding:6px 8px;text-align:center;">1</td>
-    <td style="padding:6px 8px;text-align:right;">${f(storedShipping)}</td>
-    <td style="padding:6px 8px;text-align:right;">${f(parseFloat((storedShipping/1.05).toFixed(2)))}</td>
-    <td style="padding:6px 8px;text-align:right;font-weight:600;">${f(storedShipping)}</td></tr>`:'';
-  const discRow=storedDiscount>0?`<tr><td colspan="6" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: Discount</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−${f(storedDiscount)}</td></tr>`:'';
-  const gstRows=data.isIntra?`
-    <tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(displayTaxable)}</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">${f(displayGST/2)}</td></tr>
-    <tr><td style="padding:3px 8px;">SGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(displayTaxable)}</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">${f(displayGST/2)}</td></tr>`
-    :`<tr><td style="padding:3px 8px;">IGST</td><td style="padding:3px 8px;">${hsnLabel}</td><td style="padding:3px 8px;">${f(displayTaxable)}</td><td style="padding:3px 8px;">5%</td><td style="padding:3px 8px;">${f(displayGST)}</td></tr>`;
+  const shipRow=storedShipping>0
+    ?'<tr style="border-bottom:1px solid #e2d4bc;">'
+      +'<td style="padding:6px 8px;">'+(validItems.length+1)+'</td>'
+      +'<td style="padding:6px 8px;"><strong>Shipping Charges</strong>'+(data.tracking?'<br/><span style="font-size:10px;color:#888;">'+data.tracking+'</span>':'')+'</td>'
+      +(gstMode?'<td style="padding:6px 8px;">9965</td>':'')
+      +'<td style="padding:6px 8px;text-align:center;">1</td>'
+      +'<td style="padding:6px 8px;text-align:right;">'+f(storedShipping)+'</td>'
+      +(gstMode?'<td style="padding:6px 8px;text-align:right;">'+f(parseFloat((storedShipping/1.05).toFixed(2)))+'</td>':'')
+      +'<td style="padding:6px 8px;text-align:right;font-weight:600;">'+f(storedShipping)+'</td>'
+      +'</tr>'
+    :'';
+  const discColspan=gstMode?6:3;
+  const discRow=storedDiscount>0?'<tr><td colspan="'+discColspan+'" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: Discount</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−'+f(storedDiscount)+'</td></tr>':'';
+  const gstRows=data.isIntra
+    ?'<tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">'+hsnLabel+'</td><td style="padding:3px 8px;">'+f(displayTaxable)+'</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">'+f(displayGST/2)+'</td></tr>'
+     +'<tr><td style="padding:3px 8px;">SGST</td><td style="padding:3px 8px;">'+hsnLabel+'</td><td style="padding:3px 8px;">'+f(displayTaxable)+'</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">'+f(displayGST/2)+'</td></tr>'
+    :'<tr><td style="padding:3px 8px;">IGST</td><td style="padding:3px 8px;">'+hsnLabel+'</td><td style="padding:3px 8px;">'+f(displayTaxable)+'</td><td style="padding:3px 8px;">5%</td><td style="padding:3px 8px;">'+f(displayGST)+'</td></tr>';
   // Build dispatch section before template literal to avoid nested backtick conflicts
   const dispatchMethod2=data.dispatchMethod!=null?data.dispatchMethod:(data.tracking?'indiapost':'');
   const courierLabel={indiapost:'India Post Parcel',courier:data.courierName||'Courier',hand:'Hand Delivery',walkin:'Walk-in / Collected in person','':''}[dispatchMethod2]||dispatchMethod2;
@@ -1494,18 +1573,18 @@ function buildInvoiceHTML(data){
       <div>
         ${data.logoB64?'<img src="'+data.logoB64+'" style="height:44px;object-fit:contain;display:block;margin-bottom:5px;"/>' :''}
         <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#5c3d1e;">Vismaad Creations</div>
-        <div style="font-size:11px;color:#555;margin-top:4px;"><strong>GSTIN:</strong> ${data.gstin||S.gstin||'—'} &nbsp;|&nbsp; <strong>State Code:</strong> 03 (Punjab)</div>
+        ${gstMode?'<div style="font-size:11px;color:#555;margin-top:4px;"><strong>GSTIN:</strong> '+(data.gstin||S.gstin||'—')+' &nbsp;|&nbsp; <strong>State Code:</strong> 03 (Punjab)</div>':''}
         <div style="font-size:11px;color:#555;">${data.bizAddress||S.address||''}</div>
         <div style="font-size:11px;color:#555;">${data.bizPhone||S.phone||''}${(data.bizEmail||S.email)?' | '+(data.bizEmail||S.email):''}</div>
       </div>
       <div style="text-align:right;">
-        <div style="font-size:16px;font-weight:700;color:#5c3d1e;text-transform:uppercase;letter-spacing:1.5px;">Tax Invoice</div>
-        <div style="font-size:12px;color:#555;margin-top:3px;"><strong>No:</strong> ${data.invNo}</div>
+        <div style="font-size:16px;font-weight:700;color:#5c3d1e;text-transform:uppercase;letter-spacing:1.5px;">${gstMode?'Tax Invoice':'Bill of Supply'}</div>
+        <div style="font-size:12px;color:#555;margin-top:3px;"><strong>${gstMode?'Invoice No.':'Bill No.'}:</strong> ${data.invNo}</div>
         <div style="font-size:12px;color:#555;"><strong>Date:</strong> ${fd(data.invDate)}</div>
         <div style="font-size:12px;color:#555;"><strong>FY:</strong> ${data.fy||''}</div>
-        <div style="font-size:11px;color:#555;margin-top:4px;"><strong>Place of Supply:</strong> ${data.custState||'—'} (${getStateCode(data.custState)||'—'})</div>
-        <div style="font-size:11px;color:#555;"><strong>Reverse Charge:</strong> No</div>
-        <div style="margin-top:5px;display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:${data.isIntra?'#dff0d8':'#e8f4fd'};color:${data.isIntra?'#27ae60':'#2980b9'};">${data.isIntra?'Intra-State (Punjab)':'Inter-State'}</div>
+        ${gstMode?'<div style="font-size:11px;color:#555;margin-top:4px;"><strong>Place of Supply:</strong> '+(data.custState||'—')+' ('+getStateCode(data.custState||'')+')</div>':''}
+        ${gstMode?'<div style="font-size:11px;color:#555;"><strong>Reverse Charge:</strong> No</div>':''}
+        ${gstMode?'<div style="margin-top:5px;display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:'+(data.isIntra?'#dff0d8':'#e8f4fd')+';color:'+(data.isIntra?'#27ae60':'#2980b9')+';">'+(data.isIntra?'Intra-State (Punjab)':'Inter-State')+'</div>':''}
       </div>
     </div>
     <hr style="border:none;border-top:2px solid #5c3d1e;margin:12px 0;"/>
@@ -1513,8 +1592,8 @@ function buildInvoiceHTML(data){
       <div>
         <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Billed To</div>
         <div style="font-size:13px;font-weight:700;">${data.custName}</div>
-        <div style="font-size:11px;color:#555;line-height:1.6;">${data.custPhone?'📞 '+data.custPhone+'<br/>':''}${data.custWhatsapp&&data.custWhatsapp!==data.custPhone?'💬 '+data.custWhatsapp+'<br/>':''}${data.custAddress?data.custAddress.replace(/\n/g,'<br/>')+'<br/>':''}${data.custState?'<strong>'+data.custState+'</strong> ('+getStateCode(data.custState)+')':''}</div>
-        ${data.custGstin?'<div style="font-size:11px;color:#555;margin-top:3px;"><strong>Buyer GSTIN:</strong> '+data.custGstin+'</div>':''}
+        <div style="font-size:11px;color:#555;line-height:1.6;">${data.custPhone?'📞 '+data.custPhone+'<br/>':''}${data.custWhatsapp&&data.custWhatsapp!==data.custPhone?'💬 '+data.custWhatsapp+'<br/>':''}${data.custAddress?data.custAddress.replace(/\n/g,'<br/>')+'<br/>':''}${data.custState?'<strong>'+data.custState+'</strong>'+(gstMode?' ('+getStateCode(data.custState)+')':''):''}</div>
+        ${gstMode&&data.custGstin?'<div style="font-size:11px;color:#555;margin-top:3px;"><strong>Buyer GSTIN:</strong> '+data.custGstin+'</div>':''}
       </div>
       <div>${dispatchHtml}</div>
     </div>
@@ -1523,35 +1602,35 @@ function buildInvoiceHTML(data){
       <thead><tr style="background:#5c3d1e;color:#fff;">
         <th style="padding:7px 8px;font-size:10px;text-align:left;">#</th>
         <th style="padding:7px 8px;font-size:10px;text-align:left;">Description</th>
-        <th style="padding:7px 8px;font-size:10px;text-align:left;">HSN</th>
+        ${gstMode?'<th style="padding:7px 8px;font-size:10px;text-align:left;">HSN</th>':''}
         <th style="padding:7px 8px;font-size:10px;text-align:center;">Qty</th>
         <th style="padding:7px 8px;font-size:10px;text-align:right;">Unit (₹)</th>
-        <th style="padding:7px 8px;font-size:10px;text-align:right;">Taxable</th>
+        ${gstMode?'<th style="padding:7px 8px;font-size:10px;text-align:right;">Taxable</th>':''}
         <th style="padding:7px 8px;font-size:10px;text-align:right;">Amount</th>
       </tr></thead>
       <tbody>${itemRows}${shipRow}${discRow}</tbody>
       <tfoot><tr style="background:#f5e6c8;">
-        <td colspan="5" style="padding:7px 8px;text-align:right;font-weight:700;">Grand Total</td>
-        <td style="padding:7px 8px;text-align:right;color:#888;">${f(displayTaxable)}</td>
+        <td colspan="${gstMode?5:3}" style="padding:7px 8px;text-align:right;font-weight:700;">${gstMode?'Grand Total':'Total Amount'}</td>
+        ${gstMode?'<td style="padding:7px 8px;text-align:right;color:#888;">'+f(displayTaxable)+'</td>':''}
         <td style="padding:7px 8px;text-align:right;font-weight:700;font-size:13px;color:#5c3d1e;">${f(displayGrand)}</td>
       </tr></tfoot>
     </table>
     <div style="background:#f5e6c8;border-radius:5px;padding:7px 10px;font-size:11px;color:#5c3d1e;font-weight:600;margin-bottom:12px;">
       Amount in Words: <strong>${numberToWords(Math.round(displayGrand))} Rupees Only</strong>
     </div>
-    <div style="background:#f9f5ee;border:1px solid #e2d4bc;border-radius:5px;padding:9px 12px;margin-bottom:12px;">
+    ${gstMode?`<div style="background:#f9f5ee;border:1px solid #e2d4bc;border-radius:5px;padding:9px 12px;margin-bottom:12px;">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:6px;">GST Summary</div>
       <table style="width:100%;font-size:11px;border-collapse:collapse;">
         <tr><th style="text-align:left;padding:2px 8px;color:#888;font-size:9px;">Tax</th><th style="text-align:left;padding:2px 8px;color:#888;font-size:9px;">HSN/SAC</th><th style="text-align:left;padding:2px 8px;color:#888;font-size:9px;">Taxable</th><th style="text-align:left;padding:2px 8px;color:#888;font-size:9px;">Rate</th><th style="text-align:left;padding:2px 8px;color:#888;font-size:9px;">Tax Amt</th></tr>
         ${gstRows}
       </table>
-    </div>
+    </div>`:''}
     <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:14px;">
-      <div style="font-size:10px;color:#888;font-style:italic;">Computer-generated invoice.</div>
+      <div style="font-size:10px;color:#888;font-style:italic;">Computer-generated document.</div>
       <div style="text-align:right;"><div style="font-size:10px;color:#888;margin-bottom:24px;">For Vismaad Creations</div><div style="font-size:10px;color:#888;border-top:1px solid #ccc;padding-top:3px;">Authorised Signatory</div></div>
     </div>
     <div style="text-align:center;margin-top:14px;font-size:10px;color:#aaa;padding-top:12px;border-top:1px solid #e2d4bc;">
-      Thank you for shopping with Vismaad Creations! 🙏<br/>GSTIN: ${data.gstin||S.gstin||'—'} | Punjab | Subject to Punjab jurisdiction
+      Thank you for shopping with Vismaad Creations! 🙏
     </div>
   </div>`;
 }
@@ -1748,10 +1827,9 @@ let sharingInv=null;
 function openShareModal(inv){
   if(!inv)return;
   sharingInv=inv;
-  // Subtitle
+  const gst=inv.isGST===true||inv.isGST==='true';
   document.getElementById('share-modal-subtitle').textContent=
-    (inv.invNo||'—')+'  ·  '+(inv.custName||'—')+'  ·  '+fmtDate(inv.invDate);
-  // Phone row — show if neither phone stored
+    (gst?'Tax Invoice — ':'Bill of Supply — ')+(inv.invNo||'—')+'  ·  '+(inv.custName||'—')+'  ·  '+fmtDate(inv.invDate);
   const phoneRow=document.getElementById('share-phone-row');
   const phoneInput=document.getElementById('share-phone-input');
   if(!inv.custWhatsapp&&!inv.custPhone){
@@ -1760,7 +1838,6 @@ function openShareModal(inv){
   }else{
     phoneRow.style.display='none';
   }
-  // Tracking button — show only if tracking exists
   const trackBtn=document.getElementById('share-tracking-btn');
   const trackNo=document.getElementById('share-tracking-no');
   if(inv.tracking){
@@ -1768,6 +1845,16 @@ function openShareModal(inv){
     if(trackNo)trackNo.textContent=inv.tracking;
   }else{
     trackBtn.style.display='none';
+  }
+  // Update share invoice button label
+  const shareInvBtn=document.getElementById('share-inv-wa-btn');
+  if(shareInvBtn){
+    shareInvBtn.querySelector('.share-inv-title').textContent=gst?'Send Invoice on WhatsApp':'Send Bill of Supply on WhatsApp';
+    shareInvBtn.querySelector('.share-inv-sub').textContent=gst?'Invoice summary as text message':'Bill summary as text message';
+  }
+  const sharePdfBtn=document.getElementById('share-pdf-btn');
+  if(sharePdfBtn){
+    sharePdfBtn.querySelector('.share-pdf-title').textContent=gst?'Print / Save Invoice as PDF':'Print / Save Bill as PDF';
   }
   document.getElementById('share-modal').classList.add('open');
 }
@@ -1790,16 +1877,17 @@ function getSharePhone(){
 function shareInvoiceWhatsApp(){
   const ph=getSharePhone();if(!ph)return;
   const inv=sharingInv;
+  const gst=inv.isGST===true||inv.isGST==='true';
   const items=expandItems(inv.itemsArr).filter(i=>i.unitPrice>0&&i.desc&&i.desc.trim());
   const itemList=items.map(i=>i.desc.trim()+(i.qty>1?' (x'+i.qty+')':'')).join(', ');
   const msg=
-    'Dear '+inv.custName+',\n\n'+
-    'Thank you for shopping with Vismaad Creations! 🙏\n\n'+
-    'Invoice No: '+(inv.invNo||'—')+'\n'+
-    'Date: '+fmtDate(inv.invDate)+'\n'+
-    'Items: '+itemList+'\n'+
-    'Amount: ₹'+parseFloat(inv.grandTotal||0).toLocaleString('en-IN')+'\n\n'+
-    '— Vismaad Creations';
+    'Dear '+inv.custName+',\n\n'
+    +'Thank you for shopping with Vismaad Creations! 🙏\n\n'
+    +(gst?'Invoice No: ':'Bill No: ')+(inv.invNo||'—')+'\n'
+    +'Date: '+fmtDate(inv.invDate)+'\n'
+    +'Items: '+itemList+'\n'
+    +'Amount: ₹'+parseFloat(inv.grandTotal||0).toLocaleString('en-IN')+'\n\n'
+    +'— Vismaad Creations';
   const url='https://wa.me/'+ph+'?text='+encodeURIComponent(msg);
   window.open(url,'_blank');
   closeShareModal();
@@ -1912,7 +2000,7 @@ function renderDashboard(){
   const stk=inventory.reduce((s,p)=>s+(parseInt(p.qty)||0),0);
   const dstk=document.getElementById('ds-stock');if(dstk)dstk.textContent=stk;
   const dprod=document.getElementById('ds-products');if(dprod)dprod.textContent=inventory.length;
-  const recent=[...invoices].sort((a,b)=>(b.invDate||'')<(a.invDate||'')?-1:1).slice(0,5);
+  const recent=[...invoices].sort((a,b)=>(b.invDate||'')>(a.invDate||'')?-1:1).slice(0,5);
   const dord=document.getElementById('dash-orders');
   if(dord)dord.innerHTML=recent.length?recent.map(inv=>`<div class="list-row">
     <div><div class="list-main">${inv.custName}</div><div class="list-sub">${inv.invNo||'—'} · ${fmtDate(inv.invDate)}</div></div>
@@ -2566,7 +2654,7 @@ function buildExportPage(){
 
     <div style="font-size:12px;font-weight:600;color:var(--brown);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Other Exports</div>
     <div style="display:flex;flex-direction:column;gap:8px;">
-      <button class="btn btn-g" onclick="doExport('gst','thisfy')">🧾 GST Summary — ${fyLabel}</button>
+      <button class="btn btn-g gst-only" onclick="doExport('gst','thisfy')">🧾 GST Summary — ${fyLabel}</button>
       <button class="btn btn-o" onclick="doExport('inventory','all')">📦 Inventory Register</button>
     </div>
   </div>`;
@@ -3067,7 +3155,7 @@ function showBulkPreview(rows,skipped=[]){
   el.innerHTML=html;
 }
 async function bulkSaveOnly(){
-  if(!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
+  if(isGSTEnabled()&&!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
   const rows=window._bulkRows;
   if(!rows||!rows.length){toast('⚠️ No rows to import');return;}
 
@@ -3113,7 +3201,7 @@ async function bulkSaveOnly(){
         grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,itemCount:validItems.length,
         itemsSummary:validItems.map(i=>i.desc).join(', '),itemsArr:validItems,
         shipping:r.shipping,shippingCost:r.shippingCost||0,discount:r.discount,
-        tracking:r.tracking,channel:r.channel||'',isShipped:false,status:'Pending',costPrice:ct||0,
+        tracking:r.tracking,channel:r.channel||'',isShipped:false,status:'Pending',isGST:isGSTEnabled(),costPrice:ct||0,
         gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,dispatchDate:'',
       };
       invoices.push(saved);
@@ -3171,7 +3259,7 @@ async function bulkSaveOnly(){
   }
 }
 function bulkSaveAndPrint(){
-  if(!S.gstin){toast('⚠️ Enter GSTIN in Settings first');return;}
+  if(isGSTEnabled()&&!S.gstin){toast('⚠️ Enter GSTIN in Settings first');return;}
   if(!window._bulkRows?.length){toast('⚠️ No rows to import');return;}
   const before=invoices.length;
   bulkSaveOnly();
