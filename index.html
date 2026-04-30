@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.3 · 29-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.4 · 30-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -1993,6 +1993,28 @@ function clearAllInvoices(){
 // ═══════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════
+function openInvoiceFromDash(id){
+  // Navigate to Sales tab and find the invoice
+  showPage('sales',document.getElementById('bnav-sales'));
+  // Wait for sales to render then find and open the invoice
+  setTimeout(()=>{
+    const idx=salesFiltered.findIndex(i=>String(i.id)===String(id));
+    if(idx>=0){
+      editInvoiceByIdx(idx);
+    }else{
+      // Not in current filter — reset filter and try again
+      const searchEl=document.getElementById('sales-search');
+      const filterEl=document.getElementById('sales-filter');
+      if(searchEl)searchEl.value='';
+      if(filterEl)filterEl.value='';
+      renderSales();
+      setTimeout(()=>{
+        const idx2=salesFiltered.findIndex(i=>String(i.id)===String(id));
+        if(idx2>=0)editInvoiceByIdx(idx2);
+      },100);
+    }
+  },150);
+}
 function renderDashboard(){
   const ords=document.getElementById('ds-orders');if(ords)ords.textContent=invoices.length;
   const rev=invoices.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0);
@@ -2000,13 +2022,20 @@ function renderDashboard(){
   const stk=inventory.reduce((s,p)=>s+(parseInt(p.qty)||0),0);
   const dstk=document.getElementById('ds-stock');if(dstk)dstk.textContent=stk;
   const dprod=document.getElementById('ds-products');if(dprod)dprod.textContent=inventory.length;
-  const recent=[...invoices].sort((a,b)=>(b.invDate||'')>(a.invDate||'')?-1:1).slice(0,5);
+  const recent=[...invoices].sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1).slice(0,5);
   const dord=document.getElementById('dash-orders');
-  if(dord)dord.innerHTML=recent.length?recent.map(inv=>`<div class="list-row">
-    <div><div class="list-main">${inv.custName}</div><div class="list-sub">${inv.invNo||'—'} · ${fmtDate(inv.invDate)}</div></div>
-    <div class="list-right"><div class="list-amt">₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}</div>
-    <span class="badge ${inv.isShipped||inv.status==='Shipped'?'b-green':'b-yellow'}">${inv.isShipped||inv.status==='Shipped'?'Shipped':'Pending'}</span></div>
-    </div>`).join(''):'<div style="color:#aaa;font-size:13px;text-align:center;padding:16px;">No invoices yet</div>';
+  if(dord)dord.innerHTML=recent.length?recent.map(inv=>{
+    const shipped=inv.isShipped||inv.status==='Shipped';
+    // Find index in salesFiltered-compatible way using id
+    return`<div class="list-row" style="cursor:pointer;" onclick="openInvoiceFromDash('${inv.id}')">
+      <div><div class="list-main">${inv.custName}</div>
+      <div class="list-sub">${inv.invNo||'—'} · ${fmtDate(inv.invDate)}</div></div>
+      <div class="list-right">
+        <div class="list-amt">₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}</div>
+        <span class="badge ${shipped?'b-green':'b-yellow'}">${shipped?'Shipped':'Pending'}</span>
+      </div>
+    </div>`;
+  }).join(''):'<div style="color:#aaa;font-size:13px;text-align:center;padding:16px;">No orders yet</div>';
   const agingAll=inventory.filter(p=>(parseInt(p.qty)||0)>0).sort((a,b)=>getAgeDays(b.dateAdded)-getAgeDays(a.dateAdded));
   const dag=document.getElementById('dash-aging');
   if(dag)dag.innerHTML=agingAll.length?agingAll.slice(0,8).map(p=>{
