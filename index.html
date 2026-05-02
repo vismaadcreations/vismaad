@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.4 · 30-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.5 · 30-Apr-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -285,6 +285,34 @@ body.gst-mode .gst-only{display:block;}
   </div>
 </div>
 
+<!-- ════ PASTE DETAILS MODAL ════ -->
+<div class="modal-bg" id="paste-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closePasteModal()">✕</button>
+    <div class="modal-title">📋 Paste Customer Details</div>
+    <div style="font-size:13px;color:#888;margin-bottom:12px;">Paste the full message from WhatsApp — name, phone, address, PIN code. We'll detect what we can.</div>
+
+    <!-- Paste input -->
+    <div id="paste-input-section">
+      <div class="fg">
+        <label>Paste message here</label>
+        <textarea id="paste-raw" rows="6" placeholder="e.g.&#10;Name: Priya Sharma&#10;9876543210&#10;H.No 123, Sector 4&#10;Mohali, Punjab 140301"></textarea>
+      </div>
+      <button class="btn btn-p" style="min-height:48px;" onclick="parsePastedDetails()">🔍 Detect Details</button>
+    </div>
+
+    <!-- Results section — shown after parsing -->
+    <div id="paste-results-section" style="display:none;">
+      <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:10px;">Detected — review before filling:</div>
+      <div id="paste-results-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;"></div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-p" style="flex:1;min-height:48px;" onclick="applyParsedDetails()">✅ Fill Form</button>
+        <button class="btn btn-o" style="flex:1;min-height:48px;" onclick="resetPasteModal()">↩ Try Again</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- SCROLL AREA -->
 <div class="scroll-area" id="scroll-area">
 <div class="ptr" id="ptr-indicator">↓ Syncing…</div>
@@ -337,7 +365,9 @@ body.gst-mode .gst-only{display:block;}
 
   <!-- Customer -->
   <div class="card">
-    <div class="card-title">👤 Customer</div>
+    <div class="card-title">👤 Customer
+      <button class="btn btn-o btn-sm" style="float:right;margin-top:-4px;" onclick="openPasteModal()">📋 Paste Details</button>
+    </div>
     <div class="fg"><label>Name *</label><input id="c-name" placeholder="Customer full name"/></div>
     <div class="row2">
       <div class="fg"><label>Shipping Phone</label><input id="c-phone" type="tel" placeholder="For shipping label"/></div>
@@ -1923,6 +1953,203 @@ function shareTrackingWhatsApp(){
   const url='https://wa.me/'+ph+'?text='+encodeURIComponent(msg);
   window.open(url,'_blank');
   closeShareModal();
+}
+
+// ═══════════════════════════════════════════
+// PASTE CUSTOMER DETAILS PARSER
+// ═══════════════════════════════════════════
+
+// PIN code → state mapping (first 2-3 digits)
+const PIN_STATE={
+  '11':'Delhi','12':'Haryana','13':'Haryana',
+  '14':'Punjab','15':'Punjab','16':'Punjab',
+  '17':'Himachal Pradesh',
+  '18':'Jammu & Kashmir','19':'Jammu & Kashmir',
+  '20':'Uttar Pradesh','21':'Uttar Pradesh','22':'Uttar Pradesh',
+  '23':'Uttar Pradesh','24':'Uttar Pradesh','25':'Uttar Pradesh',
+  '26':'Uttar Pradesh','27':'Uttar Pradesh','28':'Uttar Pradesh',
+  '30':'Rajasthan','31':'Rajasthan','32':'Rajasthan',
+  '33':'Rajasthan','34':'Rajasthan',
+  '36':'Gujarat','37':'Gujarat','38':'Gujarat','39':'Gujarat',
+  '40':'Maharashtra','41':'Maharashtra','42':'Maharashtra',
+  '43':'Maharashtra','44':'Maharashtra',
+  '45':'Madhya Pradesh','46':'Madhya Pradesh','47':'Madhya Pradesh','48':'Madhya Pradesh',
+  '49':'Chhattisgarh',
+  '50':'Telangana','51':'Telangana','52':'Andhra Pradesh','53':'Andhra Pradesh',
+  '56':'Karnataka','57':'Karnataka','58':'Karnataka','59':'Karnataka',
+  '60':'Tamil Nadu','61':'Tamil Nadu','62':'Tamil Nadu','63':'Tamil Nadu','64':'Tamil Nadu',
+  '67':'Kerala','68':'Kerala','69':'Kerala',
+  '70':'West Bengal','71':'West Bengal','72':'West Bengal',
+  '73':'West Bengal','74':'West Bengal',
+  '75':'Odisha','76':'Odisha','77':'Odisha',
+  '78':'Assam',
+  '79':'Assam',
+  '80':'Bihar','81':'Bihar','82':'Bihar','83':'Bihar','84':'Bihar','85':'Bihar',
+  '82':'Jharkhand','83':'Jharkhand','84':'Jharkhand',
+  '40':'Goa',
+  '403':'Goa',
+};
+
+// Address keywords to skip when detecting name
+const ADDR_KEYWORDS=['h.no','h/no','house','flat','plot','door','street','road','lane','sector','block',
+  'village','vill','gram','near','opp','opposite','behind','beside','ward','mohalla','nagar',
+  'colony','society','apartment','building','floor','phase','district','dist','tehsil',
+  'taluka','post','p.o','city','town','pin','pincode','state','area','locality','shop',
+  'market','bazaar','chowk','chowkdi','po box'];
+
+// Label prefixes to strip
+const STRIP_LABELS=/^(name|customer name?|customer|to|attn|dear|phone|ph|mob|mobile|contact|whatsapp|wp|wa|address|addr|add|पता|नाम|मोबाइल|number|no\.?)\s*[:–\-]\s*/i;
+
+let _parsedDetails=null;
+
+function openPasteModal(){
+  document.getElementById('paste-modal').classList.add('open');
+  document.getElementById('paste-input-section').style.display='block';
+  document.getElementById('paste-results-section').style.display='none';
+  document.getElementById('paste-raw').value='';
+  _parsedDetails=null;
+}
+function closePasteModal(){
+  document.getElementById('paste-modal').classList.remove('open');
+  _parsedDetails=null;
+}
+function resetPasteModal(){
+  document.getElementById('paste-input-section').style.display='block';
+  document.getElementById('paste-results-section').style.display='none';
+  document.getElementById('paste-raw').value='';
+  _parsedDetails=null;
+}
+
+function getStateFromPin(pin){
+  if(!pin||pin.length<6)return null;
+  // Try 3-digit prefix first (e.g. 403 = Goa)
+  const p3=pin.slice(0,3);
+  if(PIN_STATE[p3])return PIN_STATE[p3];
+  const p2=pin.slice(0,2);
+  return PIN_STATE[p2]||null;
+}
+
+function parsePastedDetails(){
+  const raw=document.getElementById('paste-raw')?.value||'';
+  if(!raw.trim()){toast('⚠️ Paste a message first');return;}
+
+  const lines=raw.split(/\n/).map(l=>l.trim()).filter(l=>l);
+  const result={name:null,phone:null,whatsapp:null,state:null,pinState:null,pin:null,address:raw.trim()};
+
+  // ── PHONES ──
+  // International: +[country code][number] e.g. +44 7911 123456
+  const intlPhones=[];
+  const intlRe=/\+(?!91\b)\d[\d\s\-]{6,14}/g;
+  let m;
+  const rawNoLabels=raw.replace(STRIP_LABELS,'');
+  while((m=intlRe.exec(raw))!==null){
+    const cleaned=m[0].replace(/[\s\-]/g,'');
+    if(cleaned.length>=8&&cleaned.length<=16)intlPhones.push(cleaned);
+  }
+  // Indian: 10 digits, optional +91 or 91 prefix
+  const indianPhones=[];
+  const indRe=/(?<!\d)(?:\+91|91)?([6-9]\d{9})(?!\d)/g;
+  while((m=indRe.exec(raw))!==null){
+    if(!indianPhones.includes(m[1]))indianPhones.push(m[1]);
+  }
+  // Assign: international always → WhatsApp
+  // Indian: first → Shipping, second → WhatsApp (unless intl already took WhatsApp)
+  if(indianPhones.length>0)result.phone=indianPhones[0];
+  if(intlPhones.length>0){
+    result.whatsapp=intlPhones[0];
+  }else if(indianPhones.length>1){
+    result.whatsapp=indianPhones[1];
+  }
+
+  // ── PIN CODE & STATE ──
+  const pinRe=/\b(\d{6})\b/g;
+  while((m=pinRe.exec(raw))!==null){
+    const st=getStateFromPin(m[1]);
+    if(st){result.pin=m[1];result.pinState=st;break;}
+  }
+  if(result.pinState){
+    result.state=result.pinState;
+  }else{
+    // Fallback: scan for state names
+    const stateNames=Object.keys(STATE_CODES);
+    for(const sn of stateNames){
+      if(raw.toLowerCase().includes(sn.toLowerCase())){result.state=sn;break;}
+    }
+  }
+
+  // ── NAME ──
+  for(const line of lines){
+    const stripped=line.replace(STRIP_LABELS,'').trim();
+    if(!stripped)continue;
+    // Skip if line is/contains a phone number
+    if(/(?:\+?\d[\d\s\-]{8,})/.test(stripped))continue;
+    // Skip if line is a PIN code
+    if(/^\d{6}$/.test(stripped))continue;
+    // Skip if line starts with an address keyword
+    const lower=stripped.toLowerCase();
+    const isAddr=ADDR_KEYWORDS.some(k=>lower.startsWith(k));
+    if(isAddr)continue;
+    // Skip if line looks like an address (contains comma + digits or known place patterns)
+    if(/\d{3,}/.test(stripped)&&stripped.includes(','))continue;
+    // Skip very short single words that look like labels
+    if(stripped.split(/\s+/).length===1&&stripped.length<3)continue;
+    // This is likely the name
+    result.name=stripped.replace(/^(mr\.?|mrs\.?|ms\.?|dr\.?|prof\.?)\s+/i,'').trim();
+    break;
+  }
+
+  _parsedDetails=result;
+
+  // ── SHOW RESULTS ──
+  const list=document.getElementById('paste-results-list');
+  list.innerHTML='';
+  const row=(icon,label,value,found)=>{
+    const div=document.createElement('div');
+    div.style.cssText='display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:8px;background:'+(found?'#dff0d8':'#fff8ee')+';';
+    div.innerHTML='<span style="font-size:16px;">'+(found?'✅':'⚠️')+'</span>'
+      +'<div><div style="font-size:12px;color:#888;font-weight:600;">'+label+'</div>'
+      +'<div style="font-size:14px;font-weight:600;color:#1a1208;">'+(value||'<span style="color:#aaa;font-weight:400;">Not detected — fill manually</span>')+'</div></div>';
+    list.appendChild(div);
+  };
+  row('👤','Name',result.name,!!result.name);
+  row('📞','Shipping Phone',result.phone,!!result.phone);
+  row('💬','WhatsApp',result.whatsapp,!!result.whatsapp);
+  row('📍','State',result.state?(result.state+(result.pinState?' (from PIN '+result.pin+')':' (from text)')):null,!!result.state);
+  // Address always shown
+  const addrDiv=document.createElement('div');
+  addrDiv.style.cssText='padding:8px 10px;border-radius:8px;background:#f5f5f5;';
+  addrDiv.innerHTML='<div style="font-size:12px;color:#888;font-weight:600;">📋 Address (full text)</div>'
+    +'<div style="font-size:13px;color:#555;margin-top:3px;white-space:pre-wrap;">'+result.address+'</div>';
+  list.appendChild(addrDiv);
+
+  document.getElementById('paste-input-section').style.display='none';
+  document.getElementById('paste-results-section').style.display='block';
+}
+
+function applyParsedDetails(){
+  if(!_parsedDetails)return;
+  const d=_parsedDetails;
+  // Fill only if field is currently empty (don't overwrite existing data)
+  const nameEl=document.getElementById('c-name');
+  if(nameEl&&!nameEl.value&&d.name)nameEl.value=d.name;
+  const phoneEl=document.getElementById('c-phone');
+  if(phoneEl&&!phoneEl.value&&d.phone)phoneEl.value=d.phone;
+  const waEl=document.getElementById('c-whatsapp');
+  if(waEl&&!waEl.value&&d.whatsapp)waEl.value=d.whatsapp;
+  const addrEl=document.getElementById('c-address');
+  if(addrEl&&!addrEl.value&&d.address)addrEl.value=d.address;
+  // Always set state if detected (key field)
+  if(d.state){
+    const stEl=document.getElementById('c-state');
+    if(stEl){
+      // Find matching option
+      const opts=Array.from(stEl.options);
+      const match=opts.find(o=>o.value===d.state||o.text===d.state||o.text.startsWith(d.state));
+      if(match){stEl.value=match.value||match.text;updateTaxType();}
+    }
+  }
+  closePasteModal();
+  toast('✅ Details filled — please review and correct if needed');
 }
 function recalcEditTotal(){
   const sc=parseFloat(document.getElementById('edit-ship-charged')?.value)||0;
