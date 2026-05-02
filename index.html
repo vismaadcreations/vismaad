@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.5 · 30-Apr-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.6b · 02-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -579,6 +579,12 @@ body.gst-mode .gst-only{display:block;}
   </div>
 
   <div id="sales-list"></div>
+
+  <!-- Credit Notes section -->
+  <div id="cn-section" style="margin-top:16px;display:none;">
+    <div style="font-size:14px;font-weight:700;color:#c0392b;margin-bottom:8px;">📝 Credit Notes</div>
+    <div id="cn-list"></div>
+  </div>
 </div>
 
 <!-- ════ MORE PAGE ════ -->
@@ -645,14 +651,42 @@ body.gst-mode .gst-only{display:block;}
 <div class="modal-bg" id="edit-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeEditModal()">✕</button>
-    <div class="modal-title">✏️ Edit Invoice</div>
+    <div class="modal-title">✏️ Edit Details</div>
     <div style="font-size:13px;color:#888;margin-bottom:14px;" id="edit-modal-subtitle"></div>
+    <div style="background:#fff8ee;border-radius:8px;padding:8px 12px;font-size:12px;color:#888;margin-bottom:14px;line-height:1.6;">
+      ℹ️ You can edit customer details, shipping, costs and notes. To correct items or prices, issue a <strong>Credit Note</strong> against this document.
+    </div>
 
-    <div class="fg"><label>Total paid to supplier for suits (₹ incl. 5% GST)</label>
-      <input type="number" id="edit-cost" placeholder="Total cost you paid for all suits in this order"/></div>
+    <div class="fg"><label>Customer Name</label>
+      <input id="edit-name" placeholder="Customer full name"/></div>
 
-    <div class="fg"><label>Actual Shipping Cost — India Post (₹)</label>
-      <input type="number" id="edit-ship-cost" placeholder="What India Post charged you"/></div>
+    <div class="row2">
+      <div class="fg"><label>Customer Phone (Shipping)</label>
+        <input id="edit-phone" placeholder="Mobile number"/></div>
+      <div class="fg"><label>Customer WhatsApp</label>
+        <input id="edit-whatsapp" placeholder="WhatsApp number"/></div>
+    </div>
+
+    <div class="fg"><label>Customer State</label>
+      <select id="edit-state">
+        <option value="">Select state</option>
+        <option value="Punjab">Punjab</option>
+        <option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option>
+        <option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option>
+        <option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option>
+        <option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option>
+        <option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option>
+        <option>Mizoram</option><option>Nagaland</option><option>Odisha</option>
+        <option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option>
+        <option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option>
+        <option>Uttarakhand</option><option>West Bengal</option><option>Delhi</option>
+        <option>Jammu & Kashmir</option><option>Ladakh</option><option>Chandigarh</option>
+        <option>Puducherry</option><option>Andaman & Nicobar Islands</option>
+        <option>Dadra & Nagar Haveli and Daman & Diu</option><option>Lakshadweep</option>
+      </select></div>
+
+    <div class="fg"><label>Customer Address</label>
+      <textarea id="edit-address" rows="2" placeholder="Full address"></textarea></div>
 
     <div class="fg"><label>Shipping Charged to Customer (₹)</label>
       <input type="number" id="edit-ship-charged" oninput="recalcEditTotal()"/></div>
@@ -660,7 +694,25 @@ body.gst-mode .gst-only{display:block;}
     <div class="fg"><label>Discount Given (₹)</label>
       <input type="number" id="edit-discount" oninput="recalcEditTotal()"/></div>
 
-    <div class="fg"><label>Sale Channel <span style="font-weight:400;color:#aaa;">(optional)</span></label>
+    <div class="fg"><label>Actual Shipping Cost Paid — India Post (₹)</label>
+      <input type="number" id="edit-ship-cost" placeholder="What India Post charged you"/></div>
+
+    <div class="fg"><label>Total Paid to Supplier for Suits (₹ incl. 5% GST)</label>
+      <input type="number" id="edit-cost" placeholder="Your purchase cost"/></div>
+
+    <div class="fg"><label>Dispatch Method</label>
+      <select id="edit-dispatch">
+        <option value="">— Not specified —</option>
+        <option value="indiapost">India Post Parcel</option>
+        <option value="courier">Other Courier</option>
+        <option value="hand">Hand Delivery</option>
+        <option value="walkin">Walk-in / Collected in person</option>
+      </select></div>
+
+    <div class="fg"><label>Tracking Number</label>
+      <input id="edit-tracking" placeholder="EE123456789IN"/></div>
+
+    <div class="fg"><label>Sale Channel</label>
       <select id="edit-channel">
         <option value="">— Not specified —</option>
         <option value="WhatsApp">WhatsApp</option>
@@ -670,17 +722,8 @@ body.gst-mode .gst-only{display:block;}
         <option value="Offline">Offline / In-person</option>
       </select></div>
 
-    <div class="fg"><label>India Post Tracking No.</label>
-      <input id="edit-tracking" placeholder="EE123456789IN"/></div>
-
-    <div class="fg"><label>Customer Phone (Shipping)</label>
-      <input id="edit-phone" placeholder="Mobile number"/></div>
-
-    <div class="fg"><label>Customer WhatsApp <span style="font-weight:400;color:#aaa;">(if different)</span></label>
-      <input id="edit-whatsapp" placeholder="WhatsApp number"/></div>
-
-    <div class="fg"><label>Customer Address</label>
-      <textarea id="edit-address" rows="2" placeholder="Full address"></textarea></div>
+    <div class="fg"><label>Internal Notes <span style="font-weight:400;color:#aaa;">(not shown on invoice)</span></label>
+      <textarea id="edit-notes" rows="2" placeholder="Any notes about this order for your records"></textarea></div>
 
     <div style="background:var(--goldp);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--brown);margin-bottom:14px;" id="edit-total-preview"></div>
 
@@ -688,10 +731,52 @@ body.gst-mode .gst-only{display:block;}
       <button class="btn btn-p" onclick="saveInvoiceEdit()">💾 Save Changes</button>
       <button class="btn btn-o" onclick="closeEditModal()" style="width:auto;padding:13px 16px;">Cancel</button>
     </div>
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+      <div style="font-size:12px;color:#888;margin-bottom:8px;">Need to correct item prices or quantities?</div>
+      <button class="btn btn-o" style="width:100%;" onclick="openCreditNoteFromEdit()">📝 Issue Credit Note Against This Document</button>
+    </div>
   </div>
 </div>
 
-<!-- ════ SHARE MODAL ════ -->
+<!-- ════ CREDIT NOTE MODAL ════ -->
+<div class="modal-bg" id="cn-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeCNModal()">✕</button>
+    <div class="modal-title">📝 Issue Credit Note</div>
+    <div style="font-size:13px;color:#888;margin-bottom:12px;" id="cn-modal-subtitle"></div>
+    <div style="background:#fff8ee;border-radius:8px;padding:10px 12px;font-size:12px;color:var(--brown);margin-bottom:14px;line-height:1.6;">
+      <strong>What is a Credit Note?</strong><br/>
+      A Credit Note reduces the value of a previously issued bill/invoice. Use it when:<br/>
+      • Customer returned goods (full or partial)<br/>
+      • You overcharged and want to issue a refund<br/>
+      • Order was cancelled after billing<br/>
+      • Quality issue — partial credit given<br/><br/>
+      The original document stays unchanged. The credit note references it and reduces the outstanding amount.
+    </div>
+    <div class="fg"><label>Reason for Credit Note *</label>
+      <select id="cn-reason">
+        <option value="">— Select reason —</option>
+        <option value="Return">Goods Returned by Customer</option>
+        <option value="Overcharge">Overcharged — Price Correction</option>
+        <option value="Cancellation">Order Cancelled</option>
+        <option value="Quality">Quality Issue — Partial Credit</option>
+        <option value="Other">Other</option>
+      </select></div>
+    <div class="fg" id="cn-reason-other-row" style="display:none;">
+      <label>Specify Reason</label>
+      <input id="cn-reason-other" placeholder="Describe the reason"/></div>
+    <div class="fg"><label>Credit Amount (₹) *</label>
+      <input type="number" id="cn-amount" placeholder="Amount being credited to customer"
+        oninput="updateCNPreview()"/></div>
+    <div class="fg"><label>Notes <span style="font-weight:400;color:#aaa;">(optional)</span></label>
+      <textarea id="cn-notes" rows="2" placeholder="Any additional details"></textarea></div>
+    <div id="cn-preview" style="background:var(--goldp);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--brown);margin-bottom:14px;display:none;"></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="saveCreditNote()">📝 Issue Credit Note</button>
+      <button class="btn btn-o" onclick="closeCNModal()" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+  </div>
+</div>
 <div class="modal-bg" id="share-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeShareModal()">✕</button>
@@ -1004,25 +1089,25 @@ async function syncAll(){
     const remSet = await gsRead(SHEETS.settings);
 
     if(!cleared){
-      // Normalise all local IDs to trimmed strings for reliable comparison
-      // IDs from sheet come back as strings; local may be numbers — normalise both
+      const deletedIds=new Set(getDeletedIds());
       const localMap={};
       invoices.forEach(i=>{localMap[String(i.id).trim()]=i;});
 
       remInv.forEach(r=>{
         if(!r.id)return;
         const rid=String(r.id).trim();
+        // Skip if this ID was deliberately deleted on this device
+        if(deletedIds.has(rid)){
+          gsDelete(SHEETS.invoices,rid); // ensure sheet deletion too
+          return;
+        }
         const local=localMap[rid];
         if(!local){
-          // Not in local — add from remote
           localMap[rid]=r;
         }else{
-          // Exists locally — sync mutable fields
-          // isShipped/status: remote ALWAYS wins — ensures status changes on any device propagate
           const remShipped=r.isShipped==='true'||r.isShipped===true||r.status==='Shipped';
           local.isShipped=remShipped;
           local.status=remShipped?'Shipped':'Pending';
-          // Other fields: remote fills blank only (never overwrites existing local data)
           if(r.tracking&&!local.tracking)local.tracking=r.tracking;
           if(r.channel&&!local.channel)local.channel=r.channel;
           if(r.costPrice&&!local.costPrice)local.costPrice=parseFloat(r.costPrice)||0;
@@ -1031,6 +1116,7 @@ async function syncAll(){
           if(r.custAddress&&!local.custAddress)local.custAddress=r.custAddress;
           if(r.dispatchMethod&&!local.dispatchMethod)local.dispatchMethod=r.dispatchMethod;
           if(r.courierName&&!local.courierName)local.courierName=r.courierName;
+          if(r.notes&&!local.notes)local.notes=r.notes;
         }
       });
       invoices=Object.values(localMap).sort((a,b)=>(a.invDate||'')<(b.invDate||'')?-1:1);
@@ -1734,6 +1820,31 @@ function renderSales(){
       </div>
     </div>`;
   }).join('');
+
+  // Render credit notes if any exist
+  const cnSection=document.getElementById('cn-section');
+  const cnList=document.getElementById('cn-list');
+  if(cnSection&&cnList&&creditNotes.length>0){
+    cnSection.style.display='block';
+    cnList.innerHTML=creditNotes.slice().reverse().map(cn=>`
+      <div class="card" style="border-left:4px solid #e74c3c;margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div>
+            <div style="font-weight:700;font-size:14px;color:#c0392b;">${cn.cnNo}</div>
+            <div style="font-size:12px;color:#888;">${fmtDate(cn.cnDate)} · Against: ${cn.refInvNo}</div>
+            <div style="font-size:13px;font-weight:500;margin-top:3px;">${cn.custName}</div>
+            <div style="font-size:12px;color:#888;">Reason: ${cn.reason}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-weight:700;font-size:15px;color:#c0392b;">−₹${parseFloat(cn.creditAmount||0).toLocaleString('en-IN')}</div>
+            <button class="btn btn-o btn-sm" style="margin-top:6px;" onclick="printCreditNote(${JSON.stringify(cn).replace(/"/g,'&quot;')})">🖨️ Print</button>
+          </div>
+        </div>
+        ${cn.notes?`<div style="font-size:12px;color:#888;margin-top:6px;">${cn.notes}</div>`:''}
+      </div>`).join('');
+  }else if(cnSection){
+    cnSection.style.display='none';
+  }
 }
 function updateSelCount(){
   const cbs=document.querySelectorAll('.sale-cb:checked');
@@ -1794,8 +1905,9 @@ function bulkPrint(){
 }
 function bulkDelete(){
   const sel=getSelectedInvoices();if(!sel.length){toast('⚠️ Select invoices first');return;}
-  if(!confirm('Delete '+sel.length+' invoice(s)?'))return;
+  if(!confirm('Delete '+sel.length+' record(s)?'))return;
   const ids=new Set(sel.map(i=>String(i.id)));
+  ids.forEach(id=>{addDeletedId(id);gsDelete(SHEETS.invoices,id);});
   invoices=invoices.filter(i=>!ids.has(String(i.id)));
   save();renderSales();renderDashboard();toast('🗑 Deleted '+sel.length);
 }
@@ -1822,11 +1934,23 @@ function toggleShippedByIdx(idx){
   renderSales();
   toast(inv.isShipped?'🚚 Marked Shipped':'↩ Marked Pending');
 }
+// ── DELETED IDS — prevents deleted invoices reappearing on sync ──
+function getDeletedIds(){return lsGet('vc_deleted_ids',[]);}
+function addDeletedId(id){
+  const ids=getDeletedIds();
+  if(!ids.includes(String(id)))ids.push(String(id));
+  lsSet('vc_deleted_ids',ids);
+}
+
 function deleteInvoiceByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
-  if(!confirm('Delete '+inv.invNo+'?'))return;
+  if(!confirm('Delete '+(inv.invNo||'this record')+'?\n\nNote: This removes it from your device and Google Sheet. Issue a Credit Note instead if you need a legal record of cancellation.'))return;
+  addDeletedId(inv.id);
   invoices=invoices.filter(i=>String(i.id)!==String(inv.id));
-  save();renderSales();renderDashboard();toast('🗑 Deleted');
+  save();
+  gsDelete(SHEETS.invoices,inv.id);
+  renderSales();renderDashboard();
+  toast('🗑 Deleted');
 }
 
 // ── EDIT INVOICE ──
@@ -1834,16 +1958,33 @@ let editingInvId=null;
 function editInvoiceByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
   editingInvId=String(inv.id);
-  document.getElementById('edit-modal-subtitle').textContent=(inv.invNo||'')+'  ·  '+(inv.custName||'')+'  ·  '+fmtDate(inv.invDate);
-  document.getElementById('edit-cost').value=inv.costPrice||'';
-  document.getElementById('edit-ship-cost').value=inv.shippingCost||'';
-  document.getElementById('edit-ship-charged').value=inv.shipping||0;
-  document.getElementById('edit-discount').value=inv.discount||0;
-  document.getElementById('edit-channel').value=inv.channel||'';
-  document.getElementById('edit-tracking').value=inv.tracking||'';
+  const gst=inv.isGST===true||inv.isGST==='true';
+  document.getElementById('edit-modal-subtitle').textContent=
+    (gst?'Tax Invoice':'Bill of Supply')+' · '+(inv.invNo||'—')+'  ·  '+(inv.custName||'—')+'  ·  '+fmtDate(inv.invDate);
+  // Customer details
+  document.getElementById('edit-name').value=inv.custName||'';
   document.getElementById('edit-phone').value=inv.custPhone||'';
   document.getElementById('edit-whatsapp').value=inv.custWhatsapp||'';
   document.getElementById('edit-address').value=inv.custAddress||'';
+  // State
+  const stEl=document.getElementById('edit-state');
+  if(stEl){
+    const opts=Array.from(stEl.options);
+    const match=opts.find(o=>o.value===inv.custState||o.text===inv.custState||o.text.startsWith(inv.custState||''));
+    if(match)stEl.value=match.value||match.text;
+  }
+  // Financial
+  document.getElementById('edit-ship-charged').value=inv.shipping||0;
+  document.getElementById('edit-discount').value=inv.discount||0;
+  document.getElementById('edit-ship-cost').value=inv.shippingCost||'';
+  document.getElementById('edit-cost').value=inv.costPrice||'';
+  // Dispatch
+  const dm=document.getElementById('edit-dispatch');
+  if(dm)dm.value=inv.dispatchMethod||'';
+  document.getElementById('edit-tracking').value=inv.tracking||'';
+  document.getElementById('edit-channel').value=inv.channel||'';
+  // Notes
+  document.getElementById('edit-notes').value=inv.notes||'';
   recalcEditTotal();
   document.getElementById('edit-modal').classList.add('open');
 }
@@ -1982,23 +2123,65 @@ const PIN_STATE={
   '70':'West Bengal','71':'West Bengal','72':'West Bengal',
   '73':'West Bengal','74':'West Bengal',
   '75':'Odisha','76':'Odisha','77':'Odisha',
-  '78':'Assam',
-  '79':'Assam',
-  '80':'Bihar','81':'Bihar','82':'Bihar','83':'Bihar','84':'Bihar','85':'Bihar',
+  '78':'Assam','79':'Assam',
+  '80':'Bihar','81':'Bihar','85':'Bihar',
   '82':'Jharkhand','83':'Jharkhand','84':'Jharkhand',
-  '40':'Goa',
   '403':'Goa',
 };
 
-// Address keywords to skip when detecting name
-const ADDR_KEYWORDS=['h.no','h/no','house','flat','plot','door','street','road','lane','sector','block',
-  'village','vill','gram','near','opp','opposite','behind','beside','ward','mohalla','nagar',
-  'colony','society','apartment','building','floor','phase','district','dist','tehsil',
-  'taluka','post','p.o','city','town','pin','pincode','state','area','locality','shop',
-  'market','bazaar','chowk','chowkdi','po box'];
+// State abbreviations → full name
+const STATE_ABBR={
+  'PB':'Punjab','P.B.':'Punjab',
+  'HP':'Himachal Pradesh','H.P.':'Himachal Pradesh',
+  'UP':'Uttar Pradesh','U.P.':'Uttar Pradesh',
+  'MP':'Madhya Pradesh','M.P.':'Madhya Pradesh',
+  'HR':'Haryana','HAR':'Haryana',
+  'GJ':'Gujarat','GUJ':'Gujarat',
+  'MH':'Maharashtra','MAH':'Maharashtra',
+  'KA':'Karnataka','KAR':'Karnataka',
+  'TN':'Tamil Nadu',
+  'RJ':'Rajasthan','RAJ':'Rajasthan',
+  'AP':'Andhra Pradesh',
+  'TS':'Telangana','TG':'Telangana',
+  'WB':'West Bengal',
+  'OR':'Odisha','OD':'Odisha',
+  'JH':'Jharkhand',
+  'BR':'Bihar','BH':'Bihar',
+  'UK':'Uttarakhand','UA':'Uttarakhand',
+  'DL':'Delhi','DEL':'Delhi',
+  'JK':'Jammu & Kashmir',
+  'CH':'Chandigarh','CHD':'Chandigarh',
+  'AS':'Assam',
+  'GA':'Goa',
+  'KL':'Kerala','KER':'Kerala',
+  'PY':'Puducherry',
+};
 
-// Label prefixes to strip
-const STRIP_LABELS=/^(name|customer name?|customer|to|attn|dear|phone|ph|mob|mobile|contact|whatsapp|wp|wa|address|addr|add|पता|नाम|मोबाइल|number|no\.?)\s*[:–\-]\s*/i;
+// Address keywords — lines starting with these are addresses, not names
+const ADDR_KEYWORDS=[
+  'h.no','h/no','hno','house','flat','f/no','f.no','plot','door',
+  'street','st.','road','rd.','lane','ln.','sector','block',
+  'village','vill','vill.','gram','gm.','near','opp','opp.','opposite',
+  'behind','beside','ward','w.no','mohalla','nagar','colony','society',
+  'apartment','apt','building','bldg','floor','phase','district','dist',
+  'dist.','tehsil','teh.','taluka','post','p.o','p.o.','po','city',
+  'town','pin','pincode','state','area','locality','shop','market',
+  'bazaar','chowk','chowkdi','po box','#','at ','at-','at:',
+  'c/o','c.o.','care of','via '
+];
+
+// Noise words that are definitely not names
+const NOISE_WORDS=new Set([
+  'thanks','thank you','thx','thnx','regards','warm regards','best regards',
+  'kindly','please','hello','hi','hey','dear','sir','madam','ji',
+  'ok','okay','done','noted','confirmed','received',
+  'ludhiana','amritsar','chandigarh','delhi','mumbai','pune','bangalore',
+  'chennai','hyderabad','kolkata','jaipur','ahmedabad','surat','nagpur',
+  'india','bharat','punjab','haryana'
+]);
+
+// Label prefixes to strip from any line before parsing
+const STRIP_LABELS=/^[\p{Emoji}\s]*(name|customer\s*name|customer|naam|nام|to|attn|dear|receiver|recipient|order\s*for|c\/o|phone|ph|ph\.|mob|mob\.|mobile|contact|whatsapp|wp|wa|call|tel|landline|number|no\.?|address|addr|add|add\.|पता|नाम|मोबाइल|receiver|deliver\s*to|ship\s*to)\s*[:–\-]\s*/iu;
 
 let _parsedDetails=null;
 
@@ -2022,38 +2205,68 @@ function resetPasteModal(){
 
 function getStateFromPin(pin){
   if(!pin||pin.length<6)return null;
-  // Try 3-digit prefix first (e.g. 403 = Goa)
   const p3=pin.slice(0,3);
   if(PIN_STATE[p3])return PIN_STATE[p3];
   const p2=pin.slice(0,2);
   return PIN_STATE[p2]||null;
 }
 
+// Strip leading emoji from a string
+function stripEmoji(str){
+  return str.replace(/^[\p{Emoji}\s]+/u,'').trim();
+}
+
+// Convert ALL CAPS to Title Case
+function toTitleCase(str){
+  if(str===str.toUpperCase()&&str.length>2){
+    return str.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
+  }
+  return str;
+}
+
+// Normalise a phone string — strips spaces, dashes, brackets, dots
+function normalisePhone(str){
+  return str.replace(/[\s\-\(\)\.]/g,'');
+}
+
 function parsePastedDetails(){
   const raw=document.getElementById('paste-raw')?.value||'';
   if(!raw.trim()){toast('⚠️ Paste a message first');return;}
 
-  const lines=raw.split(/\n/).map(l=>l.trim()).filter(l=>l);
   const result={name:null,phone:null,whatsapp:null,state:null,pinState:null,pin:null,address:raw.trim()};
 
+  // ── PRE-PROCESS: strip postscript lines ──
+  const cleanedRaw=raw.split(/\n/)
+    .filter(l=>!/^\s*ps\s*[:–\-]/i.test(l.trim()))
+    .join('\n');
+  const lines=cleanedRaw.split(/\n/).map(l=>l.trim()).filter(l=>l);
+
   // ── PHONES ──
-  // International: +[country code][number] e.g. +44 7911 123456
+  // Step 1: normalise whole text — replace wa.me URLs with number
+  let phoneText=cleanedRaw.replace(/wa\.me\/(\d+)/gi,(m,n)=>'+'+n);
+
+  // Step 2: extract international numbers (non-Indian country codes)
   const intlPhones=[];
-  const intlRe=/\+(?!91\b)\d[\d\s\-]{6,14}/g;
+  const intlRe=/\+(?!91\b)(\d[\d\s\-\(\)]{6,18}\d)/g;
   let m;
-  const rawNoLabels=raw.replace(STRIP_LABELS,'');
-  while((m=intlRe.exec(raw))!==null){
-    const cleaned=m[0].replace(/[\s\-]/g,'');
+  while((m=intlRe.exec(phoneText))!==null){
+    const cleaned=normalisePhone(m[0]);
     if(cleaned.length>=8&&cleaned.length<=16)intlPhones.push(cleaned);
   }
-  // Indian: 10 digits, optional +91 or 91 prefix
+
+  // Step 3: extract Indian numbers in all formats
+  // Normalise separators first: 98765-43210, 9876 543 210, 9876.543.210
+  // Also handle leading 0: 09876543210 and leading 91: 919876543210
   const indianPhones=[];
-  const indRe=/(?<!\d)(?:\+91|91)?([6-9]\d{9})(?!\d)/g;
-  while((m=indRe.exec(raw))!==null){
-    if(!indianPhones.includes(m[1]))indianPhones.push(m[1]);
+  // Match 10-digit starting with 6-9, with optional prefix (+91, 91, 0)
+  // Allow separators: space, dash, dot between groups
+  const indRe=/(?<!\d)(?:\+91|91|0)?[\s\-]?([6-9]\d{2})[\s\-\.]?(\d{3})[\s\-\.]?(\d{4})(?!\d)/g;
+  while((m=indRe.exec(phoneText))!==null){
+    const num=m[1]+m[2]+m[3];
+    if(!indianPhones.includes(num))indianPhones.push(num);
   }
-  // Assign: international always → WhatsApp
-  // Indian: first → Shipping, second → WhatsApp (unless intl already took WhatsApp)
+
+  // Assign phones
   if(indianPhones.length>0)result.phone=indianPhones[0];
   if(intlPhones.length>0){
     result.whatsapp=intlPhones[0];
@@ -2063,38 +2276,72 @@ function parsePastedDetails(){
 
   // ── PIN CODE & STATE ──
   const pinRe=/\b(\d{6})\b/g;
-  while((m=pinRe.exec(raw))!==null){
+  while((m=pinRe.exec(cleanedRaw))!==null){
     const st=getStateFromPin(m[1]);
     if(st){result.pin=m[1];result.pinState=st;break;}
   }
   if(result.pinState){
     result.state=result.pinState;
   }else{
-    // Fallback: scan for state names
-    const stateNames=Object.keys(STATE_CODES);
-    for(const sn of stateNames){
-      if(raw.toLowerCase().includes(sn.toLowerCase())){result.state=sn;break;}
+    // Try state abbreviations first (word boundaries)
+    const abbrRe=new RegExp('\\b('+Object.keys(STATE_ABBR).join('|')+')\\b','i');
+    const abbrMatch=cleanedRaw.match(abbrRe);
+    if(abbrMatch)result.state=STATE_ABBR[abbrMatch[1].toUpperCase()];
+    // Fallback: full state name in text
+    if(!result.state){
+      const stateNames=Object.keys(STATE_CODES);
+      for(const sn of stateNames){
+        if(cleanedRaw.toLowerCase().includes(sn.toLowerCase())){
+          result.state=sn;break;
+        }
+      }
     }
   }
 
   // ── NAME ──
   for(const line of lines){
-    const stripped=line.replace(STRIP_LABELS,'').trim();
+    // Strip leading emoji
+    let stripped=stripEmoji(line);
+    // Strip label prefix (Name:, Customer:, Naam:, Receiver:, etc.)
+    stripped=stripped.replace(STRIP_LABELS,'').trim();
     if(!stripped)continue;
-    // Skip if line is/contains a phone number
-    if(/(?:\+?\d[\d\s\-]{8,})/.test(stripped))continue;
-    // Skip if line is a PIN code
+
+    // Skip postscript lines
+    if(/^ps\s*[:–\-]/i.test(stripped))continue;
+    // Skip if entire line is a phone number (with or without prefix)
+    if(/^[\+\d][\d\s\-\(\)]{7,}$/.test(stripped))continue;
+    // Skip if line contains a detected phone number
+    if(result.phone&&stripped.includes(result.phone))continue;
+    // Skip if line is a 6-digit PIN
     if(/^\d{6}$/.test(stripped))continue;
-    // Skip if line starts with an address keyword
+    // Skip if line is just digits
+    if(/^\d+$/.test(stripped))continue;
+    // Skip if line starts with address keyword
     const lower=stripped.toLowerCase();
-    const isAddr=ADDR_KEYWORDS.some(k=>lower.startsWith(k));
+    const isAddr=ADDR_KEYWORDS.some(k=>lower.startsWith(k.toLowerCase()));
     if(isAddr)continue;
-    // Skip if line looks like an address (contains comma + digits or known place patterns)
-    if(/\d{3,}/.test(stripped)&&stripped.includes(','))continue;
-    // Skip very short single words that look like labels
-    if(stripped.split(/\s+/).length===1&&stripped.length<3)continue;
-    // This is likely the name
-    result.name=stripped.replace(/^(mr\.?|mrs\.?|ms\.?|dr\.?|prof\.?)\s+/i,'').trim();
+    // Skip if line contains # (house number marker)
+    if(stripped.includes('#'))continue;
+    // Skip if line looks like an address (3+ digit number + comma or known geo word)
+    if(/\d{3,}/.test(stripped)&&/[,\/]/.test(stripped))continue;
+    // Skip noise words
+    if(NOISE_WORDS.has(stripped.toLowerCase()))continue;
+    // Skip lines that are just a single known city/state
+    if(result.state&&stripped.toLowerCase()===result.state.toLowerCase())continue;
+    // Skip very short single tokens (abbreviations, labels)
+    if(stripped.split(/\s+/).length===1&&stripped.length<=2)continue;
+    // Skip lines that look like "ji" suffix alone
+    if(/^\s*ji\s*$/i.test(stripped))continue;
+
+    // Clean up the name
+    let name=stripped;
+    // Strip titles: Mr, Mrs, Ms, Dr, Prof
+    name=name.replace(/^(mr\.?|mrs\.?|ms\.?|dr\.?|prof\.?)\s+/i,'').trim();
+    // Strip trailing "ji"
+    name=name.replace(/\s+ji\s*$/i,'').trim();
+    // Convert ALL CAPS to Title Case
+    name=toTitleCase(name);
+    if(name)result.name=name;
     break;
   }
 
@@ -2105,7 +2352,7 @@ function parsePastedDetails(){
   list.innerHTML='';
   const row=(icon,label,value,found)=>{
     const div=document.createElement('div');
-    div.style.cssText='display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:8px;background:'+(found?'#dff0d8':'#fff8ee')+';';
+    div.style.cssText='display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:8px;background:'+(found?'#dff0d8':'#fff8ee')+';margin-bottom:4px;';
     div.innerHTML='<span style="font-size:16px;">'+(found?'✅':'⚠️')+'</span>'
       +'<div><div style="font-size:12px;color:#888;font-weight:600;">'+label+'</div>'
       +'<div style="font-size:14px;font-weight:600;color:#1a1208;">'+(value||'<span style="color:#aaa;font-weight:400;">Not detected — fill manually</span>')+'</div></div>';
@@ -2115,10 +2362,9 @@ function parsePastedDetails(){
   row('📞','Shipping Phone',result.phone,!!result.phone);
   row('💬','WhatsApp',result.whatsapp,!!result.whatsapp);
   row('📍','State',result.state?(result.state+(result.pinState?' (from PIN '+result.pin+')':' (from text)')):null,!!result.state);
-  // Address always shown
   const addrDiv=document.createElement('div');
-  addrDiv.style.cssText='padding:8px 10px;border-radius:8px;background:#f5f5f5;';
-  addrDiv.innerHTML='<div style="font-size:12px;color:#888;font-weight:600;">📋 Address (full text)</div>'
+  addrDiv.style.cssText='padding:8px 10px;border-radius:8px;background:#f5f5f5;margin-bottom:4px;';
+  addrDiv.innerHTML='<div style="font-size:12px;color:#888;font-weight:600;">📋 Address (full pasted text)</div>'
     +'<div style="font-size:13px;color:#555;margin-top:3px;white-space:pre-wrap;">'+result.address+'</div>';
   list.appendChild(addrDiv);
 
@@ -2129,7 +2375,6 @@ function parsePastedDetails(){
 function applyParsedDetails(){
   if(!_parsedDetails)return;
   const d=_parsedDetails;
-  // Fill only if field is currently empty (don't overwrite existing data)
   const nameEl=document.getElementById('c-name');
   if(nameEl&&!nameEl.value&&d.name)nameEl.value=d.name;
   const phoneEl=document.getElementById('c-phone');
@@ -2138,11 +2383,9 @@ function applyParsedDetails(){
   if(waEl&&!waEl.value&&d.whatsapp)waEl.value=d.whatsapp;
   const addrEl=document.getElementById('c-address');
   if(addrEl&&!addrEl.value&&d.address)addrEl.value=d.address;
-  // Always set state if detected (key field)
   if(d.state){
     const stEl=document.getElementById('c-state');
     if(stEl){
-      // Find matching option
       const opts=Array.from(stEl.options);
       const match=opts.find(o=>o.value===d.state||o.text===d.state||o.text.startsWith(d.state));
       if(match){stEl.value=match.value||match.text;updateTaxType();}
@@ -2168,17 +2411,208 @@ function saveInvoiceEdit(){
   const di=parseFloat(document.getElementById('edit-discount').value)||0;
   const items2=expandItems(inv.itemsArr);
   const{grandIncl,gstAmt,taxableExcl}=calcTotals(items2,sc,di);
-  inv.shipping=sc;inv.shippingCost=parseFloat(document.getElementById('edit-ship-cost').value)||0;
-  inv.discount=di;inv.costPrice=parseFloat(document.getElementById('edit-cost').value)||0;
-  inv.channel=document.getElementById('edit-channel').value;
-  inv.tracking=document.getElementById('edit-tracking').value;
+
+  // Customer details
+  inv.custName=document.getElementById('edit-name').value.trim()||inv.custName;
   inv.custPhone=document.getElementById('edit-phone').value;
   inv.custWhatsapp=document.getElementById('edit-whatsapp').value;
   inv.custAddress=document.getElementById('edit-address').value;
-  inv.grandTotal=grandIncl;inv.gstAmt=gstAmt;inv.taxableExcl=taxableExcl;
+  // State — changing state changes intra/inter GST type
+  const newState=document.getElementById('edit-state').value;
+  if(newState){
+    inv.custState=newState;
+    inv.isIntra=newState==='Punjab';
+  }
+  // Financial
+  inv.shipping=sc;
+  inv.shippingCost=parseFloat(document.getElementById('edit-ship-cost').value)||0;
+  inv.discount=di;
+  inv.costPrice=parseFloat(document.getElementById('edit-cost').value)||0;
+  inv.grandTotal=grandIncl;
+  inv.gstAmt=gstAmt;
+  inv.taxableExcl=taxableExcl;
+  // Dispatch
+  inv.dispatchMethod=document.getElementById('edit-dispatch').value;
+  inv.tracking=document.getElementById('edit-tracking').value;
+  inv.channel=document.getElementById('edit-channel').value;
+  // Notes (internal only)
+  inv.notes=document.getElementById('edit-notes').value;
+
   delete inv.html;
-  save();gsWrite(SHEETS.invoices,flattenInvoice(inv));
-  closeEditModal();renderSales();toast('✅ Updated!');
+  save();
+  gsWrite(SHEETS.invoices,flattenInvoice(inv));
+  closeEditModal();
+  renderSales();
+  toast('✅ Updated!');
+}
+
+// ═══════════════════════════════════════════
+// CREDIT NOTES
+// ═══════════════════════════════════════════
+let creditNotes=lsGet('vc_cn',[]);
+function saveCNs(){lsSet('vc_cn',creditNotes);}
+
+let cnRefInvId=null;
+
+function openCreditNoteFromEdit(){
+  closeEditModal();
+  const inv=invoices.find(i=>String(i.id)===editingInvId);
+  if(!inv){toast('⚠️ Invoice not found');return;}
+  openCNModal(inv);
+}
+
+function openCNModal(inv){
+  cnRefInvId=String(inv.id);
+  const gst=inv.isGST===true||inv.isGST==='true';
+  document.getElementById('cn-modal-subtitle').textContent=
+    'Against: '+(gst?'Tax Invoice':'Bill of Supply')+' '+inv.invNo+' · '+inv.custName+' · ₹'+parseFloat(inv.grandTotal||0).toLocaleString('en-IN');
+  document.getElementById('cn-reason').value='';
+  document.getElementById('cn-reason-other').value='';
+  document.getElementById('cn-reason-other-row').style.display='none';
+  document.getElementById('cn-amount').value='';
+  document.getElementById('cn-notes').value='';
+  document.getElementById('cn-preview').style.display='none';
+  document.getElementById('cn-modal').classList.add('open');
+}
+
+function closeCNModal(){
+  document.getElementById('cn-modal').classList.remove('open');
+  cnRefInvId=null;
+}
+
+function updateCNPreview(){
+  const amt=parseFloat(document.getElementById('cn-amount')?.value)||0;
+  const reason=document.getElementById('cn-reason')?.value;
+  const el=document.getElementById('cn-preview');
+  if(!el)return;
+  if(amt>0&&reason){
+    el.style.display='block';
+    el.innerHTML='<strong>Credit Note Preview:</strong> ₹'+amt.toLocaleString('en-IN')+' credited to customer for: '+reason;
+  }else{
+    el.style.display='none';
+  }
+}
+
+document.addEventListener('change',function(e){
+  if(e.target&&e.target.id==='cn-reason'){
+    const otherRow=document.getElementById('cn-reason-other-row');
+    if(otherRow)otherRow.style.display=e.target.value==='Other'?'block':'none';
+    updateCNPreview();
+  }
+});
+
+function getCNCounter(){
+  if(creditNotes.length===0)return 1;
+  const nums=creditNotes.map(cn=>{const m=(cn.cnNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
+  return Math.max(...nums)+1;
+}
+
+function saveCreditNote(){
+  const reason=document.getElementById('cn-reason')?.value;
+  if(!reason){toast('⚠️ Select a reason');return;}
+  const finalReason=reason==='Other'?(document.getElementById('cn-reason-other')?.value||'Other'):reason;
+  const amt=parseFloat(document.getElementById('cn-amount')?.value)||0;
+  if(!amt||amt<=0){toast('⚠️ Enter credit amount');return;}
+
+  const refInv=invoices.find(i=>String(i.id)===cnRefInvId);
+  if(!refInv){toast('⚠️ Original document not found');return;}
+
+  if(amt>parseFloat(refInv.grandTotal||0)){
+    toast('⚠️ Credit amount cannot exceed original document value of ₹'+parseFloat(refInv.grandTotal).toLocaleString('en-IN'));
+    return;
+  }
+
+  const gst=refInv.isGST===true||refInv.isGST==='true';
+  const cnNo='CN-'+String(getCNCounter()).padStart(3,'0');
+  const cn={
+    id:Date.now(),
+    cnNo,
+    cnDate:today(),
+    fy:getFY(today()),
+    refInvId:cnRefInvId,
+    refInvNo:refInv.invNo,
+    refInvDate:refInv.invDate,
+    custName:refInv.custName,
+    custPhone:refInv.custPhone||'',
+    custState:refInv.custState,
+    reason:finalReason,
+    creditAmount:amt,
+    // GST reversal — only for Tax Invoices
+    isGST:gst,
+    gstReversed:gst?parseFloat((amt-amt/1.05).toFixed(2)):0,
+    taxableReversed:gst?parseFloat((amt/1.05).toFixed(2)):amt,
+    notes:document.getElementById('cn-notes')?.value||'',
+  };
+  creditNotes.push(cn);
+  saveCNs();
+  gsWrite('CreditNotes',cn);
+  closeCNModal();
+  renderSales();
+  toast('✅ Credit Note '+cnNo+' issued!');
+}
+
+function printCreditNote(cn){
+  const refInv=invoices.find(i=>String(i.id)===String(cn.refInvId));
+  const gst=cn.isGST===true||cn.isGST==='true';
+  const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
+  const html=`<div style="font-family:'DM Sans',sans-serif;font-size:12px;color:#1a1208;background:#fff;padding:20px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+      <div>
+        ${logoB64?'<img src="'+logoB64+'" style="height:44px;object-fit:contain;display:block;margin-bottom:5px;"/>'  :''}
+        <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#5c3d1e;">Vismaad Creations</div>
+        ${gst?'<div style="font-size:11px;color:#555;"><strong>GSTIN:</strong> '+(S.gstin||'—')+' | State Code: 03 (Punjab)</div>':''}
+        <div style="font-size:11px;color:#555;">${S.address||''}</div>
+        <div style="font-size:11px;color:#555;">${S.phone||''}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:16px;font-weight:700;color:#c0392b;text-transform:uppercase;letter-spacing:1.5px;">Credit Note</div>
+        <div style="font-size:12px;color:#555;margin-top:3px;"><strong>No:</strong> ${cn.cnNo}</div>
+        <div style="font-size:12px;color:#555;"><strong>Date:</strong> ${fmtDate(cn.cnDate)}</div>
+        <div style="font-size:12px;color:#555;"><strong>Against:</strong> ${cn.refInvNo} dt. ${fmtDate(cn.refInvDate)}</div>
+        ${gst?'<div style="font-size:11px;color:#555;"><strong>Reverse Charge:</strong> No</div>':''}
+      </div>
+    </div>
+    <hr style="border:none;border-top:2px solid #c0392b;margin:12px 0;"/>
+    <div style="margin-bottom:14px;">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Customer</div>
+      <div style="font-size:13px;font-weight:700;">${cn.custName}</div>
+      <div style="font-size:11px;color:#555;">${cn.custPhone?'📞 '+cn.custPhone+' · ':''}${cn.custState||''}</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
+      <thead><tr style="background:#c0392b;color:#fff;">
+        <th style="padding:7px 8px;font-size:10px;text-align:left;">Description</th>
+        ${gst?'<th style="padding:7px 8px;font-size:10px;text-align:right;">Taxable Value</th>':''}
+        ${gst?'<th style="padding:7px 8px;font-size:10px;text-align:right;">GST Reversed</th>':''}
+        <th style="padding:7px 8px;font-size:10px;text-align:right;">Credit Amount</th>
+      </tr></thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #e2d4bc;">
+          <td style="padding:6px 8px;">Credit against ${cn.refInvNo}<br/><span style="font-size:10px;color:#888;">Reason: ${cn.reason}</span></td>
+          ${gst?'<td style="padding:6px 8px;text-align:right;">'+f(cn.taxableReversed)+'</td>':''}
+          ${gst?'<td style="padding:6px 8px;text-align:right;">'+f(cn.gstReversed)+'</td>':''}
+          <td style="padding:6px 8px;text-align:right;font-weight:700;">${f(cn.creditAmount)}</td>
+        </tr>
+      </tbody>
+      <tfoot><tr style="background:#fde8e8;">
+        <td colspan="${gst?3:1}" style="padding:7px 8px;text-align:right;font-weight:700;">Total Credit</td>
+        <td style="padding:7px 8px;text-align:right;font-weight:700;font-size:13px;color:#c0392b;">${f(cn.creditAmount)}</td>
+      </tr></tfoot>
+    </table>
+    <div style="background:#fde8e8;border-radius:5px;padding:7px 10px;font-size:11px;color:#c0392b;font-weight:600;margin-bottom:12px;">
+      Credit Amount in Words: <strong>${numberToWords(Math.round(cn.creditAmount))} Rupees Only</strong>
+    </div>
+    ${cn.notes?'<div style="font-size:11px;color:#888;margin-bottom:12px;">Notes: '+cn.notes+'</div>':''}
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:14px;">
+      <div style="font-size:10px;color:#888;font-style:italic;">Computer-generated credit note.</div>
+      <div style="text-align:right;"><div style="font-size:10px;color:#888;margin-bottom:24px;">For Vismaad Creations</div>
+      <div style="font-size:10px;color:#888;border-top:1px solid #ccc;padding-top:3px;">Authorised Signatory</div></div>
+    </div>
+    <div style="text-align:center;margin-top:14px;font-size:10px;color:#aaa;padding-top:12px;border-top:1px solid #e2d4bc;">
+      Thank you for your business — Vismaad Creations
+    </div>
+  </div>`;
+  document.getElementById('print-area').innerHTML='<div class="print-page">'+html+'</div>';
+  window.print();
 }
 
 // ── DANGER ZONE ──
