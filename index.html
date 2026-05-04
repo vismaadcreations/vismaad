@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.6b · 02-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.8 · 04-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -600,6 +600,7 @@ body.gst-mode .gst-only{display:block;}
       <button class="btn btn-o btn-sm" onclick="showSubPage('labels')">📦 Shipping Labels</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('bulk')">📊 Bulk Import</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('export')">⬇️ Export to Excel</button>
+      <button class="btn btn-o btn-sm" onclick="showSubPage('bulkedit')">✏️ Bulk Invoice Editor</button>
       <button class="btn btn-o btn-sm" onclick="toggleSettings()">⚙️ Settings</button>
     </div>
   </div>
@@ -1191,7 +1192,14 @@ function showSubPage(id){
   const content=document.getElementById('sub-page-content');
   const titleEl=document.getElementById('sub-page-title');
   if(!container||!content)return;
-  const titles={purchases:'🛒 Purchases',pl:'📈 P&L',labels:'📦 Shipping Label',bulk:'📊 Bulk Import',export:'⬇️ Export'};
+  const titles={
+    purchases:'🛒 Purchases Register',
+    pl:'📈 P&L Report',
+    labels:'📦 Shipping Labels',
+    bulk:'📊 Bulk Import',
+    export:'⬇️ Export to Excel',
+    bulkedit:'✏️ Bulk Invoice Editor'
+  };
   if(titleEl)titleEl.textContent=titles[id]||id;
   content.innerHTML=buildSubPage(id);
   container.style.display='block';
@@ -2869,8 +2877,8 @@ function printLabel(){
   const fromAddr=rawFromAddr.replace(/\n/g,'<br/>');
 
   const qrImg=qrB64
-    ?'<img src="'+qrB64+'" style="width:32mm;height:32mm;object-fit:contain;display:block;flex-shrink:0;"/>'
-    :'<div style="width:32mm;height:32mm;border:1px dashed #ccc;font-size:8pt;color:#aaa;display:flex;align-items:center;justify-content:center;text-align:center;flex-shrink:0;">QR</div>';
+    ?'<img src="'+qrB64+'" style="width:50mm;height:50mm;object-fit:contain;display:block;flex-shrink:0;"/>'
+    :'<div style="width:50mm;height:50mm;border:1px dashed #ccc;font-size:8pt;color:#aaa;display:flex;align-items:center;justify-content:center;text-align:center;flex-shrink:0;">QR</div>';
   const logoImg=logoB64
     ?'<img src="'+logoB64+'" style="max-height:12mm;max-width:40mm;object-fit:contain;display:block;margin:0 auto;"/>'
     :'<span style="font-size:11pt;font-weight:700;color:#5c3d1e;">Vismaad<br/>Creations</span>';
@@ -3021,8 +3029,207 @@ function buildSubPage(id){
   if(id==='labels')return buildLabelPage();
   if(id==='export')return buildExportPage();
   if(id==='bulk')return buildBulkPage();
+  if(id==='bulkedit')return buildBulkEditPage();
   return '<p>Coming soon</p>';
 }
+// ═══════════════════════════════════════════
+// BULK INVOICE EDITOR
+// ═══════════════════════════════════════════
+function buildBulkEditPage(){
+  const sorted=[...invoices].sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1);
+  const missingCost=sorted.filter(i=>!parseFloat(i.costPrice||0)).length;
+  const stateOptions=`<option value="">Select state</option>
+    <option value="Punjab">Punjab</option>
+    <option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option>
+    <option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option>
+    <option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option>
+    <option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option>
+    <option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option>
+    <option>Mizoram</option><option>Nagaland</option><option>Odisha</option>
+    <option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option>
+    <option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option>
+    <option>Uttarakhand</option><option>West Bengal</option><option>Delhi</option>
+    <option>Jammu & Kashmir</option><option>Ladakh</option><option>Chandigarh</option>
+    <option>Puducherry</option><option>Andaman & Nicobar Islands</option>
+    <option>Dadra & Nagar Haveli and Daman & Diu</option><option>Lakshadweep</option>`;
+
+  const rows=sorted.map((inv,i)=>{
+    const hasCost=parseFloat(inv.costPrice||0)>0;
+    return`<div class="card" style="margin-bottom:8px;padding:0;overflow:hidden;">
+      <!-- Row header — tap to expand -->
+      <div onclick="toggleBulkRow(${i})"
+        style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;background:${hasCost?'var(--warm)':'#fff8ee'};">
+        <div>
+          <div style="font-weight:700;font-size:14px;">${inv.invNo||'—'} · ${inv.custName||'—'}</div>
+          <div style="font-size:12px;color:#888;">${fmtDate(inv.invDate)} · ₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}
+            ${hasCost?'· <span style="color:#27ae60;">Cost ₹'+parseFloat(inv.costPrice).toLocaleString('en-IN')+'</span>':'· <span style="color:#e67e22;">Cost missing</span>'}
+          </div>
+        </div>
+        <span id="bulk-chevron-${i}" style="font-size:18px;color:#888;transition:transform .2s;">▼</span>
+      </div>
+      <!-- Expandable edit fields -->
+      <div id="bulk-row-${i}" style="display:none;padding:14px;border-top:1px solid var(--border);">
+        <input type="hidden" id="be-id-${i}" value="${inv.id}"/>
+        <div class="row2">
+          <div class="fg"><label>Customer Name</label>
+            <input id="be-name-${i}" value="${(inv.custName||'').replace(/"/g,'&quot;')}"/></div>
+          <div class="fg"><label>State</label>
+            <select id="be-state-${i}">${stateOptions.replace('value="'+(inv.custState||'')+'"','value="'+(inv.custState||'')+'" selected')}</select></div>
+        </div>
+        <div class="row2">
+          <div class="fg"><label>Shipping Phone</label>
+            <input id="be-phone-${i}" value="${inv.custPhone||''}" type="tel"/></div>
+          <div class="fg"><label>WhatsApp</label>
+            <input id="be-whatsapp-${i}" value="${inv.custWhatsapp||''}" type="tel"/></div>
+        </div>
+        <div class="fg"><label>Address</label>
+          <textarea id="be-address-${i}" rows="2">${inv.custAddress||''}</textarea></div>
+        <div class="row2">
+          <div class="fg"><label>Shipping Charged (₹)</label>
+            <input id="be-ship-${i}" type="number" value="${inv.shipping||0}"/></div>
+          <div class="fg"><label>Discount (₹)</label>
+            <input id="be-disc-${i}" type="number" value="${inv.discount||0}"/></div>
+        </div>
+        <div class="row2">
+          <div class="fg"><label>Cost Paid (₹)</label>
+            <input id="be-cost-${i}" type="number" value="${inv.costPrice||''}" placeholder="Total paid incl. GST"/></div>
+          <div class="fg"><label>Actual Shipping Paid (₹)</label>
+            <input id="be-shipcost-${i}" type="number" value="${inv.shippingCost||''}"/></div>
+        </div>
+        <div class="row2">
+          <div class="fg"><label>Dispatch Method</label>
+            <select id="be-dispatch-${i}">
+              <option value="">— Not specified —</option>
+              <option value="indiapost" ${inv.dispatchMethod==='indiapost'?'selected':''}>India Post Parcel</option>
+              <option value="courier" ${inv.dispatchMethod==='courier'?'selected':''}>Other Courier</option>
+              <option value="hand" ${inv.dispatchMethod==='hand'?'selected':''}>Hand Delivery</option>
+              <option value="walkin" ${inv.dispatchMethod==='walkin'?'selected':''}>Walk-in</option>
+            </select></div>
+          <div class="fg"><label>Tracking No.</label>
+            <input id="be-tracking-${i}" value="${inv.tracking||''}"/></div>
+        </div>
+        <div class="row2">
+          <div class="fg"><label>Channel</label>
+            <select id="be-channel-${i}">
+              <option value="">— Not specified —</option>
+              <option value="WhatsApp" ${inv.channel==='WhatsApp'?'selected':''}>WhatsApp</option>
+              <option value="Instagram" ${inv.channel==='Instagram'?'selected':''}>Instagram</option>
+              <option value="Facebook" ${inv.channel==='Facebook'?'selected':''}>Facebook</option>
+              <option value="Website" ${inv.channel==='Website'?'selected':''}>Website</option>
+              <option value="Offline" ${inv.channel==='Offline'?'selected':''}>Offline</option>
+            </select></div>
+          <div class="fg"><label>Internal Notes</label>
+            <input id="be-notes-${i}" value="${(inv.notes||'').replace(/"/g,'&quot;')}" placeholder="For your records only"/></div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return`<div class="card" style="margin-bottom:14px;">
+    <div class="card-title">✏️ Bulk Invoice Editor</div>
+    <div style="font-size:13px;color:#888;margin-bottom:12px;">
+      ${sorted.length} invoices · ${missingCost} missing cost price.<br/>
+      Tap any invoice to expand and edit. Save All commits all changes at once.
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <button class="btn btn-p" style="flex:1;" onclick="saveBulkEdits()">💾 Save All Changes</button>
+      <button class="btn btn-o" onclick="expandAllBulkRows()" style="width:auto;padding:13px 14px;">Expand All</button>
+    </div>
+  </div>
+  ${rows}
+  <button class="btn btn-p" style="width:100%;margin-top:8px;" onclick="saveBulkEdits()">💾 Save All Changes</button>
+  <div style="height:env(safe-area-inset-bottom);"></div>`;
+}
+
+function toggleBulkRow(i){
+  const row=document.getElementById('bulk-row-'+i);
+  const chev=document.getElementById('bulk-chevron-'+i);
+  if(!row)return;
+  const open=row.style.display!=='none';
+  row.style.display=open?'none':'block';
+  if(chev)chev.style.transform=open?'':'rotate(180deg)';
+}
+
+function expandAllBulkRows(){
+  const sorted=[...invoices].sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1);
+  sorted.forEach((_,i)=>{
+    const row=document.getElementById('bulk-row-'+i);
+    const chev=document.getElementById('bulk-chevron-'+i);
+    if(row)row.style.display='block';
+    if(chev)chev.style.transform='rotate(180deg)';
+  });
+}
+
+function saveBulkEdits(){
+  const sorted=[...invoices].sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1);
+  let changed=0;
+  sorted.forEach((inv,i)=>{
+    const idEl=document.getElementById('be-id-'+i);
+    if(!idEl)return;
+    const stored=invoices.find(x=>String(x.id)===String(idEl.value));
+    if(!stored)return;
+
+    const name=(document.getElementById('be-name-'+i)?.value||'').trim();
+    const state=document.getElementById('be-state-'+i)?.value||'';
+    const phone=document.getElementById('be-phone-'+i)?.value||'';
+    const whatsapp=document.getElementById('be-whatsapp-'+i)?.value||'';
+    const address=document.getElementById('be-address-'+i)?.value||'';
+    const ship=parseFloat(document.getElementById('be-ship-'+i)?.value)||0;
+    const disc=parseFloat(document.getElementById('be-disc-'+i)?.value)||0;
+    const cost=parseFloat(document.getElementById('be-cost-'+i)?.value)||0;
+    const shipcost=parseFloat(document.getElementById('be-shipcost-'+i)?.value)||0;
+    const dispatch=document.getElementById('be-dispatch-'+i)?.value||'';
+    const tracking=document.getElementById('be-tracking-'+i)?.value||'';
+    const channel=document.getElementById('be-channel-'+i)?.value||'';
+    const notes=document.getElementById('be-notes-'+i)?.value||'';
+
+    // Check if anything actually changed
+    const dirty=
+      name!==stored.custName||state!==stored.custState||
+      phone!==stored.custPhone||whatsapp!==(stored.custWhatsapp||'')||
+      address!==stored.custAddress||ship!==stored.shipping||
+      disc!==(stored.discount||0)||cost!==stored.costPrice||
+      shipcost!==(stored.shippingCost||0)||dispatch!==(stored.dispatchMethod||'')||
+      tracking!==(stored.tracking||'')||channel!==(stored.channel||'')||
+      notes!==(stored.notes||'');
+
+    if(!dirty)return;
+
+    // Apply changes
+    if(name)stored.custName=name;
+    if(state){stored.custState=state;stored.isIntra=state==='Punjab';}
+    stored.custPhone=phone;
+    stored.custWhatsapp=whatsapp;
+    stored.custAddress=address;
+    stored.costPrice=cost;
+    stored.shippingCost=shipcost;
+    stored.dispatchMethod=dispatch;
+    stored.tracking=tracking;
+    stored.channel=channel;
+    stored.notes=notes;
+
+    // Recalculate grand total if shipping or discount changed
+    if(ship!==stored.shipping||disc!==stored.discount){
+      const items=expandItems(stored.itemsArr);
+      const{grandIncl,gstAmt,taxableExcl}=calcTotals(items,ship,disc);
+      stored.shipping=ship;stored.discount=disc;
+      stored.grandTotal=grandIncl;stored.gstAmt=gstAmt;stored.taxableExcl=taxableExcl;
+    }
+
+    delete stored.html;
+    gsWrite(SHEETS.invoices,flattenInvoice(stored));
+    changed++;
+  });
+
+  save();
+  renderSales();
+  renderDashboard();
+  // Rebuild the page to reflect saved values
+  const content=document.getElementById('sub-page-content');
+  if(content)content.innerHTML=buildBulkEditPage();
+  toast('✅ Saved '+changed+' invoice'+(changed!==1?'s':''));
+}
+
 function buildPurchasesPage(){
   const rows=purchases.map(p=>`<div class="list-row">
     <div><div class="list-main">${p.supplier}</div><div class="list-sub">${fmtDate(p.date)} · ${p.desc||'Suit Purchase'} · Qty: ${p.qty||0}</div></div>
