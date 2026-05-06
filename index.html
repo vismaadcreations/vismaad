@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.8 · 04-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.9 · 06-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -2420,6 +2420,9 @@ function saveInvoiceEdit(){
   const items2=expandItems(inv.itemsArr);
   const{grandIncl,gstAmt,taxableExcl}=calcTotals(items2,sc,di);
 
+  const oldTracking=inv.tracking||'';
+  const newTracking=document.getElementById('edit-tracking').value;
+
   // Customer details
   inv.custName=document.getElementById('edit-name').value.trim()||inv.custName;
   inv.custPhone=document.getElementById('edit-phone').value;
@@ -2441,7 +2444,7 @@ function saveInvoiceEdit(){
   inv.taxableExcl=taxableExcl;
   // Dispatch
   inv.dispatchMethod=document.getElementById('edit-dispatch').value;
-  inv.tracking=document.getElementById('edit-tracking').value;
+  inv.tracking=newTracking;
   inv.channel=document.getElementById('edit-channel').value;
   // Notes (internal only)
   inv.notes=document.getElementById('edit-notes').value;
@@ -2451,7 +2454,19 @@ function saveInvoiceEdit(){
   gsWrite(SHEETS.invoices,flattenInvoice(inv));
   closeEditModal();
   renderSales();
-  toast('✅ Updated!');
+
+  // If tracking was newly added or changed, prompt to send tracking WhatsApp
+  if(newTracking&&newTracking!==oldTracking){
+    const ph=inv.custWhatsapp||inv.custPhone||'';
+    setTimeout(()=>{
+      if(confirm('Tracking number saved ✅\n\nSend tracking details to '+inv.custName+' on WhatsApp?')){
+        sharingInv=inv;
+        shareTrackingWhatsApp();
+      }
+    },300);
+  }else{
+    toast('✅ Updated!');
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -2859,6 +2874,7 @@ function goToLabel(){
   if(currentInv){setTimeout(()=>{
     const n=document.getElementById('lbl-to-name');if(n)n.value=currentInv.custName||'';
     const p=document.getElementById('lbl-to-ph');if(p)p.value=currentInv.custPhone||'';
+    const w=document.getElementById('lbl-to-wa');if(w)w.value=currentInv.custWhatsapp||'';
     const a=document.getElementById('lbl-to-addr');if(a)a.value=currentInv.custAddress||'';
     const i=document.getElementById('lbl-inv-no');if(i)i.value=currentInv.invNo||'';
     const t=document.getElementById('lbl-tracking2');if(t)t.value=currentInv.tracking||'';
@@ -2869,18 +2885,25 @@ function printLabel(){
   if(!name){toast('⚠️ Enter customer name');return;}
   const rawAddr=document.getElementById('lbl-to-addr')?.value||'';
   const ph=document.getElementById('lbl-to-ph')?.value||'';
+  const wa=document.getElementById('lbl-to-wa')?.value||'';
   const invNo=document.getElementById('lbl-inv-no')?.value||'';
   const track=document.getElementById('lbl-tracking2')?.value||'';
-  const rawFromAddr=document.getElementById('lbl-from-addr')?.value||'Vismaad Creations';
+  const rawFromAddr=document.getElementById('lbl-from-addr')?.value||'';
   const fromPh=document.getElementById('lbl-from-ph')?.value||'';
   const addr=rawAddr.replace(/\n/g,'<br/>');
   const fromAddr=rawFromAddr.replace(/\n/g,'<br/>');
 
+  // Build phone line — show both if different
+  const phLine=ph&&wa&&ph!==wa
+    ?'&#9990; '+ph+' &nbsp;|&nbsp; 💬 '+wa
+    :ph?'&#9990; '+ph:wa?'💬 '+wa:'';
+
   const qrImg=qrB64
     ?'<img src="'+qrB64+'" style="width:50mm;height:50mm;object-fit:contain;display:block;flex-shrink:0;"/>'
     :'<div style="width:50mm;height:50mm;border:1px dashed #ccc;font-size:8pt;color:#aaa;display:flex;align-items:center;justify-content:center;text-align:center;flex-shrink:0;">QR</div>';
+  // Logo sized to complement from-address height — fills the left column of the bottom row
   const logoImg=logoB64
-    ?'<img src="'+logoB64+'" style="max-height:12mm;max-width:40mm;object-fit:contain;display:block;margin:0 auto;"/>'
+    ?'<img src="'+logoB64+'" style="max-height:20mm;max-width:50mm;object-fit:contain;display:block;margin:0 auto;"/>'
     :'<span style="font-size:11pt;font-weight:700;color:#5c3d1e;">Vismaad<br/>Creations</span>';
 
   // Hard heights for each row (mm) — must sum to ≤ 118mm (128mm box minus 10mm padding)
@@ -2941,7 +2964,7 @@ function printLabel(){
           +'<div class="tolbl">To</div>'
           +'<div class="toname">'+name+'</div>'
           +'<div class="toaddr" id="toaddr">'+addr+'</div>'
-          +(ph?'<div class="toph">&#9990; '+ph+'</div>':'')
+          +(phLine?'<div class="toph">'+phLine+'</div>':'')
         +'</div>'
         +qrImg
       +'</div>'
@@ -3512,10 +3535,13 @@ function renderPLContent(filtInv,filtPur){
 function buildLabelPage(){
   return`<div class="card"><div class="card-title">📋 Customer Details</div>
     <div class="fg"><label>Name *</label><input id="lbl-to-name" placeholder="Customer name"/></div>
-    <div class="fg"><label>Phone</label><input id="lbl-to-ph" placeholder="Mobile number"/></div>
+    <div class="row2">
+      <div class="fg"><label>Shipping Phone</label><input id="lbl-to-ph" placeholder="Mobile number" type="tel"/></div>
+      <div class="fg"><label>WhatsApp Number</label><input id="lbl-to-wa" placeholder="If different" type="tel"/></div>
+    </div>
     <div class="fg"><label>Full Address *</label><textarea id="lbl-to-addr" placeholder="House, Street, City, State, Pincode" rows="3"></textarea></div>
     <div class="row2">
-      <div class="fg"><label>Invoice No.</label><input id="lbl-inv-no" placeholder="INV-001"/></div>
+      <div class="fg"><label>Bill / Invoice No.</label><input id="lbl-inv-no" placeholder="INV-001"/></div>
       <div class="fg"><label>Tracking No.</label><input id="lbl-tracking2" placeholder="EE123456789IN"/></div>
     </div></div>
     <div class="card"><div class="card-title">🏠 From Address</div>
