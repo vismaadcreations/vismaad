@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v5.9 · 06-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.0 · 06-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -333,9 +333,29 @@ body.gst-mode .gst-only{display:block;}
     <div class="card-title">📦 Recent Orders</div>
     <div id="dash-orders"><div style="color:#aaa;font-size:13px;text-align:center;padding:20px;">Loading…</div></div>
   </div>
+  <!-- Outreach widget -->
+  <div class="card" id="dash-outreach" style="display:none;">
+    <div class="card-title">📬 Customer Outreach</div>
+    <div id="dash-outreach-content"></div>
+    <button class="btn btn-o" style="margin-top:10px;width:100%;" onclick="showSubPage('outreach')">Open Outreach Centre →</button>
+  </div>
   <div class="card">
     <div class="card-title">⚠️ Low / Aging Stock</div>
     <div id="dash-aging"><div style="color:#aaa;font-size:13px;text-align:center;padding:20px;">Loading…</div></div>
+  </div>
+</div>
+
+<!-- ════ FOLLOW-UP POPUP ════ -->
+<div class="modal-bg" id="followup-popup">
+  <div class="modal">
+    <div class="modal-title">📬 Follow-up Due</div>
+    <div id="followup-popup-content" style="margin-bottom:16px;"></div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <button class="btn btn-g" style="min-height:48px;" onclick="sendFollowup()">💬 Send Message on WhatsApp</button>
+      <button class="btn btn-o" style="min-height:44px;" onclick="skipFollowup()">Skip for Now</button>
+      <button class="btn btn-o" style="min-height:44px;color:#c0392b;" onclick="optOutFollowup()">Do Not Remind Again for This Customer</button>
+    </div>
+    <div id="followup-popup-counter" style="text-align:center;font-size:12px;color:#aaa;margin-top:10px;"></div>
   </div>
 </div>
 
@@ -623,6 +643,10 @@ body.gst-mode .gst-only{display:block;}
     <div class="fg"><label>Business Address</label><input id="ms-address" placeholder="Street, City, Punjab, Pincode"/></div>
     <div class="fg"><label>Phone / WhatsApp</label><input id="ms-phone" placeholder="+91 XXXXX XXXXX"/></div>
     <div class="fg"><label>Email (optional)</label><input id="ms-email" placeholder="your@email.com"/></div>
+    <div class="fg"><label>Calendarific API Key <span style="font-weight:400;color:#aaa;">(for auto festival dates)</span></label>
+      <input id="ms-cal-key" placeholder="Get free key at calendarific.com"/>
+      <div style="font-size:11px;color:#888;margin-top:4px;">Sign up free at calendarific.com → Dashboard → API Key. Needed for automatic festival date detection.</div>
+    </div>
     <div class="fg">
       <label>Logo Image</label>
       <div style="display:flex;align-items:center;gap:10px;">
@@ -1160,6 +1184,7 @@ async function syncAll(){
     const banner=document.getElementById('dash-sync-banner');
     if(banner)banner.style.display='flex';
     refreshCurrentPage();
+    renderOutreachWidget();
     toast('☁️ Synced — '+invoices.length+' invoices');
   }catch(e){
     setSyncStatus('err');
@@ -1198,7 +1223,8 @@ function showSubPage(id){
     labels:'📦 Shipping Labels',
     bulk:'📊 Bulk Import',
     export:'⬇️ Export to Excel',
-    bulkedit:'✏️ Bulk Invoice Editor'
+    bulkedit:'✏️ Bulk Invoice Editor',
+    outreach:'📬 Outreach Centre'
   };
   if(titleEl)titleEl.textContent=titles[id]||id;
   content.innerHTML=buildSubPage(id);
@@ -1206,6 +1232,7 @@ function showSubPage(id){
   container.scrollTop=0;
   if(id==='pl')renderPLSubPage();
   if(id==='labels')loadLabelDefaults();
+  if(id==='outreach')renderOutreachPage();
 }
 function closeSubPage(){
   const c=document.getElementById('sub-page-container');
@@ -1243,6 +1270,11 @@ function init(){
     renderDashboard();
     loadAssetThumbs();
     setTimeout(()=>syncAll(),1000);
+    // Outreach — check follow-up popup after sync settles
+    setTimeout(()=>{
+      renderOutreachWidget();
+      checkFollowupPopup();
+    },3000);
   }catch(e){
     console.error('Init error:',e);
     toast('⚠️ Load error — please refresh',5000);
@@ -1319,6 +1351,8 @@ function loadSettings(){
   ['gstin','address','phone','email'].forEach(k=>{
     ['s-','ms-'].forEach(pfx=>{const el=document.getElementById(pfx+k);if(el&&S[k])el.value=S[k];});
   });
+  const calEl=document.getElementById('ms-cal-key');
+  if(calEl&&S.calKey)calEl.value=S.calKey;
   applyGSTMode();
 }
 
@@ -1329,9 +1363,12 @@ function saveSettings(){
     address:(g('address')?.value||'').trim(),
     phone:(g('phone')?.value||'').trim(),
     email:(g('email')?.value||'').trim(),
+    calKey:(document.getElementById('ms-cal-key')?.value||'').trim(),
   };
   lsSet('vc_s',S);gsWrite(SHEETS.settings,{id:'settings',...S});
   applyGSTMode();toast('✅ Settings saved!');loadSettings();
+  // Re-fetch festivals if API key changed
+  if(S.calKey)fetchFestivals(true);
 }
 
 function toggleSettings(){
@@ -3053,6 +3090,7 @@ function buildSubPage(id){
   if(id==='export')return buildExportPage();
   if(id==='bulk')return buildBulkPage();
   if(id==='bulkedit')return buildBulkEditPage();
+  if(id==='outreach')return buildOutreachPage();
   return '<p>Coming soon</p>';
 }
 // ═══════════════════════════════════════════
@@ -4221,6 +4259,467 @@ function bulkSaveAndPrint(){
     document.getElementById('print-area').innerHTML=newInvs.map(inv=>`<div class="print-page">${getInvHtml(inv)}</div>`).join('');
     window.print();
   },2000);
+}
+
+// ═══════════════════════════════════════════
+// OUTREACH ENGINE
+// ═══════════════════════════════════════════
+
+// ── MUSLIM NAME DETECTION ──
+const MUSLIM_NAMES=new Set([
+  // Male
+  'mohammed','muhammad','mohammad','mohd','md','abdul','abdullah','ahmed','ahmad',
+  'ahamed','ahamad','imran','irfan','iqbal','ismail','ibrahim','idris','javed',
+  'javid','karim','khalid','majid','maqsood','mubarak','munir','mushtaq','mustafa',
+  'nadeem','naeem','nasir','nawaz','nizam','omar','umar','rashid','raza','rizwan',
+  'sabir','salim','saleem','sameer','shakeel','shaukat','shoaib','sohail','suleman',
+  'tariq','usman','wahid','wasim','yusuf','zafar','zahid','zakir','zubair','farhan',
+  'faisal','faiz','farrukh','asif','aslam','altaf','akbar','arshad','ayaz','aziz',
+  'azhar','babar','bilal','danish','dawood','dilshad','ehsan','hamid','hamza',
+  'haris','haroon','hashim','hilal','hussain','inayat','jahangir','jamil','junaid',
+  'kamran','kashif','liaqat','mehmood','minhaj','moin','muazzam','mujeeb','nadir',
+  'noman','parvez','pervez','qaiser','qasim','raees','rauf','rayyan','rehan','saad',
+  'saeed','sahil','sajid','sajjad','sarfaraz','shahid','shahzad','shamim','shazad',
+  'shehzad','sufyan','sultan','tanveer','tanvir','taufiq','wajid','waqar','waqas',
+  'yasir','yasser','zaid','ziauddin',
+  // Female
+  'aisha','ayesha','amina','aminah','asma','bushra','farida','fatima','fauzia',
+  'fiza','fozia','gulnaz','huma','humaira','khadija','khatoon','lubna','maryam',
+  'mehwish','mehnaz','munira','nadia','naila','nasreen','nazma','nazia','nighat',
+  'nilufar','noor','noreen','parveen','rabia','rahima','razia','rizwana','rubina',
+  'rukhsana','saima','sakina','salma','samina','sana','saniya','sara','shabana',
+  'shagufta','shaheen','shahnaz','shamim','shazia','shehnaz','simra','sobia',
+  'sumera','sumaira','sumayyah','tahira','tasneem','uzma','yasmeen','yasmin',
+  'zainab','zeba','zeenat','zubaida','bilquis','dilnoza','ghazala','hajra',
+  'hamida','hania','hena','iram','ishrat','javeria','kishwar','laila','layla',
+  'madiha','mahira','mariam','mariya','misbah','muskan','muzna','nafeesa',
+  'nahida','najma','nargis','nasima','nazneen','nida','nudrat','parisa','qurat',
+  'raheela','raisa','rania','rehana','reshma','rifat','riffat','rukayya','ruqayya',
+  'sabeen','sabeena','sabiha','sabina','sadia','safiya','sajida','saleha','saliha',
+  'samra','sarwat','seema','shabnum','shaista','shamsa','shirin','shumaila',
+  'sibgha','sidra','siffat','sofiya','sumbul','tahera','tayyaba','tooba','urooj',
+  'wajiha','warda','waseema','zahida','zahra','zaib','zakia','zara','zarqa',
+  'zebunnisa','uroosa','hoorain','hooriya','mishal','mahvish','maleeha','memoona',
+  'nabeela','nabila','naseema','nosheen','nuzhat','qudsia','rida','riffat',
+  'sehrish','shehla','shereen','sundus','tabinda','taskeen','tehreem','iqra',
+  'aroha','arooba','areeba','abida','abira','afshan','afsana'
+]);
+
+function isLikelyMuslim(name){
+  if(!name)return false;
+  const first=(name.trim().split(/\s+/)[0]||'').toLowerCase();
+  return MUSLIM_NAMES.has(first);
+}
+
+// ── FESTIVAL DEFINITIONS ──
+// Fixed-date festivals (never change)
+const FIXED_FESTIVALS=[
+  {key:'lohri',name:'Lohri',month:1,day:13,states:['Punjab','Haryana','Himachal Pradesh','Delhi'],muslim:false,promo:true},
+  {key:'newyear',name:'New Year',month:1,day:1,states:'all',muslim:false,promo:true,onDay:true},
+  {key:'pongal',name:'Pongal',month:1,day:14,states:['Tamil Nadu','Andhra Pradesh','Telangana'],muslim:false,promo:true},
+  {key:'vaisakhi',name:'Vaisakhi',month:4,day:13,states:['Punjab','Haryana'],muslim:false,promo:true},
+  {key:'christmas',name:'Christmas',month:12,day:25,states:'skip',muslim:false,promo:false},
+];
+
+// Variable festivals fetched from Calendarific
+// Keys map to Calendarific names
+const VARIABLE_FESTIVAL_KEYS={
+  'diwali':{name:'Diwali',states:'all',muslim:false,promo:true},
+  'holi':{name:'Holi',states:['Punjab','Haryana','Uttar Pradesh','Rajasthan','Delhi','Madhya Pradesh','Bihar'],muslim:false,promo:true},
+  'eid_al_fitr':{name:'Eid ul-Fitr',states:'all',muslim:true,promo:true,approx:true},
+  'eid_al_adha':{name:'Eid ul-Adha',states:'all',muslim:true,promo:true,approx:true},
+  'guru_nanak_jayanti':{name:'Gurpurab of Guru Nanak Dev Ji',states:'all',muslim:false,promo:false,onDay:true},
+  'onam':{name:'Onam',states:['Kerala'],muslim:false,promo:true},
+  'ganesh_chaturthi':{name:'Ganesh Chaturthi',states:['Maharashtra','Karnataka','Andhra Pradesh','Telangana','Goa'],muslim:false,promo:true},
+  'navratri':{name:'Navratri and Durga Puja',states:['Gujarat','Maharashtra','Rajasthan','West Bengal','Odisha','Bihar'],muslim:false,promo:true},
+};
+
+// ── FESTIVAL MESSAGE TEMPLATES ──
+function getFestivalMessage(festKey,custName,approx){
+  const onDay=approx===false; // used for New Year and Gurpurab
+  const msgs={
+    newyear:`Dear ${custName},\n\nAs we step into the new year, we want to take a moment to thank you for your support and trust in Vismaad Creations.\n\nWe look forward to serving you in the year ahead and have started it with some new additions to our collection:\ninstagram.com/vismaad_creations\n\nWishing you and your family a very Happy New Year.\n\nVismaad Creations`,
+    lohri:`Dear ${custName},\n\nLohri is just 20 days away. There is still time to add something special to your wardrobe for the occasion. We have added new designs to our collection:\ninstagram.com/vismaad_creations\n\nWarm wishes for a happy Lohri to you and your family.\n\nVismaad Creations`,
+    pongal:`Dear ${custName},\n\nPongal is just 20 days away. There is still time to dress in something new for the harvest celebration. We have updated our collection for the festive season:\ninstagram.com/vismaad_creations\n\nWarm wishes for a happy Pongal to you and your family.\n\nVismaad Creations`,
+    vaisakhi:`Dear ${custName},\n\nVaisakhi is just 20 days away. It is a wonderful occasion to dress in something new and we have updated our collection with designs suited for the celebration:\ninstagram.com/vismaad_creations\n\nWishing you and your family a very happy Vaisakhi.\n\nVismaad Creations`,
+    diwali:`Dear ${custName},\n\nDiwali is just 20 days away. There is still time to order a new suit, have it stitched, and be ready for the celebration.\n\nWe have updated our collection with designs suited for the festive season:\ninstagram.com/vismaad_creations\n\nWishing you and your family a joyful Diwali.\n\nVismaad Creations`,
+    holi:`Dear ${custName},\n\nHoli is just 20 days away. We have added festive designs to our collection and would love for you to take a look:\ninstagram.com/vismaad_creations\n\nWishing you and your family a very happy Holi.\n\nVismaad Creations`,
+    eid_al_fitr:`Dear ${custName},\n\nEid ul-Fitr is approximately 20 days away. There is still time to order a new suit and have it stitched before the celebration.\n\nWe have updated our collection with designs for the occasion:\ninstagram.com/vismaad_creations\n\nEid Mubarak in advance to you and your family.\n\nVismaad Creations`,
+    eid_al_adha:`Dear ${custName},\n\nEid ul-Adha is approximately 20 days away. There is still time to order a new suit and have it stitched before the celebration.\n\nWe have updated our collection with designs for the occasion:\ninstagram.com/vismaad_creations\n\nEid Mubarak in advance to you and your family.\n\nVismaad Creations`,
+    guru_nanak_jayanti:`Dear ${custName},\n\nOn this blessed occasion of the Gurpurab of Guru Nanak Dev Ji, we extend our warmest wishes to you and your family.\n\nMay the teachings of Guru Nanak Dev Ji bring peace, wisdom and happiness to your home.\n\nWishing you and your family a blessed Gurpurab.\n\nVismaad Creations`,
+    onam:`Dear ${custName},\n\nOnam is just 20 days away. There is still time to add something beautiful to your wardrobe for the celebration. We have added new designs to our collection:\ninstagram.com/vismaad_creations\n\nWishing you and your family a very happy Onam.\n\nVismaad Creations`,
+    ganesh_chaturthi:`Dear ${custName},\n\nGanesh Chaturthi is just 20 days away. There is still time to add something special to your wardrobe for the occasion. We have updated our collection:\ninstagram.com/vismaad_creations\n\nWishing you and your family a very happy Ganesh Chaturthi.\n\nVismaad Creations`,
+    navratri:`Dear ${custName},\n\nThe festive season of Navratri and Durga Puja is just 20 days away. There is still time to dress in something new for the celebrations. We have updated our collection:\ninstagram.com/vismaad_creations\n\nWarm wishes for a joyful festive season to you and your family.\n\nVismaad Creations`,
+    followup:`Dear ${custName},\n\nWe hope you are enjoying your recent purchase from Vismaad Creations.\n\nWe have added new designs to our collection and would love for you to take a look:\ninstagram.com/vismaad_creations\n\nThank you for your continued support.\n\nVismaad Creations`,
+  };
+  return msgs[festKey]||`Dear ${custName},\n\nWishing you and your family a joyful celebration.\n\nVismaad Creations`;
+}
+
+// ── CUSTOMER DEDUPLICATION ──
+function getUniqueCustomers(){
+  // Group by phone number (prefer custWhatsapp, fallback custPhone)
+  const map={};
+  // Sort invoices newest first so most recent invoice wins for name
+  const sorted=[...invoices].sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1);
+  sorted.forEach(inv=>{
+    const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+    if(!ph)return; // skip if no phone
+    if(!map[ph]){
+      map[ph]={
+        phone:ph,
+        whatsapp:inv.custWhatsapp||'',
+        shippingPhone:inv.custPhone||'',
+        name:inv.custName||'',
+        state:inv.custState||'',
+        lastOrder:inv.invDate||'',
+        lastInvNo:inv.invNo||'',
+        lastAmount:inv.grandTotal||0,
+        isMuslim:isLikelyMuslim(inv.custName),
+        invoiceCount:1,
+      };
+    }else{
+      map[ph].invoiceCount++;
+    }
+  });
+  return Object.values(map);
+}
+
+// ── MESSAGE LOG ──
+let msgLog=lsGet('vc_msg_log',[]);
+function saveMsgLog(){lsSet('vc_msg_log',msgLog);}
+
+function hasSentMsg(phone,type,year){
+  return msgLog.some(l=>l.phone===phone&&l.type===type&&l.year===year);
+}
+function logMsg(phone,type,year,name){
+  msgLog.push({phone,type,year,sentDate:today(),name:name||''});
+  saveMsgLog();
+  gsWrite('MessageLog',{phone,type,year,sentDate:today(),name:name||''});
+}
+function isOptedOut(phone){
+  return msgLog.some(l=>l.phone===phone&&l.type==='followup_opt_out');
+}
+
+// ── FESTIVAL DATE FETCHING ──
+async function fetchFestivals(force){
+  const cached=lsGet('vc_festivals',null);
+  const yr=new Date().getFullYear();
+  if(!force&&cached&&cached.year===yr)return cached;
+  if(!S.calKey){
+    // No API key — build from fixed festivals only
+    return buildFestivalCache(yr,[]);
+  }
+  try{
+    const url=`https://calendarific.com/api/v2/holidays?api_key=${S.calKey}&country=IN&year=${yr}&type=national,religious`;
+    const res=await fetch(url);
+    const data=await res.json();
+    const holidays=data?.response?.holidays||[];
+    return buildFestivalCache(yr,holidays);
+  }catch(e){
+    console.warn('Festival fetch failed:',e);
+    return buildFestivalCache(yr,[]);
+  }
+}
+
+function buildFestivalCache(yr,apiHolidays){
+  const festivals=[];
+
+  // Fixed festivals
+  FIXED_FESTIVALS.forEach(f=>{
+    if(f.states==='skip')return;
+    festivals.push({
+      key:f.key,name:f.name,
+      date:`${yr}-${String(f.month).padStart(2,'0')}-${String(f.day).padStart(2,'0')}`,
+      states:f.states,muslim:f.muslim,promo:f.promo,onDay:f.onDay||false,approx:false,
+    });
+  });
+
+  // Variable festivals from API
+  Object.entries(VARIABLE_FESTIVAL_KEYS).forEach(([key,def])=>{
+    // Try to find in API response
+    const apiNames={
+      diwali:['diwali','deepawali','deepavali'],
+      holi:['holi'],
+      eid_al_fitr:['eid al-fitr','eid ul-fitr','eid-ul-fitr','ramadan end'],
+      eid_al_adha:['eid al-adha','eid ul-adha','eid-ul-adha','bakrid'],
+      guru_nanak_jayanti:['guru nanak','nanak jayanti','gurpurab'],
+      onam:['onam','thiruvonam'],
+      ganesh_chaturthi:['ganesh chaturthi','vinayaka chaturthi','ganesh'],
+      navratri:['navratri','navaratri','durga puja'],
+    };
+    const names=apiNames[key]||[key];
+    const found=apiHolidays.find(h=>names.some(n=>h.name.toLowerCase().includes(n)));
+    if(found){
+      festivals.push({
+        key,name:def.name,
+        date:found.date.iso.slice(0,10),
+        states:def.states,muslim:def.muslim,promo:def.promo,
+        onDay:def.onDay||false,approx:def.approx||false,
+      });
+    }else{
+      // Fallback approximate dates if not found in API
+      const fallbacks={
+        diwali:`${yr}-10-20`,holi:`${yr}-03-14`,
+        eid_al_fitr:`${yr}-03-31`,eid_al_adha:`${yr}-06-07`,
+        guru_nanak_jayanti:`${yr}-11-05`,onam:`${yr}-09-05`,
+        ganesh_chaturthi:`${yr}-08-27`,navratri:`${yr}-10-02`,
+      };
+      if(fallbacks[key]){
+        festivals.push({
+          key,name:def.name,date:fallbacks[key],
+          states:def.states,muslim:def.muslim,promo:def.promo,
+          onDay:def.onDay||false,approx:true,isFallback:true,
+        });
+      }
+    }
+  });
+
+  const cache={year:yr,fetched:today(),festivals};
+  lsSet('vc_festivals',cache);
+  return cache;
+}
+
+// ── ELIGIBILITY CHECK ──
+function isFestivalEligible(customer,festival){
+  // Muslim-only festivals
+  if(festival.muslim&&!customer.isMuslim)return false;
+  // State filter
+  if(festival.states!=='all'){
+    if(!festival.states.includes(customer.state))return false;
+  }
+  return true;
+}
+
+function daysUntil(dateStr){
+  try{
+    const d=new Date(dateStr+'T00:00:00');
+    const now=new Date();now.setHours(0,0,0,0);
+    return Math.round((d-now)/(864e5));
+  }catch{return 999;}
+}
+
+// ── DASHBOARD OUTREACH WIDGET ──
+async function renderOutreachWidget(){
+  const cache=await fetchFestivals(false);
+  const customers=getUniqueCustomers();
+  const yr=new Date().getFullYear();
+  const todayStr=today();
+
+  // Follow-ups due (45+ days, not sent, not opted out)
+  const followupsDue=customers.filter(c=>{
+    if(isOptedOut(c.phone))return false;
+    if(hasSentMsg(c.phone,'followup',yr))return false;
+    if(!c.lastOrder)return false;
+    const days=Math.round((new Date(todayStr)-new Date(c.lastOrder+'T00:00:00'))/(864e5));
+    return days>=45;
+  });
+
+  // Upcoming festivals within 25 days
+  const upcoming=[];
+  (cache.festivals||[]).forEach(f=>{
+    const days=daysUntil(f.date);
+    const triggerDays=f.onDay?0:20;
+    const windowOpen=f.onDay?(days===0):(days>=0&&days<=25);
+    if(!windowOpen)return;
+    // Count eligible customers not yet sent
+    const eligible=customers.filter(c=>
+      isFestivalEligible(c,f)&&!hasSentMsg(c.phone,f.key,yr)
+    );
+    if(eligible.length>0){
+      upcoming.push({festival:f,days,eligible:eligible.length});
+    }
+  });
+
+  const widget=document.getElementById('dash-outreach');
+  const content=document.getElementById('dash-outreach-content');
+  if(!widget||!content)return;
+
+  if(followupsDue.length===0&&upcoming.length===0){
+    widget.style.display='none';
+    return;
+  }
+
+  widget.style.display='block';
+  let html='';
+  if(followupsDue.length>0){
+    html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="font-size:13px;">📬 ${followupsDue.length} follow-up${followupsDue.length>1?'s':''} due</span>
+      <span style="font-size:12px;color:#888;">${followupsDue.length} customer${followupsDue.length>1?'s':''}</span>
+    </div>`;
+  }
+  upcoming.forEach(u=>{
+    const label=u.days===0?'Today':u.days===1?'Tomorrow':`In ${u.days} days`;
+    html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="font-size:13px;">🎉 ${u.festival.name} — ${label}</span>
+      <span style="font-size:12px;color:#888;">${u.eligible} customer${u.eligible>1?'s':''}</span>
+    </div>`;
+  });
+  content.innerHTML=html;
+}
+
+// ── 45-DAY FOLLOW-UP POPUP ──
+let _followupQueue=[];
+let _followupIdx=0;
+
+async function checkFollowupPopup(){
+  // Only show once per day
+  const lastShown=localStorage.getItem('vc_followup_shown_date')||'';
+  if(lastShown===today())return;
+
+  const customers=getUniqueCustomers();
+  const yr=new Date().getFullYear();
+  const todayStr=today();
+
+  _followupQueue=customers.filter(c=>{
+    if(isOptedOut(c.phone))return false;
+    if(hasSentMsg(c.phone,'followup',yr))return false;
+    if(!c.lastOrder)return false;
+    const days=Math.round((new Date(todayStr)-new Date(c.lastOrder+'T00:00:00'))/(864e5));
+    return days>=45;
+  });
+
+  if(_followupQueue.length===0)return;
+  localStorage.setItem('vc_followup_shown_date',today());
+  _followupIdx=0;
+  showFollowupPopup();
+}
+
+function showFollowupPopup(){
+  if(_followupIdx>=_followupQueue.length){
+    document.getElementById('followup-popup')?.classList.remove('open');
+    return;
+  }
+  const c=_followupQueue[_followupIdx];
+  const days=Math.round((new Date(today())-new Date(c.lastOrder+'T00:00:00'))/(864e5));
+  const content=document.getElementById('followup-popup-content');
+  if(content)content.innerHTML=`
+    <div style="font-size:15px;font-weight:700;margin-bottom:6px;">${c.name}</div>
+    <div style="font-size:13px;color:#888;margin-bottom:4px;">Last order: ${fmtDate(c.lastOrder)} · ${days} days ago</div>
+    <div style="font-size:13px;color:#888;">${c.lastInvNo} · ₹${parseFloat(c.lastAmount||0).toLocaleString('en-IN')}</div>
+    ${c.whatsapp?'<div style="font-size:12px;color:#27ae60;margin-top:4px;">💬 WhatsApp: +'+c.whatsapp+'</div>':'<div style="font-size:12px;color:#888;margin-top:4px;">📞 Phone: '+c.shippingPhone+'</div>'}`;
+  const counter=document.getElementById('followup-popup-counter');
+  if(counter&&_followupQueue.length>1)counter.textContent=(_followupIdx+1)+' of '+_followupQueue.length;
+  document.getElementById('followup-popup')?.classList.add('open');
+}
+
+function sendFollowup(){
+  const c=_followupQueue[_followupIdx];if(!c)return;
+  const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
+  if(!ph){toast('⚠️ No phone number for this customer');return;}
+  const num=ph.length===10?'91'+ph:ph;
+  const msg=getFestivalMessage('followup',c.name);
+  window.open('https://wa.me/'+num+'?text='+encodeURIComponent(msg),'_blank');
+  logMsg(c.phone,'followup',new Date().getFullYear(),c.name);
+  _followupIdx++;
+  showFollowupPopup();
+}
+
+function skipFollowup(){
+  _followupIdx++;
+  showFollowupPopup();
+}
+
+function optOutFollowup(){
+  const c=_followupQueue[_followupIdx];if(!c)return;
+  logMsg(c.phone,'followup_opt_out',new Date().getFullYear(),c.name);
+  _followupIdx++;
+  showFollowupPopup();
+}
+
+// ── OUTREACH CENTRE SUB-PAGE ──
+function buildOutreachPage(){
+  return`<div id="outreach-page-content"><div style="text-align:center;padding:30px;color:#aaa;">Loading...</div></div>`;
+}
+
+async function renderOutreachPage(){
+  const cache=await fetchFestivals(false);
+  const customers=getUniqueCustomers();
+  const yr=new Date().getFullYear();
+  const todayStr=today();
+
+  // Follow-ups
+  const followups=customers.filter(c=>{
+    if(isOptedOut(c.phone))return false;
+    if(hasSentMsg(c.phone,'followup',yr))return false;
+    if(!c.lastOrder)return false;
+    const days=Math.round((new Date(todayStr)-new Date(c.lastOrder+'T00:00:00'))/(864e5));
+    return days>=45;
+  });
+
+  let html=`<div class="card">
+    <div class="card-title">📬 Follow-ups Due (${followups.length})</div>
+    <div style="font-size:12px;color:#888;margin-bottom:12px;">Customers who ordered 45+ days ago and haven't been followed up with.</div>`;
+
+  if(followups.length===0){
+    html+=`<div style="color:#aaa;text-align:center;padding:16px;">No follow-ups due. Check back later.</div>`;
+  }else{
+    followups.forEach(c=>{
+      const days=Math.round((new Date(todayStr)-new Date(c.lastOrder+'T00:00:00'))/(864e5));
+      const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
+      const num=ph.length===10?'91'+ph:ph;
+      const msg=getFestivalMessage('followup',c.name);
+      html+=`<div class="list-row" style="align-items:flex-start;gap:10px;">
+        <div style="flex:1;">
+          <div class="list-main">${c.name}</div>
+          <div class="list-sub">${c.lastInvNo} · ${fmtDate(c.lastOrder)} · ${days} days ago · ₹${parseFloat(c.lastAmount).toLocaleString('en-IN')}</div>
+          <div style="font-size:11px;color:#888;">${c.state||'—'}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <a href="https://wa.me/${num}?text=${encodeURIComponent(msg)}" target="_blank"
+            onclick="logMsg('${c.phone}','followup',${yr},'${c.name.replace(/'/g,"\\'")}');setTimeout(()=>renderOutreachPage(),500);"
+            class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;">💬 Send</a>
+          <button class="btn btn-o btn-sm" style="min-height:40px;font-size:11px;"
+            onclick="logMsg('${c.phone}','followup_opt_out',${yr},'${c.name.replace(/'/g,"\\'")}');renderOutreachPage();">Skip forever</button>
+        </div>
+      </div>`;
+    });
+  }
+  html+=`</div>`;
+
+  // Festival sections
+  const now=new Date();now.setHours(0,0,0,0);
+  const upcoming=(cache.festivals||[])
+    .map(f=>({...f,days:daysUntil(f.date)}))
+    .filter(f=>f.days>=-1&&f.days<=30)
+    .sort((a,b)=>a.days-b.days);
+
+  upcoming.forEach(f=>{
+    const eligible=customers.filter(c=>isFestivalEligible(c,f)&&!hasSentMsg(c.phone,f.key,yr));
+    const sent=customers.filter(c=>isFestivalEligible(c,f)&&hasSentMsg(c.phone,f.key,yr));
+    const dayLabel=f.days===0?'Today':f.days===1?'Tomorrow':`In ${f.days} days`;
+    const fallbackNote=f.isFallback?'<span style="color:#e67e22;font-size:11px;"> (approximate date — add Calendarific API key in Settings for exact dates)</span>':'';
+
+    html+=`<div class="card">
+      <div class="card-title">🎉 ${f.name} — ${dayLabel}${fallbackNote}</div>
+      <div style="font-size:12px;color:#888;margin-bottom:12px;">${eligible.length} customers to reach · ${sent.length} already sent</div>`;
+
+    if(eligible.length===0){
+      html+=`<div style="color:#aaa;text-align:center;padding:12px;">All eligible customers have been messaged.</div>`;
+    }else{
+      eligible.forEach(c=>{
+        const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
+        const num=ph.length===10?'91'+ph:ph;
+        const msg=getFestivalMessage(f.key,c.name,f.approx);
+        html+=`<div class="list-row" style="align-items:flex-start;">
+          <div style="flex:1;">
+            <div class="list-main">${c.name}</div>
+            <div class="list-sub">${c.state||'—'} · ${fmtDate(c.lastOrder)}${c.isMuslim?' · Muslim (detected)':''}</div>
+          </div>
+          <a href="https://wa.me/${num}?text=${encodeURIComponent(msg)}" target="_blank"
+            onclick="logMsg('${c.phone}','${f.key}',${yr},'${c.name.replace(/'/g,"\\'")}');setTimeout(()=>renderOutreachPage(),500);"
+            class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;">💬 Send</a>
+        </div>`;
+      });
+    }
+    html+=`</div>`;
+  });
+
+  if(upcoming.length===0){
+    html+=`<div class="card"><div style="color:#aaa;text-align:center;padding:20px;">No festivals in the next 30 days.</div></div>`;
+  }
+
+  const el=document.getElementById('outreach-page-content');
+  if(el)el.innerHTML=html;
 }
 
 init();
