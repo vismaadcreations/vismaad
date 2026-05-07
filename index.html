@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.1 · 07-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.2 · 07-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -4414,7 +4414,7 @@ function setReligionOverride(arKey){
   const d=_ag(arKey);
   // Need either phone or name to save
   if(!d.phone&&!d.name)return;
-  const phone=d.phone,name=d.name,newReligion=d.religion;
+  const phone=d.phone||'',name=d.name||'',newReligion=d.religion;
   const overrides=lsGet('vc_religion_overrides',{});
   // Save by phone if available, otherwise by name key
   const saveKey=phone||('name:'+name.trim().toLowerCase());
@@ -4466,9 +4466,12 @@ function showReligionOverride(arKey){
     +'box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:99999;'
     +'pointer-events:all;';
 
+  const safeName=d.name||'this customer';
+  const safePhone=d.phone||'';
+
   const title=document.createElement('div');
   title.style.cssText='font-size:13px;font-weight:600;margin-bottom:12px;color:var(--brown);';
-  title.textContent='Set religion for: '+d.name;
+  title.textContent='Set religion for: '+safeName;
   sheet.appendChild(title);
 
   const btnRow=document.createElement('div');
@@ -4487,7 +4490,7 @@ function showReligionOverride(arKey){
       btn.style.color=colours[r]||'#888';
     }
     btn.addEventListener('click',()=>{
-      setReligionOverride(_ar({phone:d.phone,name:d.name,religion:r}));
+      setReligionOverride(_ar({phone:safePhone,name:safeName==='this customer'?'':safeName,religion:r}));
     });
     btnRow.appendChild(btn);
   });
