@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.9 · 07-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.0 · 07-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -4442,6 +4442,10 @@ function setReligionOverride(arKey){
   });
   document.getElementById('religion-override-overlay')?.remove();
   toast('Religion updated to '+newReligion);
+  // For phone-less entries, re-render the sales list to show updated badge
+  if(!phone){
+    renderSales();
+  }
   renderOutreachWidget();
 }
 
@@ -4480,7 +4484,6 @@ function showReligionOverride(arKey){
       btn.style.color=colours[r]||'#888';
     }
     btn.addEventListener('click',()=>{
-      document.getElementById('religion-override-overlay')?.remove();
       setReligionOverride(_ar({phone:d.phone,name:d.name,religion:r}));
     });
     btnRow.appendChild(btn);
