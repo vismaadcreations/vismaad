@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.3 · 07-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.4 · 07-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -4433,29 +4433,57 @@ function setReligionOverride(arKey){
 function showReligionOverride(arKey){
   const d=_ag(arKey);
   if(!d.phone){
-    // Legacy call with (phone,name,religion) args — wrap into registry
-    const[phone,name,religion]=arguments;
-    const k=_ar({phone,name,religion});
-    showReligionOverride(k);
+    // Legacy call — wrap args into registry
+    const phone=arguments[0],name=arguments[1],religion=arguments[2];
+    showReligionOverride(_ar({phone,name,religion}));
     return;
   }
   const existing=document.getElementById('religion-override-sheet');
   if(existing)existing.remove();
+
+  // Build sheet entirely with DOM methods — no innerHTML, no escaping issues
   const sheet=document.createElement('div');
   sheet.id='religion-override-sheet';
-  sheet.style.cssText='position:fixed;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 10px);left:16px;right:16px;background:var(--warm);border-radius:14px;padding:16px;box-shadow:0 4px 20px rgba(0,0,0,.2);z-index:500;';
-  // Register each option key safely
-  const opts=['Hindu','Sikh','Muslim','Unknown'].map(r=>{
-    const k=_ar({phone:d.phone,name:d.name,religion:r});
-    return`<button class="btn ${r===d.religion?'btn-p':'btn-o'}" style="flex:1;min-height:40px;"
-      onclick="setReligionOverride('${k}')">${r}${r===d.religion?' \u2713':''}</button>`;
+  sheet.style.cssText='position:fixed;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px);'
+    +'left:16px;right:16px;background:var(--warm);border-radius:14px;padding:16px;'
+    +'box-shadow:0 4px 24px rgba(0,0,0,.25);z-index:9000;';
+
+  const title=document.createElement('div');
+  title.style.cssText='font-size:13px;font-weight:600;margin-bottom:12px;color:var(--brown);';
+  title.textContent='Set religion for: '+d.name;
+  sheet.appendChild(title);
+
+  const btnRow=document.createElement('div');
+  btnRow.style.cssText='display:flex;gap:8px;flex-wrap:wrap;';
+
+  const colours={Hindu:'#c0392b',Sikh:'#c47b00',Muslim:'#1a7f3c',Unknown:'#888'};
+  ['Hindu','Sikh','Muslim','Unknown'].forEach(r=>{
+    const btn=document.createElement('button');
+    btn.style.cssText='flex:1;min-height:48px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:2px solid '+(colours[r]||'#888')+';';
+    btn.textContent=r+(r===d.religion?' ✓':'');
+    if(r===d.religion){
+      btn.style.background=colours[r]||'#888';
+      btn.style.color='#fff';
+    }else{
+      btn.style.background='transparent';
+      btn.style.color=colours[r]||'#888';
+    }
+    btn.addEventListener('click',()=>{
+      setReligionOverride(_ar({phone:d.phone,name:d.name,religion:r}));
+    });
+    btnRow.appendChild(btn);
   });
-  sheet.innerHTML=`<div style="font-size:13px;font-weight:600;margin-bottom:10px;">Religion for: ${d.name}</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">${opts.join('')}</div>
-    <button class="btn btn-o" style="width:100%;margin-top:8px;min-height:40px;"
-      onclick="document.getElementById('religion-override-sheet')?.remove();">Cancel</button>`;
+  sheet.appendChild(btnRow);
+
+  const cancel=document.createElement('button');
+  cancel.style.cssText='width:100%;min-height:44px;margin-top:10px;border-radius:10px;'
+    +'border:1.5px solid var(--border);background:transparent;font-size:14px;cursor:pointer;color:#888;';
+  cancel.textContent='Cancel';
+  cancel.addEventListener('click',()=>sheet.remove());
+  sheet.appendChild(cancel);
+
   document.body.appendChild(sheet);
-  setTimeout(()=>document.getElementById('religion-override-sheet')?.remove(),15000);
+  setTimeout(()=>sheet.remove(),15000);
 }
 
 
