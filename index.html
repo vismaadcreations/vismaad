@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.6 · 07-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.7 · 07-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -1267,7 +1267,16 @@ function init(){
       }
     });
     save();
-    // Show first launch setup if no address set (GSTIN optional)
+    // Cleanup: remove any wrongly set Hindu override for Sikh names (Singh/Kaur)
+    const _ov=lsGet('vc_religion_overrides',{});
+    let _fixed=false;
+    invoices.forEach(inv=>{
+      const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+      if(!ph||!_ov[ph])return;
+      const isSikh=(inv.custName||'').trim().split(/\s+/).some(p=>p.toLowerCase()==='singh'||p.toLowerCase()==='kaur');
+      if(isSikh&&_ov[ph]==='Hindu'){delete _ov[ph];_fixed=true;}
+    });
+    if(_fixed)lsSet('vc_religion_overrides',_ov);
     if(!S.address){
       showSetupScreen();
       return;
@@ -1879,8 +1888,7 @@ function renderSales(){
     const shipped=inv.isShipped||inv.status==='Shipped';
     const badge=shipped?'<span class="badge b-green">Shipped</span>':'<span class="badge b-yellow">Pending</span>';
     const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
-    const overrides=lsGet('vc_religion_overrides',{});
-    const rel=overrides[ph]||detectReligion(inv.custName||'');
+    const rel=getInvReligion(inv);
     const col={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[rel]||'#888';
     const arKey=_ar({phone:ph,name:inv.custName||'',religion:rel});
     return`<div class="card" style="margin-bottom:10px;">
@@ -4363,35 +4371,34 @@ const MUSLIM_NAMES=new Set([
   'aroha','arooba','areeba','abida','abira','afshan','afsana'
 ]);
 
+// Pure name-based detection — no side effects, no localStorage reads
 function detectReligion(name){
   if(!name)return'Unknown';
-  // Check overrides first
-  const overrides=lsGet('vc_religion_overrides',{});
-  // We check by name key (lowercase first name) for consistency
   const nameParts=name.trim().split(/\s+/);
   const first=(nameParts[0]||'').toLowerCase();
-  const nameKey=name.trim().toLowerCase();
-
-  // Per-phone overrides checked in getUniqueCustomers, here we do name-based
-  // Custom Muslim additions
+  // Sikh — Singh or Kaur anywhere in name (highest priority)
+  if(nameParts.some(p=>p.toLowerCase()==='singh'||p.toLowerCase()==='kaur'))return'Sikh';
+  // Muslim — first name match
   const customMuslim=lsGet('vc_muslim_names',[]).map(n=>n.toLowerCase());
   const notMuslim=lsGet('vc_not_muslim',[]).map(n=>n.toLowerCase());
-
-  // Sikh detection — Singh or Kaur anywhere in name
-  const isSikh=nameParts.some(p=>p.toLowerCase()==='singh'||p.toLowerCase()==='kaur');
-  if(isSikh)return'Sikh';
-
-  // Muslim detection — first name in built-in or custom list, not in not-muslim list
   if(!notMuslim.includes(first)&&(MUSLIM_NAMES.has(first)||customMuslim.includes(first)))return'Muslim';
-
   return'Hindu';
 }
 
+// Get religion for a customer — phone override always wins
 function getCustomerReligion(customer){
-  // Per-phone override takes highest priority
   const overrides=lsGet('vc_religion_overrides',{});
-  if(overrides[customer.phone])return overrides[customer.phone];
+  const ph=(customer.phone||'').replace(/\D/g,'');
+  if(ph&&overrides[ph])return overrides[ph];
   return detectReligion(customer.name);
+}
+
+// Get religion for an invoice directly (used in sales card)
+function getInvReligion(inv){
+  const overrides=lsGet('vc_religion_overrides',{});
+  const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+  if(ph&&overrides[ph])return overrides[ph];
+  return detectReligion(inv.custName||'');
 }
 
 // ── GLOBAL ACTION REGISTRY — eliminates ALL inline string escaping bugs ──
