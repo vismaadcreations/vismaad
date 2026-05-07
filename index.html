@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.7 · 07-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.9 · 07-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -1902,7 +1902,7 @@ function renderSales(){
           </div>
           <div style="font-size:14px;font-weight:500;">${esc(inv.custName)||'—'}</div>
           <div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">
-            <span data-rel-phone="${ph}" style="font-size:10px;font-weight:700;color:#fff;background:${col};padding:1px 7px;border-radius:8px;">${rel}</span>
+            <span data-rel-phone="${ph}" data-rel-name="${(inv.custName||'').trim().toLowerCase()}" style="font-size:10px;font-weight:700;color:#fff;background:${col};padding:1px 7px;border-radius:8px;">${rel}</span>
             <button style="font-size:10px;color:#888;background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;"
               onclick="showReligionOverride('${arKey}')">Change</button>
           </div>
@@ -4398,6 +4398,9 @@ function getInvReligion(inv){
   const overrides=lsGet('vc_religion_overrides',{});
   const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
   if(ph&&overrides[ph])return overrides[ph];
+  // Fallback: name-based key for invoices with no phone
+  const nameKey='name:'+(inv.custName||'').trim().toLowerCase();
+  if(overrides[nameKey])return overrides[nameKey];
   return detectReligion(inv.custName||'');
 }
 
@@ -4409,10 +4412,13 @@ function _ag(key){return _AR[key]||{};}
 
 function setReligionOverride(arKey){
   const d=_ag(arKey);
-  if(!d.phone)return;
+  // Need either phone or name to save
+  if(!d.phone&&!d.name)return;
   const phone=d.phone,name=d.name,newReligion=d.religion;
   const overrides=lsGet('vc_religion_overrides',{});
-  overrides[phone]=newReligion;
+  // Save by phone if available, otherwise by name key
+  const saveKey=phone||('name:'+name.trim().toLowerCase());
+  overrides[saveKey]=newReligion;
   lsSet('vc_religion_overrides',overrides);
   const first=(name.trim().split(/\s+/)[0]||'').toLowerCase();
   if(newReligion==='Muslim'){
@@ -4427,13 +4433,14 @@ function setReligionOverride(arKey){
   }
   // Update only the badge element for this phone — do NOT re-render entire sales list
   document.querySelectorAll('[data-rel-phone]').forEach(el=>{
-    if(el.dataset.relPhone===phone){
+    const elPhone=el.dataset.relPhone;
+    if((phone&&elPhone===phone)||(!phone&&el.dataset.relName===name.trim().toLowerCase())){
       const col={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[newReligion]||'#888';
       el.style.background=col;
       el.textContent=newReligion;
     }
   });
-  document.getElementById('religion-override-sheet')?.remove();
+  document.getElementById('religion-override-overlay')?.remove();
   toast('Religion updated to '+newReligion);
   renderOutreachWidget();
 }
@@ -4446,15 +4453,11 @@ function showReligionOverride(arKey){
     showReligionOverride(_ar({phone,name,religion}));
     return;
   }
-  const existing=document.getElementById('religion-override-sheet');
-  if(existing)existing.remove();
+  document.getElementById('religion-override-overlay')?.remove();
 
-  // Build sheet entirely with DOM methods — no innerHTML, no escaping issues
+  // Build sheet with DOM methods — overlay handles positioning and touch capture
   const sheet=document.createElement('div');
   sheet.id='religion-override-sheet';
-  sheet.style.cssText='position:fixed;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px);'
-    +'left:16px;right:16px;background:var(--warm);border-radius:14px;padding:16px;'
-    +'box-shadow:0 4px 24px rgba(0,0,0,.25);z-index:9000;';
 
   const title=document.createElement('div');
   title.style.cssText='font-size:13px;font-weight:600;margin-bottom:12px;color:var(--brown);';
@@ -4477,6 +4480,7 @@ function showReligionOverride(arKey){
       btn.style.color=colours[r]||'#888';
     }
     btn.addEventListener('click',()=>{
+      document.getElementById('religion-override-overlay')?.remove();
       setReligionOverride(_ar({phone:d.phone,name:d.name,religion:r}));
     });
     btnRow.appendChild(btn);
@@ -4487,11 +4491,22 @@ function showReligionOverride(arKey){
   cancel.style.cssText='width:100%;min-height:44px;margin-top:10px;border-radius:10px;'
     +'border:1.5px solid var(--border);background:transparent;font-size:14px;cursor:pointer;color:#888;';
   cancel.textContent='Cancel';
-  cancel.addEventListener('click',()=>sheet.remove());
+  cancel.addEventListener('click',()=>overlay.remove());
   sheet.appendChild(cancel);
 
-  document.body.appendChild(sheet);
-  setTimeout(()=>sheet.remove(),15000);
+  // Append inside the app root so it sits in the correct stacking context
+  // Using a modal-bg style overlay to capture all touches correctly on iPhone
+  const overlay=document.createElement('div');
+  overlay.id='religion-override-overlay';
+  overlay.style.cssText='position:fixed;inset:0;z-index:8999;background:rgba(0,0,0,0.4);display:flex;align-items:flex-end;padding:0 16px 16px;';
+  overlay.addEventListener('click',(e)=>{if(e.target===overlay)overlay.remove();});
+
+  sheet.style.cssText='width:100%;background:var(--warm);border-radius:14px;padding:16px;'
+    +'box-shadow:0 4px 24px rgba(0,0,0,.25);';
+
+  overlay.appendChild(sheet);
+  document.body.appendChild(overlay);
+  setTimeout(()=>overlay.remove(),15000);
 }
 
 
