@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.1 · 07-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.2 · 07-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -1859,10 +1859,12 @@ function renderSales(){
               const overrides=lsGet('vc_religion_overrides',{});
               const rel=overrides[ph]||detectReligion(inv.custName||'');
               const col={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[rel]||'#888';
-              const safeName=(inv.custName||'').replace(/'/g,"\\'");
+              // Store data in map keyed by idx — avoids escaping issues in onclick
+              window._religionData=window._religionData||{};
+              window._religionData[idx]={phone:ph,name:inv.custName||'',religion:rel};
               return`<span style="font-size:10px;font-weight:700;color:#fff;background:${col};padding:1px 7px;border-radius:8px;">${rel}</span>
                 <button style="font-size:10px;color:#888;background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;"
-                  onclick="showReligionOverride('${ph}','${safeName}','${rel}')">Change</button>`;
+                  onclick="showReligionOverrideByIdx(${idx})">Change</button>`;
             })()}
           </div>
           <div style="font-size:12px;color:#888;margin-top:2px;">${inv.itemsSummary||''}</div>
@@ -2024,11 +2026,13 @@ function editInvoiceByIdx(idx){
   const overrides2=lsGet('vc_religion_overrides',{});
   const rel2=overrides2[ph2]||detectReligion(inv.custName||'');
   const col2={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[rel2]||'#888';
+  // Store in safe map for edit modal
+  window._editReligionData={phone:ph2,name:inv.custName||'',religion:rel2};
   const relDiv=document.getElementById('edit-religion-row');
   if(relDiv){
     relDiv.innerHTML=`<span style="font-size:11px;font-weight:700;color:#fff;background:${col2};padding:2px 8px;border-radius:8px;">${rel2}</span>
       <button style="font-size:11px;color:#888;background:none;border:none;padding:0 6px;cursor:pointer;text-decoration:underline;"
-        onclick="showReligionOverride('${ph2}','${(inv.custName||'').replace(/'/g,"\\'")}','${rel2}')">Change religion</button>`;
+        onclick="showReligionOverrideFromEdit()">Change religion</button>`;
   }
   // Customer details
   document.getElementById('edit-name').value=inv.custName||'';
@@ -4397,7 +4401,19 @@ function religionBadge(religion,phone,name,compact){
   </div>`;
 }
 
-// Religion override inline picker — shown as a toast-style bottom sheet
+// Safe version — reads data from window map, avoids inline string escaping bugs
+function showReligionOverrideByIdx(idx){
+  const d=window._religionData&&window._religionData[idx];
+  if(!d)return;
+  showReligionOverride(d.phone,d.name,d.religion);
+}
+function showReligionOverrideFromEdit(){
+  const d=window._editReligionData;
+  if(!d)return;
+  showReligionOverride(d.phone,d.name,d.religion);
+}
+
+// Religion override inline picker
 function showReligionOverride(phone,name,current){
   const existing=document.getElementById('religion-override-sheet');
   if(existing)existing.remove();
@@ -4763,6 +4779,10 @@ async function renderOutreachPage(){
 
   const rColour={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'};
 
+  // Build safe religion data map for outreach page
+  window._outreachReligionData={};
+  followups.forEach((c,i)=>{window._outreachReligionData['fu_'+i]={phone:c.phone,name:c.name,religion:c.religion};});
+
   let html=`<div class="card">
     <div class="card-title">📬 Follow-ups Due (${followups.length})</div>
     <div style="font-size:12px;color:#888;margin-bottom:12px;">
@@ -4772,7 +4792,7 @@ async function renderOutreachPage(){
   if(followups.length===0){
     html+=`<div style="color:#aaa;text-align:center;padding:16px;">No follow-ups due.</div>`;
   }else{
-    followups.forEach(c=>{
+    followups.forEach((c,i)=>{
       const days=Math.round((new Date(todayStr)-new Date(c.lastOrder+'T00:00:00'))/(864e5));
       const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
       const num=ph.length===10?'91'+ph:ph;
@@ -4785,7 +4805,7 @@ async function renderOutreachPage(){
           </div>
           <div class="list-sub">${c.lastInvNo} · ${fmtDate(c.lastOrder)} · ${days} days ago</div>
           <button style="font-size:10px;color:#888;background:none;border:none;padding:2px 0;cursor:pointer;"
-            onclick="showReligionOverride('${c.phone}','${c.name.replace(/'/g,"\\'")}','${c.religion}')">Change religion</button>
+            onclick="showReligionOverride(window._outreachReligionData['fu_${i}'].phone,window._outreachReligionData['fu_${i}'].name,window._outreachReligionData['fu_${i}'].religion)">Change religion</button>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;">
           <a href="https://wa.me/${num}?text=${encodeURIComponent(msg)}" target="_blank"
@@ -4835,27 +4855,28 @@ async function renderOutreachPage(){
       return{num,msg:getFestivalMessage(f.key,c.name,f.approx),phone:c.phone,name:c.name};
     });
 
+    // Build safe data map for this festival's customers
+    let festMapKey=0;
+    const festMapPrefix=`fest_${f.key}_`;
+
     html+=`<div class="card">
       <div class="card-title">🎉 ${f.name} — ${dayLabel}</div>
       ${fallbackNote}
       <div style="font-size:12px;color:#888;margin-bottom:10px;">${visible.length} to send · ${sentCount} already sent</div>
-
-      <!-- Religion filters -->
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
         <span style="font-size:11px;color:#888;align-self:center;">Show:</span>
         ${filterBtns}
       </div>
-
-      <!-- Send All Visible -->
       ${visible.length>0?`<button class="btn btn-g" style="width:100%;margin-bottom:12px;"
         onclick="sendAllVisible(${JSON.stringify(sendAllLinks.map(l=>({num:l.num,msg:l.msg,phone:l.phone,name:l.name}))).replace(/"/g,'&quot;')},'${f.key}',${yr})">
         💬 Send All Visible (${visible.length})
       </button>`:''}
-
-      <!-- Customer list -->
       ${visible.length===0
         ?`<div style="color:#aaa;text-align:center;padding:12px;">No customers match current filters.</div>`
-        :visible.map(c=>{
+        :visible.map((c,ci)=>{
+          const mapKey=festMapPrefix+ci;
+          window._outreachReligionData=window._outreachReligionData||{};
+          window._outreachReligionData[mapKey]={phone:c.phone,name:c.name,religion:c.religion};
           const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
           const num=ph.length===10?'91'+ph:ph;
           const msg=getFestivalMessage(f.key,c.name,f.approx);
@@ -4867,7 +4888,7 @@ async function renderOutreachPage(){
               </div>
               <div class="list-sub">${c.state||'—'} · ${fmtDate(c.lastOrder)}</div>
               <button style="font-size:10px;color:#888;background:none;border:none;padding:2px 0;cursor:pointer;"
-                onclick="showReligionOverride('${c.phone}','${c.name.replace(/'/g,"\\'")}','${c.religion}')">Change religion</button>
+                onclick="showReligionOverride(window._outreachReligionData['${mapKey}'].phone,window._outreachReligionData['${mapKey}'].name,window._outreachReligionData['${mapKey}'].religion)">Change religion</button>
             </div>
             <a href="https://wa.me/${num}?text=${encodeURIComponent(msg)}" target="_blank"
               onclick="logMsg('${c.phone}','${f.key}',${yr},'${c.name.replace(/'/g,"\\'")}');setTimeout(()=>renderOutreachPage(),600);"
