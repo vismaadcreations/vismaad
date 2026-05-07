@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.2 · 07-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.3 · 07-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -553,6 +553,15 @@ body.gst-mode .gst-only{display:block;}
     <select id="sales-filter" onchange="renderSales()" style="padding:12px 10px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;">
       <option value="">All</option><option value="Shipped">Shipped</option><option value="Pending">Pending</option>
     </select>
+  </div>
+  <!-- Religion filter -->
+  <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">
+    <span style="font-size:11px;color:#888;">Religion:</span>
+    <button onclick="toggleSalesReligionFilter('All')" id="rfbtn-All" style="padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;cursor:pointer;border:2px solid var(--brown);background:var(--brown);color:#fff;">All</button>
+    <button onclick="toggleSalesReligionFilter('Hindu')" id="rfbtn-Hindu" style="padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;cursor:pointer;border:2px solid #c0392b;background:transparent;color:#c0392b;">Hindu</button>
+    <button onclick="toggleSalesReligionFilter('Sikh')" id="rfbtn-Sikh" style="padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;cursor:pointer;border:2px solid #c47b00;background:transparent;color:#c47b00;">Sikh</button>
+    <button onclick="toggleSalesReligionFilter('Muslim')" id="rfbtn-Muslim" style="padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;cursor:pointer;border:2px solid #1a7f3c;background:transparent;color:#1a7f3c;">Muslim</button>
+    <button onclick="toggleSalesReligionFilter('Unknown')" id="rfbtn-Unknown" style="padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;cursor:pointer;border:2px solid #888;background:transparent;color:#888;">Unknown</button>
   </div>
 
   <!-- Sort bar -->
@@ -1821,6 +1830,22 @@ function applySortToList(list){
     return db>da?1:db<da?-1:0; // default: newest first
   });
 }
+let _salesReligionFilter='All';
+function toggleSalesReligionFilter(r){
+  _salesReligionFilter=r;
+  // Update button styles
+  ['All','Hindu','Sikh','Muslim','Unknown'].forEach(rel=>{
+    const btn=document.getElementById('rfbtn-'+rel);
+    if(!btn)return;
+    const active=rel===r;
+    const cols={Hindu:'#c0392b',Sikh:'#c47b00',Muslim:'#1a7f3c',Unknown:'#888',All:'var(--brown)'};
+    const col=cols[rel]||'#888';
+    btn.style.background=active?col:'transparent';
+    btn.style.color=active?'#fff':col;
+  });
+  renderSales();
+}
+
 function renderSales(){
   const q=(document.getElementById('sales-search')?.value||'').toLowerCase();
   const sf=document.getElementById('sales-filter')?.value||'';
@@ -1832,6 +1857,13 @@ function renderSales(){
     if(sf==='Shipped'&&!shipped)return false;
     if(sf==='Pending'&&shipped)return false;
     if(q&&!inv.custName?.toLowerCase().includes(q)&&!inv.invNo?.toLowerCase().includes(q)&&!(inv.itemsSummary||'').toLowerCase().includes(q))return false;
+    // Religion filter
+    if(_salesReligionFilter&&_salesReligionFilter!=='All'){
+      const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+      const overrides=lsGet('vc_religion_overrides',{});
+      const rel=overrides[ph]||detectReligion(inv.custName||'');
+      if(rel!==_salesReligionFilter)return false;
+    }
     return true;
   }));
   const cnt=document.getElementById('sales-count');
@@ -1859,12 +1891,10 @@ function renderSales(){
               const overrides=lsGet('vc_religion_overrides',{});
               const rel=overrides[ph]||detectReligion(inv.custName||'');
               const col={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[rel]||'#888';
-              // Store data in map keyed by idx — avoids escaping issues in onclick
-              window._religionData=window._religionData||{};
-              window._religionData[idx]={phone:ph,name:inv.custName||'',religion:rel};
-              return`<span style="font-size:10px;font-weight:700;color:#fff;background:${col};padding:1px 7px;border-radius:8px;">${rel}</span>
+              const arKey=_ar({phone:ph,name:inv.custName||'',religion:rel});
+              return`<span data-rel-phone="${ph}" style="font-size:10px;font-weight:700;color:#fff;background:${col};padding:1px 7px;border-radius:8px;">${rel}</span>
                 <button style="font-size:10px;color:#888;background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;"
-                  onclick="showReligionOverrideByIdx(${idx})">Change</button>`;
+                  onclick="showReligionOverride('${arKey}')">Change</button>`;
             })()}
           </div>
           <div style="font-size:12px;color:#888;margin-top:2px;">${inv.itemsSummary||''}</div>
@@ -2026,13 +2056,12 @@ function editInvoiceByIdx(idx){
   const overrides2=lsGet('vc_religion_overrides',{});
   const rel2=overrides2[ph2]||detectReligion(inv.custName||'');
   const col2={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[rel2]||'#888';
-  // Store in safe map for edit modal
-  window._editReligionData={phone:ph2,name:inv.custName||'',religion:rel2};
+  const editRelKey=_ar({phone:ph2,name:inv.custName||'',religion:rel2});
   const relDiv=document.getElementById('edit-religion-row');
   if(relDiv){
-    relDiv.innerHTML=`<span style="font-size:11px;font-weight:700;color:#fff;background:${col2};padding:2px 8px;border-radius:8px;">${rel2}</span>
+    relDiv.innerHTML=`<span data-rel-phone="${ph2}" style="font-size:11px;font-weight:700;color:#fff;background:${col2};padding:2px 8px;border-radius:8px;">${rel2}</span>
       <button style="font-size:11px;color:#888;background:none;border:none;padding:0 6px;cursor:pointer;text-decoration:underline;"
-        onclick="showReligionOverrideFromEdit()">Change religion</button>`;
+        onclick="showReligionOverride('${editRelKey}')">Change religion</button>`;
   }
   // Customer details
   document.getElementById('edit-name').value=inv.custName||'';
@@ -4364,77 +4393,71 @@ function getCustomerReligion(customer){
   return detectReligion(customer.name);
 }
 
-function setReligionOverride(phone,name,religion){
+// ── GLOBAL ACTION REGISTRY — eliminates ALL inline string escaping bugs ──
+const _AR={};
+let _AR_counter=0;
+function _ar(data){const key='ar'+(++_AR_counter);_AR[key]=data;return key;}
+function _ag(key){return _AR[key]||{};}
+
+function setReligionOverride(arKey){
+  const d=_ag(arKey);
+  if(!d.phone)return;
+  const phone=d.phone,name=d.name,religion=d.religion;
   const overrides=lsGet('vc_religion_overrides',{});
   overrides[phone]=religion;
   lsSet('vc_religion_overrides',overrides);
-
   const first=(name.trim().split(/\s+/)[0]||'').toLowerCase();
   if(religion==='Muslim'){
-    // Add first name to custom Muslim list
     const custom=lsGet('vc_muslim_names',[]);
     if(!custom.includes(first)){custom.push(first);lsSet('vc_muslim_names',custom);}
-    // Remove from not-muslim if present
-    const notM=lsGet('vc_not_muslim',[]).filter(n=>n!==first);
-    lsSet('vc_not_muslim',notM);
-  }else if(religion!=='Muslim'){
-    // If was auto-detected Muslim, add to not-muslim list to prevent future auto-detection
+    lsSet('vc_not_muslim',lsGet('vc_not_muslim',[]).filter(n=>n!==first));
+  }else{
     if(MUSLIM_NAMES.has(first)||lsGet('vc_muslim_names',[]).includes(first)){
       const notM=lsGet('vc_not_muslim',[]);
       if(!notM.includes(first)){notM.push(first);lsSet('vc_not_muslim',notM);}
     }
   }
-  renderSales();
+  // Update only the badge element for this phone — do NOT re-render entire sales list
+  document.querySelectorAll('[data-rel-phone]').forEach(el=>{
+    if(el.dataset.relPhone===phone){
+      const col={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[religion]||'#888';
+      el.style.background=col;
+      el.textContent=religion;
+    }
+  });
+  document.getElementById('religion-override-sheet')?.remove();
+  toast('Religion updated to '+religion);
   renderOutreachWidget();
 }
 
-// Religion badge HTML
-function religionBadge(religion,phone,name,compact){
-  const colours={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'};
-  const col=colours[religion]||'#888';
-  const badge=`<span style="font-size:10px;font-weight:700;color:#fff;background:${col};padding:2px 7px;border-radius:10px;">${religion}</span>`;
-  if(compact)return badge;
-  return`<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
-    ${badge}
-    <button class="btn btn-o btn-sm" style="font-size:10px;padding:2px 8px;height:auto;min-height:0;"
-      onclick="showReligionOverride('${phone}','${name.replace(/'/g,"\\'")}','${religion}')">Change</button>
-  </div>`;
-}
-
-// Safe version — reads data from window map, avoids inline string escaping bugs
-function showReligionOverrideByIdx(idx){
-  const d=window._religionData&&window._religionData[idx];
-  if(!d)return;
-  showReligionOverride(d.phone,d.name,d.religion);
-}
-function showReligionOverrideFromEdit(){
-  const d=window._editReligionData;
-  if(!d)return;
-  showReligionOverride(d.phone,d.name,d.religion);
-}
-
-// Religion override inline picker
-function showReligionOverride(phone,name,current){
+function showReligionOverride(arKey){
+  const d=_ag(arKey);
+  if(!d.phone){
+    // Legacy call with (phone,name,religion) args — wrap into registry
+    const[phone,name,religion]=arguments;
+    const k=_ar({phone,name,religion});
+    showReligionOverride(k);
+    return;
+  }
   const existing=document.getElementById('religion-override-sheet');
   if(existing)existing.remove();
   const sheet=document.createElement('div');
   sheet.id='religion-override-sheet';
   sheet.style.cssText='position:fixed;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 10px);left:16px;right:16px;background:var(--warm);border-radius:14px;padding:16px;box-shadow:0 4px 20px rgba(0,0,0,.2);z-index:500;';
-  sheet.innerHTML=`
-    <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Set religion for ${name}</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      ${['Hindu','Sikh','Muslim','Unknown'].map(r=>`
-        <button class="btn ${r===current?'btn-p':'btn-o'}" style="flex:1;min-height:40px;"
-          onclick="setReligionOverride('${phone}','${name.replace(/'/g,"\\'")}','${r}');document.getElementById('religion-override-sheet')?.remove();">
-          ${r}${r===current?' ✓':''}
-        </button>`).join('')}
-    </div>
+  // Register each option key safely
+  const opts=['Hindu','Sikh','Muslim','Unknown'].map(r=>{
+    const k=_ar({phone:d.phone,name:d.name,religion:r});
+    return`<button class="btn ${r===d.religion?'btn-p':'btn-o'}" style="flex:1;min-height:40px;"
+      onclick="setReligionOverride('${k}')">${r}${r===d.religion?' \u2713':''}</button>`;
+  });
+  sheet.innerHTML=`<div style="font-size:13px;font-weight:600;margin-bottom:10px;">Religion for: ${d.name}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">${opts.join('')}</div>
     <button class="btn btn-o" style="width:100%;margin-top:8px;min-height:40px;"
       onclick="document.getElementById('religion-override-sheet')?.remove();">Cancel</button>`;
   document.body.appendChild(sheet);
-  // Auto-dismiss after 10s
-  setTimeout(()=>document.getElementById('religion-override-sheet')?.remove(),10000);
+  setTimeout(()=>document.getElementById('religion-override-sheet')?.remove(),15000);
 }
+
 
 // ── FESTIVAL DEFINITIONS ──
 const FIXED_FESTIVALS=[
@@ -4531,6 +4554,12 @@ function logMsg(phone,type,year,name){
   msgLog.push({phone,type,year,sentDate:today(),name:name||''});
   saveMsgLog();
   gsWrite('MessageLog',{phone,type,year,sentDate:today(),name:name||''});
+}
+// Registry-based version — avoids inline string bugs
+function logMsgAR(arKey){
+  const d=_ag(arKey);
+  if(!d.phone)return;
+  logMsg(d.phone,d.type,d.year,d.name);
 }
 function isOptedOut(phone){
   return msgLog.some(l=>l.phone===phone&&l.type==='followup_opt_out');
@@ -4779,10 +4808,7 @@ async function renderOutreachPage(){
 
   const rColour={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'};
 
-  // Build safe religion data map for outreach page
-  window._outreachReligionData={};
-  followups.forEach((c,i)=>{window._outreachReligionData['fu_'+i]={phone:c.phone,name:c.name,religion:c.religion};});
-
+  // Build safe registry entries for follow-up rows
   let html=`<div class="card">
     <div class="card-title">📬 Follow-ups Due (${followups.length})</div>
     <div style="font-size:12px;color:#888;margin-bottom:12px;">
@@ -4798,21 +4824,24 @@ async function renderOutreachPage(){
       const num=ph.length===10?'91'+ph:ph;
       const msg=getFestivalMessage('followup',c.name);
       const rCol=rColour[c.religion]||'#888';
+      const relKey=_ar({phone:c.phone,name:c.name,religion:c.religion});
+      const logKey=_ar({phone:c.phone,type:'followup',year:yr,name:c.name});
+      const optKey=_ar({phone:c.phone,type:'followup_opt_out',year:yr,name:c.name});
       html+=`<div class="list-row" style="align-items:flex-start;gap:8px;">
         <div style="flex:1;">
           <div class="list-main">${c.name}
-            <span style="font-size:10px;font-weight:700;color:#fff;background:${rCol};padding:1px 6px;border-radius:8px;margin-left:6px;">${c.religion}</span>
+            <span data-rel-phone="${c.phone}" style="font-size:10px;font-weight:700;color:#fff;background:${rCol};padding:1px 6px;border-radius:8px;margin-left:6px;">${c.religion}</span>
           </div>
           <div class="list-sub">${c.lastInvNo} · ${fmtDate(c.lastOrder)} · ${days} days ago</div>
           <button style="font-size:10px;color:#888;background:none;border:none;padding:2px 0;cursor:pointer;"
-            onclick="showReligionOverride(window._outreachReligionData['fu_${i}'].phone,window._outreachReligionData['fu_${i}'].name,window._outreachReligionData['fu_${i}'].religion)">Change religion</button>
+            onclick="showReligionOverride('${relKey}')">Change religion</button>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;">
           <a href="https://wa.me/${num}?text=${encodeURIComponent(msg)}" target="_blank"
-            onclick="logMsg('${c.phone}','followup',${yr},'${c.name.replace(/'/g,"\\'")}');setTimeout(()=>renderOutreachPage(),600);"
+            onclick="logMsgAR('${logKey}');setTimeout(()=>renderOutreachPage(),600);"
             class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;text-align:center;">💬 Send</a>
           <button class="btn btn-o btn-sm" style="min-height:36px;font-size:10px;"
-            onclick="logMsg('${c.phone}','followup_opt_out',${yr},'${c.name.replace(/'/g,"\\'")}');renderOutreachPage();">Never remind</button>
+            onclick="logMsgAR('${optKey}');renderOutreachPage();">Never remind</button>
         </div>
       </div>`;
     });
@@ -4874,24 +4903,23 @@ async function renderOutreachPage(){
       ${visible.length===0
         ?`<div style="color:#aaa;text-align:center;padding:12px;">No customers match current filters.</div>`
         :visible.map((c,ci)=>{
-          const mapKey=festMapPrefix+ci;
-          window._outreachReligionData=window._outreachReligionData||{};
-          window._outreachReligionData[mapKey]={phone:c.phone,name:c.name,religion:c.religion};
           const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
           const num=ph.length===10?'91'+ph:ph;
           const msg=getFestivalMessage(f.key,c.name,f.approx);
           const rCol=rColour[c.religion]||'#888';
+          const relKey=_ar({phone:c.phone,name:c.name,religion:c.religion});
+          const logKey=_ar({phone:c.phone,type:f.key,year:yr,name:c.name});
           return`<div class="list-row" style="align-items:flex-start;gap:8px;">
             <div style="flex:1;">
               <div class="list-main">${c.name}
-                <span style="font-size:10px;font-weight:700;color:#fff;background:${rCol};padding:1px 6px;border-radius:8px;margin-left:6px;">${c.religion}</span>
+                <span data-rel-phone="${c.phone}" style="font-size:10px;font-weight:700;color:#fff;background:${rCol};padding:1px 6px;border-radius:8px;margin-left:6px;">${c.religion}</span>
               </div>
               <div class="list-sub">${c.state||'—'} · ${fmtDate(c.lastOrder)}</div>
               <button style="font-size:10px;color:#888;background:none;border:none;padding:2px 0;cursor:pointer;"
-                onclick="showReligionOverride(window._outreachReligionData['${mapKey}'].phone,window._outreachReligionData['${mapKey}'].name,window._outreachReligionData['${mapKey}'].religion)">Change religion</button>
+                onclick="showReligionOverride('${relKey}')">Change religion</button>
             </div>
             <a href="https://wa.me/${num}?text=${encodeURIComponent(msg)}" target="_blank"
-              onclick="logMsg('${c.phone}','${f.key}',${yr},'${c.name.replace(/'/g,"\\'")}');setTimeout(()=>renderOutreachPage(),600);"
+              onclick="logMsgAR('${logKey}');setTimeout(()=>renderOutreachPage(),600);"
               class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;text-align:center;">💬 Send</a>
           </div>`;
         }).join('')
