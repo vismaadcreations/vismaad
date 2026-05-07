@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.0 · 06-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.1 · 07-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -677,7 +677,8 @@ body.gst-mode .gst-only{display:block;}
   <div class="modal">
     <button class="modal-close" onclick="closeEditModal()">✕</button>
     <div class="modal-title">✏️ Edit Details</div>
-    <div style="font-size:13px;color:#888;margin-bottom:14px;" id="edit-modal-subtitle"></div>
+    <div style="font-size:13px;color:#888;margin-bottom:6px;" id="edit-modal-subtitle"></div>
+    <div id="edit-religion-row" style="display:flex;align-items:center;gap:8px;margin-bottom:14px;"></div>
     <div style="background:#fff8ee;border-radius:8px;padding:8px 12px;font-size:12px;color:#888;margin-bottom:14px;line-height:1.6;">
       ℹ️ You can edit customer details, shipping, costs and notes. To correct items or prices, issue a <strong>Credit Note</strong> against this document.
     </div>
@@ -1852,6 +1853,18 @@ function renderSales(){
             <div style="text-align:right;"><div style="font-weight:700;font-size:16px;color:var(--brown);">₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}</div>${badge}</div>
           </div>
           <div style="font-size:14px;font-weight:500;">${inv.custName||'—'}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">
+            ${(()=>{
+              const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+              const overrides=lsGet('vc_religion_overrides',{});
+              const rel=overrides[ph]||detectReligion(inv.custName||'');
+              const col={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[rel]||'#888';
+              const safeName=(inv.custName||'').replace(/'/g,"\\'");
+              return`<span style="font-size:10px;font-weight:700;color:#fff;background:${col};padding:1px 7px;border-radius:8px;">${rel}</span>
+                <button style="font-size:10px;color:#888;background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;"
+                  onclick="showReligionOverride('${ph}','${safeName}','${rel}')">Change</button>`;
+            })()}
+          </div>
           <div style="font-size:12px;color:#888;margin-top:2px;">${inv.itemsSummary||''}</div>
           ${inv.channel?`<div style="font-size:12px;color:#888;margin-top:2px;">${chIcon[inv.channel]||''} ${inv.channel}</div>`:''}
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;padding-bottom:4px;">
@@ -2006,6 +2019,17 @@ function editInvoiceByIdx(idx){
   const gst=inv.isGST===true||inv.isGST==='true';
   document.getElementById('edit-modal-subtitle').textContent=
     (gst?'Tax Invoice':'Bill of Supply')+' · '+(inv.invNo||'—')+'  ·  '+(inv.custName||'—')+'  ·  '+fmtDate(inv.invDate);
+  // Show religion in modal
+  const ph2=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+  const overrides2=lsGet('vc_religion_overrides',{});
+  const rel2=overrides2[ph2]||detectReligion(inv.custName||'');
+  const col2={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[rel2]||'#888';
+  const relDiv=document.getElementById('edit-religion-row');
+  if(relDiv){
+    relDiv.innerHTML=`<span style="font-size:11px;font-weight:700;color:#fff;background:${col2};padding:2px 8px;border-radius:8px;">${rel2}</span>
+      <button style="font-size:11px;color:#888;background:none;border:none;padding:0 6px;cursor:pointer;text-decoration:underline;"
+        onclick="showReligionOverride('${ph2}','${(inv.custName||'').replace(/'/g,"\\'")}','${rel2}')">Change religion</button>`;
+  }
   // Customer details
   document.getElementById('edit-name').value=inv.custName||'';
   document.getElementById('edit-phone').value=inv.custPhone||'';
@@ -4305,34 +4329,130 @@ const MUSLIM_NAMES=new Set([
   'aroha','arooba','areeba','abida','abira','afshan','afsana'
 ]);
 
-function isLikelyMuslim(name){
-  if(!name)return false;
+function detectReligion(name){
+  if(!name)return'Unknown';
+  // Check overrides first
+  const overrides=lsGet('vc_religion_overrides',{});
+  // We check by name key (lowercase first name) for consistency
+  const nameParts=name.trim().split(/\s+/);
+  const first=(nameParts[0]||'').toLowerCase();
+  const nameKey=name.trim().toLowerCase();
+
+  // Per-phone overrides checked in getUniqueCustomers, here we do name-based
+  // Custom Muslim additions
+  const customMuslim=lsGet('vc_muslim_names',[]).map(n=>n.toLowerCase());
+  const notMuslim=lsGet('vc_not_muslim',[]).map(n=>n.toLowerCase());
+
+  // Sikh detection — Singh or Kaur anywhere in name
+  const isSikh=nameParts.some(p=>p.toLowerCase()==='singh'||p.toLowerCase()==='kaur');
+  if(isSikh)return'Sikh';
+
+  // Muslim detection — first name in built-in or custom list, not in not-muslim list
+  if(!notMuslim.includes(first)&&(MUSLIM_NAMES.has(first)||customMuslim.includes(first)))return'Muslim';
+
+  return'Hindu';
+}
+
+function getCustomerReligion(customer){
+  // Per-phone override takes highest priority
+  const overrides=lsGet('vc_religion_overrides',{});
+  if(overrides[customer.phone])return overrides[customer.phone];
+  return detectReligion(customer.name);
+}
+
+function setReligionOverride(phone,name,religion){
+  const overrides=lsGet('vc_religion_overrides',{});
+  overrides[phone]=religion;
+  lsSet('vc_religion_overrides',overrides);
+
   const first=(name.trim().split(/\s+/)[0]||'').toLowerCase();
-  return MUSLIM_NAMES.has(first);
+  if(religion==='Muslim'){
+    // Add first name to custom Muslim list
+    const custom=lsGet('vc_muslim_names',[]);
+    if(!custom.includes(first)){custom.push(first);lsSet('vc_muslim_names',custom);}
+    // Remove from not-muslim if present
+    const notM=lsGet('vc_not_muslim',[]).filter(n=>n!==first);
+    lsSet('vc_not_muslim',notM);
+  }else if(religion!=='Muslim'){
+    // If was auto-detected Muslim, add to not-muslim list to prevent future auto-detection
+    if(MUSLIM_NAMES.has(first)||lsGet('vc_muslim_names',[]).includes(first)){
+      const notM=lsGet('vc_not_muslim',[]);
+      if(!notM.includes(first)){notM.push(first);lsSet('vc_not_muslim',notM);}
+    }
+  }
+  renderSales();
+  renderOutreachWidget();
+}
+
+// Religion badge HTML
+function religionBadge(religion,phone,name,compact){
+  const colours={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'};
+  const col=colours[religion]||'#888';
+  const badge=`<span style="font-size:10px;font-weight:700;color:#fff;background:${col};padding:2px 7px;border-radius:10px;">${religion}</span>`;
+  if(compact)return badge;
+  return`<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+    ${badge}
+    <button class="btn btn-o btn-sm" style="font-size:10px;padding:2px 8px;height:auto;min-height:0;"
+      onclick="showReligionOverride('${phone}','${name.replace(/'/g,"\\'")}','${religion}')">Change</button>
+  </div>`;
+}
+
+// Religion override inline picker — shown as a toast-style bottom sheet
+function showReligionOverride(phone,name,current){
+  const existing=document.getElementById('religion-override-sheet');
+  if(existing)existing.remove();
+  const sheet=document.createElement('div');
+  sheet.id='religion-override-sheet';
+  sheet.style.cssText='position:fixed;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 10px);left:16px;right:16px;background:var(--warm);border-radius:14px;padding:16px;box-shadow:0 4px 20px rgba(0,0,0,.2);z-index:500;';
+  sheet.innerHTML=`
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Set religion for ${name}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      ${['Hindu','Sikh','Muslim','Unknown'].map(r=>`
+        <button class="btn ${r===current?'btn-p':'btn-o'}" style="flex:1;min-height:40px;"
+          onclick="setReligionOverride('${phone}','${name.replace(/'/g,"\\'")}','${r}');document.getElementById('religion-override-sheet')?.remove();">
+          ${r}${r===current?' ✓':''}
+        </button>`).join('')}
+    </div>
+    <button class="btn btn-o" style="width:100%;margin-top:8px;min-height:40px;"
+      onclick="document.getElementById('religion-override-sheet')?.remove();">Cancel</button>`;
+  document.body.appendChild(sheet);
+  // Auto-dismiss after 10s
+  setTimeout(()=>document.getElementById('religion-override-sheet')?.remove(),10000);
 }
 
 // ── FESTIVAL DEFINITIONS ──
-// Fixed-date festivals (never change)
 const FIXED_FESTIVALS=[
-  {key:'lohri',name:'Lohri',month:1,day:13,states:['Punjab','Haryana','Himachal Pradesh','Delhi'],muslim:false,promo:true},
-  {key:'newyear',name:'New Year',month:1,day:1,states:'all',muslim:false,promo:true,onDay:true},
-  {key:'pongal',name:'Pongal',month:1,day:14,states:['Tamil Nadu','Andhra Pradesh','Telangana'],muslim:false,promo:true},
-  {key:'vaisakhi',name:'Vaisakhi',month:4,day:13,states:['Punjab','Haryana'],muslim:false,promo:true},
-  {key:'christmas',name:'Christmas',month:12,day:25,states:'skip',muslim:false,promo:false},
+  {key:'lohri',name:'Lohri',month:1,day:13,states:['Punjab','Haryana','Himachal Pradesh','Delhi'],defaultFilter:['Hindu','Sikh','Unknown'],promo:true},
+  {key:'newyear',name:'New Year',month:1,day:1,states:'all',defaultFilter:['Hindu','Sikh','Muslim','Unknown'],promo:true,onDay:true},
+  {key:'pongal',name:'Pongal',month:1,day:14,states:['Tamil Nadu','Andhra Pradesh','Telangana'],defaultFilter:['Hindu','Unknown'],promo:true},
+  {key:'vaisakhi',name:'Vaisakhi',month:4,day:13,states:['Punjab','Haryana'],defaultFilter:['Hindu','Sikh','Unknown'],promo:true},
+  {key:'christmas',name:'Christmas',month:12,day:25,states:'skip',defaultFilter:[],promo:false},
 ];
 
-// Variable festivals fetched from Calendarific
-// Keys map to Calendarific names
 const VARIABLE_FESTIVAL_KEYS={
-  'diwali':{name:'Diwali',states:'all',muslim:false,promo:true},
-  'holi':{name:'Holi',states:['Punjab','Haryana','Uttar Pradesh','Rajasthan','Delhi','Madhya Pradesh','Bihar'],muslim:false,promo:true},
-  'eid_al_fitr':{name:'Eid ul-Fitr',states:'all',muslim:true,promo:true,approx:true},
-  'eid_al_adha':{name:'Eid ul-Adha',states:'all',muslim:true,promo:true,approx:true},
-  'guru_nanak_jayanti':{name:'Gurpurab of Guru Nanak Dev Ji',states:'all',muslim:false,promo:false,onDay:true},
-  'onam':{name:'Onam',states:['Kerala'],muslim:false,promo:true},
-  'ganesh_chaturthi':{name:'Ganesh Chaturthi',states:['Maharashtra','Karnataka','Andhra Pradesh','Telangana','Goa'],muslim:false,promo:true},
-  'navratri':{name:'Navratri and Durga Puja',states:['Gujarat','Maharashtra','Rajasthan','West Bengal','Odisha','Bihar'],muslim:false,promo:true},
+  'diwali':{name:'Diwali',states:'all',defaultFilter:['Hindu','Sikh','Unknown'],promo:true},
+  'holi':{name:'Holi',states:['Punjab','Haryana','Uttar Pradesh','Rajasthan','Delhi','Madhya Pradesh','Bihar'],defaultFilter:['Hindu','Sikh','Unknown'],promo:true},
+  'eid_al_fitr':{name:'Eid ul-Fitr',states:'all',defaultFilter:['Muslim'],promo:true,approx:true},
+  'eid_al_adha':{name:'Eid ul-Adha',states:'all',defaultFilter:['Muslim'],promo:true,approx:true},
+  'guru_nanak_jayanti':{name:'Gurpurab of Guru Nanak Dev Ji',states:'all',defaultFilter:['Hindu','Sikh','Unknown'],promo:false,onDay:true},
+  'onam':{name:'Onam',states:['Kerala'],defaultFilter:['Hindu','Unknown'],promo:true},
+  'ganesh_chaturthi':{name:'Ganesh Chaturthi',states:['Maharashtra','Karnataka','Andhra Pradesh','Telangana','Goa'],defaultFilter:['Hindu','Unknown'],promo:true},
+  'navratri':{name:'Navratri and Durga Puja',states:['Gujarat','Maharashtra','Rajasthan','West Bengal','Odisha','Bihar'],defaultFilter:['Hindu','Unknown'],promo:true},
 };
+
+// Active religion filters per festival — stored in memory during session
+const _festFilters={};
+function getFestFilter(key,defaultFilter){
+  if(!_festFilters[key])_festFilters[key]=[...(defaultFilter||['Hindu','Sikh','Muslim','Unknown'])];
+  return _festFilters[key];
+}
+function toggleFestFilter(key,religion,defaultFilter){
+  const f=getFestFilter(key,defaultFilter);
+  const idx=f.indexOf(religion);
+  if(idx>=0)f.splice(idx,1);else f.push(religion);
+  _festFilters[key]=[...f];
+  renderOutreachPage();
+}
 
 // ── FESTIVAL MESSAGE TEMPLATES ──
 function getFestivalMessage(festKey,custName,approx){
@@ -4357,13 +4477,11 @@ function getFestivalMessage(festKey,custName,approx){
 
 // ── CUSTOMER DEDUPLICATION ──
 function getUniqueCustomers(){
-  // Group by phone number (prefer custWhatsapp, fallback custPhone)
   const map={};
-  // Sort invoices newest first so most recent invoice wins for name
   const sorted=[...invoices].sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1);
   sorted.forEach(inv=>{
     const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
-    if(!ph)return; // skip if no phone
+    if(!ph)return;
     if(!map[ph]){
       map[ph]={
         phone:ph,
@@ -4374,14 +4492,16 @@ function getUniqueCustomers(){
         lastOrder:inv.invDate||'',
         lastInvNo:inv.invNo||'',
         lastAmount:inv.grandTotal||0,
-        isMuslim:isLikelyMuslim(inv.custName),
         invoiceCount:1,
       };
     }else{
       map[ph].invoiceCount++;
     }
   });
-  return Object.values(map);
+  // Apply religion after building map (needs phone for override lookup)
+  const customers=Object.values(map);
+  customers.forEach(c=>{c.religion=getCustomerReligion(c);});
+  return customers;
 }
 
 // ── MESSAGE LOG ──
@@ -4480,13 +4600,14 @@ function buildFestivalCache(yr,apiHolidays){
 }
 
 // ── ELIGIBILITY CHECK ──
-function isFestivalEligible(customer,festival){
-  // Muslim-only festivals
-  if(festival.muslim&&!customer.isMuslim)return false;
+function isFestivalEligible(customer,festival,activeFilter){
   // State filter
   if(festival.states!=='all'){
     if(!festival.states.includes(customer.state))return false;
   }
+  // Religion filter
+  const filter=activeFilter||festival.defaultFilter||['Hindu','Sikh','Muslim','Unknown'];
+  if(!filter.includes(customer.religion))return false;
   return true;
 }
 
@@ -4518,12 +4639,11 @@ async function renderOutreachWidget(){
   const upcoming=[];
   (cache.festivals||[]).forEach(f=>{
     const days=daysUntil(f.date);
-    const triggerDays=f.onDay?0:20;
     const windowOpen=f.onDay?(days===0):(days>=0&&days<=25);
     if(!windowOpen)return;
-    // Count eligible customers not yet sent
+    const activeFilter=getFestFilter(f.key,f.defaultFilter);
     const eligible=customers.filter(c=>
-      isFestivalEligible(c,f)&&!hasSentMsg(c.phone,f.key,yr)
+      isFestivalEligible(c,f,activeFilter)&&!hasSentMsg(c.phone,f.key,yr)
     );
     if(eligible.length>0){
       upcoming.push({festival:f,days,eligible:eligible.length});
@@ -4626,18 +4746,13 @@ function optOutFollowup(){
   showFollowupPopup();
 }
 
-// ── OUTREACH CENTRE SUB-PAGE ──
-function buildOutreachPage(){
-  return`<div id="outreach-page-content"><div style="text-align:center;padding:30px;color:#aaa;">Loading...</div></div>`;
-}
-
 async function renderOutreachPage(){
   const cache=await fetchFestivals(false);
   const customers=getUniqueCustomers();
   const yr=new Date().getFullYear();
   const todayStr=today();
 
-  // Follow-ups
+  // Follow-ups — skip if reordered within 45 days
   const followups=customers.filter(c=>{
     if(isOptedOut(c.phone))return false;
     if(hasSentMsg(c.phone,'followup',yr))return false;
@@ -4646,30 +4761,38 @@ async function renderOutreachPage(){
     return days>=45;
   });
 
+  const rColour={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'};
+
   let html=`<div class="card">
     <div class="card-title">📬 Follow-ups Due (${followups.length})</div>
-    <div style="font-size:12px;color:#888;margin-bottom:12px;">Customers who ordered 45+ days ago and haven't been followed up with.</div>`;
+    <div style="font-size:12px;color:#888;margin-bottom:12px;">
+      Customers who ordered 45+ days ago with no recent reorder and no follow-up sent this year.
+    </div>`;
 
   if(followups.length===0){
-    html+=`<div style="color:#aaa;text-align:center;padding:16px;">No follow-ups due. Check back later.</div>`;
+    html+=`<div style="color:#aaa;text-align:center;padding:16px;">No follow-ups due.</div>`;
   }else{
     followups.forEach(c=>{
       const days=Math.round((new Date(todayStr)-new Date(c.lastOrder+'T00:00:00'))/(864e5));
       const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
       const num=ph.length===10?'91'+ph:ph;
       const msg=getFestivalMessage('followup',c.name);
-      html+=`<div class="list-row" style="align-items:flex-start;gap:10px;">
+      const rCol=rColour[c.religion]||'#888';
+      html+=`<div class="list-row" style="align-items:flex-start;gap:8px;">
         <div style="flex:1;">
-          <div class="list-main">${c.name}</div>
-          <div class="list-sub">${c.lastInvNo} · ${fmtDate(c.lastOrder)} · ${days} days ago · ₹${parseFloat(c.lastAmount).toLocaleString('en-IN')}</div>
-          <div style="font-size:11px;color:#888;">${c.state||'—'}</div>
+          <div class="list-main">${c.name}
+            <span style="font-size:10px;font-weight:700;color:#fff;background:${rCol};padding:1px 6px;border-radius:8px;margin-left:6px;">${c.religion}</span>
+          </div>
+          <div class="list-sub">${c.lastInvNo} · ${fmtDate(c.lastOrder)} · ${days} days ago</div>
+          <button style="font-size:10px;color:#888;background:none;border:none;padding:2px 0;cursor:pointer;"
+            onclick="showReligionOverride('${c.phone}','${c.name.replace(/'/g,"\\'")}','${c.religion}')">Change religion</button>
         </div>
-        <div style="display:flex;flex-direction:column;gap:6px;">
+        <div style="display:flex;flex-direction:column;gap:4px;">
           <a href="https://wa.me/${num}?text=${encodeURIComponent(msg)}" target="_blank"
-            onclick="logMsg('${c.phone}','followup',${yr},'${c.name.replace(/'/g,"\\'")}');setTimeout(()=>renderOutreachPage(),500);"
-            class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;">💬 Send</a>
-          <button class="btn btn-o btn-sm" style="min-height:40px;font-size:11px;"
-            onclick="logMsg('${c.phone}','followup_opt_out',${yr},'${c.name.replace(/'/g,"\\'")}');renderOutreachPage();">Skip forever</button>
+            onclick="logMsg('${c.phone}','followup',${yr},'${c.name.replace(/'/g,"\\'")}');setTimeout(()=>renderOutreachPage(),600);"
+            class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;text-align:center;">💬 Send</a>
+          <button class="btn btn-o btn-sm" style="min-height:36px;font-size:10px;"
+            onclick="logMsg('${c.phone}','followup_opt_out',${yr},'${c.name.replace(/'/g,"\\'")}');renderOutreachPage();">Never remind</button>
         </div>
       </div>`;
     });
@@ -4677,49 +4800,123 @@ async function renderOutreachPage(){
   html+=`</div>`;
 
   // Festival sections
-  const now=new Date();now.setHours(0,0,0,0);
   const upcoming=(cache.festivals||[])
     .map(f=>({...f,days:daysUntil(f.date)}))
     .filter(f=>f.days>=-1&&f.days<=30)
     .sort((a,b)=>a.days-b.days);
 
   upcoming.forEach(f=>{
-    const eligible=customers.filter(c=>isFestivalEligible(c,f)&&!hasSentMsg(c.phone,f.key,yr));
-    const sent=customers.filter(c=>isFestivalEligible(c,f)&&hasSentMsg(c.phone,f.key,yr));
+    const activeFilter=getFestFilter(f.key,f.defaultFilter);
+    const allEligible=customers.filter(c=>{
+      if(f.states!=='all'&&!f.states.includes(c.state))return false;
+      return true;
+    });
+    const visible=allEligible.filter(c=>
+      activeFilter.includes(c.religion)&&!hasSentMsg(c.phone,f.key,yr)
+    );
+    const sentCount=allEligible.filter(c=>hasSentMsg(c.phone,f.key,yr)).length;
     const dayLabel=f.days===0?'Today':f.days===1?'Tomorrow':`In ${f.days} days`;
-    const fallbackNote=f.isFallback?'<span style="color:#e67e22;font-size:11px;"> (approximate date — add Calendarific API key in Settings for exact dates)</span>':'';
+    const fallbackNote=f.isFallback?'<div style="font-size:11px;color:#e67e22;margin-bottom:8px;">Approximate date — add Calendarific API key in Settings for exact dates.</div>':'';
+
+    // Religion filter buttons
+    const allReligions=['Hindu','Sikh','Muslim','Unknown'];
+    const filterBtns=allReligions.map(r=>{
+      const active=activeFilter.includes(r);
+      const col=rColour[r]||'#888';
+      return`<button onclick="toggleFestFilter('${f.key}','${r}',${JSON.stringify(f.defaultFilter)})"
+        style="padding:4px 10px;border-radius:12px;font-size:11px;font-weight:700;cursor:pointer;border:2px solid ${col};
+          background:${active?col:'transparent'};color:${active?'#fff':col};">${r}</button>`;
+    }).join('');
+
+    // Build send-all URLs
+    const sendAllLinks=visible.map(c=>{
+      const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
+      const num=ph.length===10?'91'+ph:ph;
+      return{num,msg:getFestivalMessage(f.key,c.name,f.approx),phone:c.phone,name:c.name};
+    });
 
     html+=`<div class="card">
-      <div class="card-title">🎉 ${f.name} — ${dayLabel}${fallbackNote}</div>
-      <div style="font-size:12px;color:#888;margin-bottom:12px;">${eligible.length} customers to reach · ${sent.length} already sent</div>`;
+      <div class="card-title">🎉 ${f.name} — ${dayLabel}</div>
+      ${fallbackNote}
+      <div style="font-size:12px;color:#888;margin-bottom:10px;">${visible.length} to send · ${sentCount} already sent</div>
 
-    if(eligible.length===0){
-      html+=`<div style="color:#aaa;text-align:center;padding:12px;">All eligible customers have been messaged.</div>`;
-    }else{
-      eligible.forEach(c=>{
-        const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
-        const num=ph.length===10?'91'+ph:ph;
-        const msg=getFestivalMessage(f.key,c.name,f.approx);
-        html+=`<div class="list-row" style="align-items:flex-start;">
-          <div style="flex:1;">
-            <div class="list-main">${c.name}</div>
-            <div class="list-sub">${c.state||'—'} · ${fmtDate(c.lastOrder)}${c.isMuslim?' · Muslim (detected)':''}</div>
-          </div>
-          <a href="https://wa.me/${num}?text=${encodeURIComponent(msg)}" target="_blank"
-            onclick="logMsg('${c.phone}','${f.key}',${yr},'${c.name.replace(/'/g,"\\'")}');setTimeout(()=>renderOutreachPage(),500);"
-            class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;">💬 Send</a>
-        </div>`;
-      });
-    }
-    html+=`</div>`;
+      <!-- Religion filters -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+        <span style="font-size:11px;color:#888;align-self:center;">Show:</span>
+        ${filterBtns}
+      </div>
+
+      <!-- Send All Visible -->
+      ${visible.length>0?`<button class="btn btn-g" style="width:100%;margin-bottom:12px;"
+        onclick="sendAllVisible(${JSON.stringify(sendAllLinks.map(l=>({num:l.num,msg:l.msg,phone:l.phone,name:l.name}))).replace(/"/g,'&quot;')},'${f.key}',${yr})">
+        💬 Send All Visible (${visible.length})
+      </button>`:''}
+
+      <!-- Customer list -->
+      ${visible.length===0
+        ?`<div style="color:#aaa;text-align:center;padding:12px;">No customers match current filters.</div>`
+        :visible.map(c=>{
+          const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
+          const num=ph.length===10?'91'+ph:ph;
+          const msg=getFestivalMessage(f.key,c.name,f.approx);
+          const rCol=rColour[c.religion]||'#888';
+          return`<div class="list-row" style="align-items:flex-start;gap:8px;">
+            <div style="flex:1;">
+              <div class="list-main">${c.name}
+                <span style="font-size:10px;font-weight:700;color:#fff;background:${rCol};padding:1px 6px;border-radius:8px;margin-left:6px;">${c.religion}</span>
+              </div>
+              <div class="list-sub">${c.state||'—'} · ${fmtDate(c.lastOrder)}</div>
+              <button style="font-size:10px;color:#888;background:none;border:none;padding:2px 0;cursor:pointer;"
+                onclick="showReligionOverride('${c.phone}','${c.name.replace(/'/g,"\\'")}','${c.religion}')">Change religion</button>
+            </div>
+            <a href="https://wa.me/${num}?text=${encodeURIComponent(msg)}" target="_blank"
+              onclick="logMsg('${c.phone}','${f.key}',${yr},'${c.name.replace(/'/g,"\\'")}');setTimeout(()=>renderOutreachPage(),600);"
+              class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;text-align:center;">💬 Send</a>
+          </div>`;
+        }).join('')
+      }
+    </div>`;
   });
 
   if(upcoming.length===0){
     html+=`<div class="card"><div style="color:#aaa;text-align:center;padding:20px;">No festivals in the next 30 days.</div></div>`;
   }
 
+  html+=`<div style="height:env(safe-area-inset-bottom);"></div>`;
+
   const el=document.getElementById('outreach-page-content');
   if(el)el.innerHTML=html;
+}
+
+// Send All Visible — opens WhatsApp one by one
+let _sendAllQueue=[];
+let _sendAllFestKey='';
+let _sendAllYear=0;
+function sendAllVisible(links,festKey,yr){
+  _sendAllQueue=[...links];
+  _sendAllFestKey=festKey;
+  _sendAllYear=yr;
+  sendNextInQueue();
+}
+function sendNextInQueue(){
+  if(!_sendAllQueue.length){toast('✅ All messages opened');renderOutreachPage();return;}
+  const next=_sendAllQueue.shift();
+  logMsg(next.phone,_sendAllFestKey,_sendAllYear,next.name);
+  window.open('https://wa.me/'+next.num+'?text='+encodeURIComponent(next.msg),'_blank');
+  // Small delay between opens so browser doesn't block them
+  if(_sendAllQueue.length>0){
+    setTimeout(()=>{
+      if(confirm(`Sent to ${next.name}. Open next? (${_sendAllQueue.length} remaining)`)){
+        sendNextInQueue();
+      }else{
+        toast('Stopped. '+_sendAllQueue.length+' remaining in Outreach Centre.');
+        _sendAllQueue=[];
+        renderOutreachPage();
+      }
+    },800);
+  }else{
+    setTimeout(()=>renderOutreachPage(),600);
+  }
 }
 
 init();
