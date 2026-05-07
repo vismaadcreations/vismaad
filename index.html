@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.5 · 07-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v6.6 · 07-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -4403,12 +4403,12 @@ function _ag(key){return _AR[key]||{};}
 function setReligionOverride(arKey){
   const d=_ag(arKey);
   if(!d.phone)return;
-  const phone=d.phone,name=d.name,religion=d.religion;
+  const phone=d.phone,name=d.name,newReligion=d.religion;
   const overrides=lsGet('vc_religion_overrides',{});
-  overrides[phone]=religion;
+  overrides[phone]=newReligion;
   lsSet('vc_religion_overrides',overrides);
   const first=(name.trim().split(/\s+/)[0]||'').toLowerCase();
-  if(religion==='Muslim'){
+  if(newReligion==='Muslim'){
     const custom=lsGet('vc_muslim_names',[]);
     if(!custom.includes(first)){custom.push(first);lsSet('vc_muslim_names',custom);}
     lsSet('vc_not_muslim',lsGet('vc_not_muslim',[]).filter(n=>n!==first));
@@ -4421,13 +4421,13 @@ function setReligionOverride(arKey){
   // Update only the badge element for this phone — do NOT re-render entire sales list
   document.querySelectorAll('[data-rel-phone]').forEach(el=>{
     if(el.dataset.relPhone===phone){
-      const col={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[religion]||'#888';
+      const col={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[newReligion]||'#888';
       el.style.background=col;
-      el.textContent=religion;
+      el.textContent=newReligion;
     }
   });
   document.getElementById('religion-override-sheet')?.remove();
-  toast('Religion updated to '+religion);
+  toast('Religion updated to '+newReligion);
   renderOutreachWidget();
 }
 
