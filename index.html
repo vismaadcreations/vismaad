@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.0 · 07-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.1 · 07-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -4459,9 +4459,12 @@ function showReligionOverride(arKey){
   }
   document.getElementById('religion-override-overlay')?.remove();
 
-  // Build sheet with DOM methods — overlay handles positioning and touch capture
   const sheet=document.createElement('div');
-  sheet.id='religion-override-sheet';
+  sheet.id='religion-override-overlay';
+  sheet.style.cssText='position:fixed;bottom:80px;left:16px;right:16px;'
+    +'background:var(--warm);border-radius:14px;padding:16px;'
+    +'box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:99999;'
+    +'pointer-events:all;';
 
   const title=document.createElement('div');
   title.style.cssText='font-size:13px;font-weight:600;margin-bottom:12px;color:var(--brown);';
@@ -4494,22 +4497,11 @@ function showReligionOverride(arKey){
   cancel.style.cssText='width:100%;min-height:44px;margin-top:10px;border-radius:10px;'
     +'border:1.5px solid var(--border);background:transparent;font-size:14px;cursor:pointer;color:#888;';
   cancel.textContent='Cancel';
-  cancel.addEventListener('click',()=>overlay.remove());
+  cancel.addEventListener('click',()=>sheet.remove());
   sheet.appendChild(cancel);
 
-  // Append inside the app root so it sits in the correct stacking context
-  // Using a modal-bg style overlay to capture all touches correctly on iPhone
-  const overlay=document.createElement('div');
-  overlay.id='religion-override-overlay';
-  overlay.style.cssText='position:fixed;inset:0;z-index:8999;background:rgba(0,0,0,0.4);display:flex;align-items:flex-end;padding:0 16px 16px;';
-  overlay.addEventListener('click',(e)=>{if(e.target===overlay)overlay.remove();});
-
-  sheet.style.cssText='width:100%;background:var(--warm);border-radius:14px;padding:16px;'
-    +'box-shadow:0 4px 24px rgba(0,0,0,.25);';
-
-  overlay.appendChild(sheet);
-  document.body.appendChild(overlay);
-  setTimeout(()=>overlay.remove(),15000);
+  document.body.appendChild(sheet);
+  setTimeout(()=>sheet.remove(),15000);
 }
 
 
