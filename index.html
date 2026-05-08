@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.3 · 07-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.4 · 08-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -4412,8 +4412,7 @@ function _ag(key){return _AR[key]||{};}
 
 function setReligionOverride(arKey){
   const d=_ag(arKey);
-  // Need either phone or name to save
-  if(!d.phone&&!d.name)return;
+  if(!d.religion)return;  // Invalid registry entry
   const phone=d.phone||'',name=d.name||'',newReligion=d.religion;
   const overrides=lsGet('vc_religion_overrides',{});
   // Save by phone if available, otherwise by name key
@@ -4443,12 +4442,7 @@ function setReligionOverride(arKey){
 
 function showReligionOverride(arKey){
   const d=_ag(arKey);
-  if(!d.phone){
-    // Legacy call — wrap args into registry
-    const phone=arguments[0],name=arguments[1],religion=arguments[2];
-    showReligionOverride(_ar({phone,name,religion}));
-    return;
-  }
+  if(!d.religion)return;  // Invalid registry entry — ignore
   document.getElementById('religion-override-overlay')?.remove();
 
   const sheet=document.createElement('div');
@@ -4482,7 +4476,9 @@ function showReligionOverride(arKey){
       btn.style.color=colours[r]||'#888';
     }
     btn.addEventListener('click',()=>{
-      setReligionOverride(_ar({phone:safePhone,name:safeName==='this customer'?'':safeName,religion:r}));
+      // Create new registry entry with the chosen religion
+      const newKey=_ar({phone:d.phone||'',name:d.name||'',religion:r});
+      setReligionOverride(newKey);
     });
     btnRow.appendChild(btn);
   });
