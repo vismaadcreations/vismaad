@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.4 · 08-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.5 · 08-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -339,6 +339,20 @@ body.gst-mode .gst-only{display:block;}
     <div id="dash-outreach-content"></div>
     <button class="btn btn-o" style="margin-top:10px;width:100%;" onclick="showSubPage('outreach')">Open Outreach Centre →</button>
   </div>
+  <!-- Posting Queue Widget -->
+  <div class="card" id="dash-posting-queue" style="display:none;">
+    <div class="card-title">📱 Posting Queue</div>
+    <div id="dash-posting-content"></div>
+    <button class="btn btn-o" style="margin-top:10px;width:100%;" onclick="showPage('inventory',document.getElementById('bnav-inventory'))">Open Inventory →</button>
+  </div>
+
+  <!-- Posting Queue Widget -->
+  <div class="card" id="dash-posting-queue" style="display:none;">
+    <div class="card-title">📱 Posting Queue</div>
+    <div id="dash-posting-content"></div>
+    <button class="btn btn-o" style="margin-top:10px;width:100%;" onclick="showPage('inventory',document.getElementById('bnav-inventory'))">Open Inventory →</button>
+  </div>
+
   <div class="card">
     <div class="card-title">⚠️ Low / Aging Stock</div>
     <div id="dash-aging"><div style="color:#aaa;font-size:13px;text-align:center;padding:20px;">Loading…</div></div>
@@ -503,9 +517,22 @@ body.gst-mode .gst-only{display:block;}
     <div class="card-title">➕ Add Product</div>
     <div class="row2">
       <div class="fg"><label>Product No. *</label><input type="number" id="ip-num" placeholder="Auto" min="1"/></div>
-      <div class="fg"><label>Date Added</label><input type="date" id="ip-date"/></div>
+      <div class="fg"><label>Date Received</label><input type="date" id="ip-date"/></div>
     </div>
-    <div class="fg"><label>Product Name *</label><input id="ip-name" placeholder="e.g. Floral Georgette Suit"/></div>
+    <div class="fg"><label>Product Name *</label>
+      <input id="ip-name" placeholder="e.g. Blossom Silk" oninput="suggestLinks(this.value)"/>
+      <div id="ip-link-suggestions" style="display:none;margin-top:6px;background:var(--goldp);border-radius:8px;padding:10px 12px;">
+        <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:6px;">🔗 Similar products found — link them?</div>
+        <div id="ip-link-list"></div>
+      </div>
+      <div id="ip-linked-display" style="display:none;margin-top:6px;">
+        <div style="font-size:12px;color:#888;margin-bottom:4px;">Linked to:</div>
+        <div id="ip-linked-list" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+      </div>
+    </div>
+    <div class="fg"><label>Fabric Type</label>
+      <input id="ip-fabric" placeholder="e.g. Georgette, Silk, Cotton"/>
+    </div>
     <div class="row3">
       <div class="fg"><label>Qty</label><input type="number" id="ip-qty" value="1" min="1"/></div>
       <div class="fg"><label>Cost Price Paid (₹ incl. 5% GST)</label><input type="number" id="ip-cost" placeholder="0"/></div>
@@ -1292,6 +1319,7 @@ function init(){
     // Outreach — check follow-up popup after sync settles
     setTimeout(()=>{
       renderOutreachWidget();
+      renderPostingQueue();
       checkFollowupPopup();
     },3000);
   }catch(e){
@@ -2864,19 +2892,37 @@ function saveProduct(){
   const prodNo=parseInt(numRaw);
   if(inventory.find(p=>parseInt(p.prodNo)===prodNo)){toast('⚠️ Product #'+prodNo+' already exists');return;}
   const qty=parseInt(document.getElementById('ip-qty')?.value)||1;
+  const dateAdded=document.getElementById('ip-date')?.value||today();
   const prod={
     prodNo,name,qty,qtyOriginal:qty,qtySold:0,
+    fabric:document.getElementById('ip-fabric')?.value||'',
     cost:parseFloat(document.getElementById('ip-cost')?.value)||0,
     sellPrice:parseFloat(document.getElementById('ip-sell')?.value)||0,
-    dateAdded:document.getElementById('ip-date')?.value||today(),
+    dateAdded,
+    dateReel:'',        // set later when reel is posted
+    dateStory1:'',      // set later when first story posted
+    dateStory2:'',      // set later when second story posted
+    linkedProducts:_pendingLinks||[],  // approved links
     notes:document.getElementById('ip-notes')?.value||'',
   };
+  // Update linked products bidirectionally
+  (prod.linkedProducts||[]).forEach(linkedNo=>{
+    const lp=inventory.find(p=>parseInt(p.prodNo)===linkedNo);
+    if(lp){
+      if(!lp.linkedProducts)lp.linkedProducts=[];
+      if(!lp.linkedProducts.includes(prodNo))lp.linkedProducts.push(prodNo);
+      saveStk();gsWrite(SHEETS.inventory,flattenProduct(lp));
+    }
+  });
+  _pendingLinks=[];
   inventory.push(prod);inventory.sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
   saveStk();gsWrite(SHEETS.inventory,flattenProduct(prod));
-  renderInventory();renderAgingGrid();updateInventoryStats();
-  ['ip-num','ip-name','ip-cost','ip-sell','ip-notes'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  renderInventory();renderAgingGrid();updateInventoryStats();renderPostingQueue();
+  ['ip-num','ip-name','ip-fabric','ip-cost','ip-sell','ip-notes'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   const iq=document.getElementById('ip-qty');if(iq)iq.value='1';
   const ipn=document.getElementById('ip-num');if(ipn)ipn.value=nextProdNo();
+  document.getElementById('ip-link-suggestions').style.display='none';
+  document.getElementById('ip-linked-display').style.display='none';
   toast('✅ Product #'+prodNo+' added');
 }
 function adjustStock(prodNo){
@@ -2914,7 +2960,34 @@ function renderAgingGrid(){
         ${p.sellPrice?`<div style="font-size:12px;color:#888;">₹${parseFloat(p.sellPrice).toLocaleString('en-IN')} each</div>`:''}</div>
       </div>
       <div style="font-size:14px;font-weight:600;">${p.name}</div>
+      ${p.fabric?`<div style="font-size:12px;color:#888;margin-top:2px;">${p.fabric}</div>`:''}
       ${p.notes?`<div style="font-size:12px;color:#888;">${p.notes}</div>`:''}
+      <!-- Posting stage -->
+      ${(()=>{
+        const stage=getPostingStage(p);
+        const col=getStageColor(stage);
+        const label=getStageLabel(stage);
+        const daysReel=getDaysFromReel(p);
+        let btns='';
+        if(!p.dateReel)btns=`<button class="btn btn-p btn-sm" style="min-height:36px;" onclick="markPosted(${p.prodNo},'dateReel')">🎬 Mark Reel Posted</button>`;
+        else if(stage==='story1')btns=`<button class="btn btn-p btn-sm" style="min-height:36px;" onclick="markPosted(${p.prodNo},'dateStory1')">📱 Mark Story 1 Posted</button>`;
+        else if(stage==='story2')btns=`<button class="btn btn-p btn-sm" style="min-height:36px;" onclick="markPosted(${p.prodNo},'dateStory2')">📱 Mark Story 2 Posted</button>`;
+        return`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:6px;">
+          <span style="font-size:11px;font-weight:700;color:#fff;background:${col};padding:2px 8px;border-radius:10px;">${label}</span>
+          ${p.dateReel?`<span style="font-size:11px;color:#888;">Reel: ${fmtDate(p.dateReel)} · ${daysReel}d ago</span>`:''}
+        </div>
+        ${btns?`<div style="margin-top:8px;">${btns}</div>`:''}`;
+      })()}
+      <!-- Linked products -->
+      ${(()=>{
+        const links=(p.linkedProducts||[]).map(ln=>{
+          const lp=inventory.find(x=>parseInt(x.prodNo)===ln);
+          if(!lp)return'';
+          const lqty=parseInt(lp.qty)||0;
+          return`<span style="font-size:11px;background:var(--goldp);color:var(--brown);padding:2px 8px;border-radius:10px;font-weight:600;">#${ln} ${lp.name} (${lqty} left)</span>`;
+        }).filter(Boolean).join('');
+        return links?`<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;"><span style="font-size:11px;color:#888;">🔗 Linked:</span>${links}</div>`:'';
+      })()}
       <div style="display:flex;justify-content:space-between;margin-top:8px;">
         <div style="font-size:12px;color:#888;">${fmtDate(p.dateAdded)} · ${bLabels[getAgeBracket(days)]}</div>
         <div style="display:flex;align-items:center;gap:6px;">
@@ -4412,7 +4485,8 @@ function _ag(key){return _AR[key]||{};}
 
 function setReligionOverride(arKey){
   const d=_ag(arKey);
-  if(!d.religion)return;  // Invalid registry entry
+  // Need either phone or name to save
+  if(!d.phone&&!d.name)return;
   const phone=d.phone||'',name=d.name||'',newReligion=d.religion;
   const overrides=lsGet('vc_religion_overrides',{});
   // Save by phone if available, otherwise by name key
@@ -4442,7 +4516,12 @@ function setReligionOverride(arKey){
 
 function showReligionOverride(arKey){
   const d=_ag(arKey);
-  if(!d.religion)return;  // Invalid registry entry — ignore
+  if(!d.phone){
+    // Legacy call — wrap args into registry
+    const phone=arguments[0],name=arguments[1],religion=arguments[2];
+    showReligionOverride(_ar({phone,name,religion}));
+    return;
+  }
   document.getElementById('religion-override-overlay')?.remove();
 
   const sheet=document.createElement('div');
@@ -4476,9 +4555,7 @@ function showReligionOverride(arKey){
       btn.style.color=colours[r]||'#888';
     }
     btn.addEventListener('click',()=>{
-      // Create new registry entry with the chosen religion
-      const newKey=_ar({phone:d.phone||'',name:d.name||'',religion:r});
-      setReligionOverride(newKey);
+      setReligionOverride(_ar({phone:safePhone,name:safeName==='this customer'?'':safeName,religion:r}));
     });
     btnRow.appendChild(btn);
   });
@@ -5003,6 +5080,164 @@ function sendNextInQueue(){
   }else{
     setTimeout(()=>renderOutreachPage(),600);
   }
+}
+
+
+// ═══════════════════════════════════════════
+// INVENTORY POSTING QUEUE SYSTEM
+// ═══════════════════════════════════════════
+
+let _pendingLinks=[];
+
+// ── LINK SUGGESTIONS ──
+function suggestLinks(name){
+  _pendingLinks=[];
+  const trimmed=(name||'').trim().toLowerCase();
+  if(trimmed.length<3){
+    document.getElementById('ip-link-suggestions').style.display='none';
+    return;
+  }
+  // Find unsold products with exactly same name (case insensitive)
+  const matches=inventory.filter(p=>
+    p.name.trim().toLowerCase()===trimmed&&
+    parseInt(p.qty)>0
+  );
+  const listEl=document.getElementById('ip-link-list');
+  const sugEl=document.getElementById('ip-link-suggestions');
+  if(!matches.length){sugEl.style.display='none';return;}
+  sugEl.style.display='block';
+  listEl.innerHTML=matches.map(p=>{
+    const k=_ar({prodNo:parseInt(p.prodNo),name:p.name,qty:p.qty});
+    return`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">
+      <div>
+        <span style="font-weight:700;">#${p.prodNo}</span>
+        <span style="color:#888;font-size:12px;"> · ${p.qty} remaining · ${fmtDate(p.dateAdded)}</span>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-g btn-sm" id="link-accept-${p.prodNo}" onclick="acceptLink('${k}')">🔗 Link</button>
+        <button class="btn btn-o btn-sm" onclick="skipLink('${k}')">Skip</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function acceptLink(arKey){
+  const d=_ag(arKey);if(!d.prodNo)return;
+  if(!_pendingLinks.includes(d.prodNo))_pendingLinks.push(d.prodNo);
+  // Update UI
+  const btn=document.getElementById('link-accept-'+d.prodNo);
+  if(btn){btn.textContent='✅ Linked';btn.disabled=true;btn.style.opacity='0.6';}
+  // Show in linked display
+  const dispEl=document.getElementById('ip-linked-display');
+  const listEl=document.getElementById('ip-linked-list');
+  if(dispEl)dispEl.style.display='block';
+  if(listEl){
+    const tag=document.createElement('span');
+    tag.style.cssText='background:var(--gold);color:#fff;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:600;';
+    tag.textContent='#'+d.prodNo+' '+d.name;
+    listEl.appendChild(tag);
+  }
+}
+
+function skipLink(arKey){
+  const d=_ag(arKey);if(!d.prodNo)return;
+  const row=document.getElementById('link-accept-'+d.prodNo)?.closest('div[style]');
+  if(row)row.style.display='none';
+}
+
+// ── POSTING STAGE LOGIC ──
+function getPostingStage(p){
+  if(!p.dateReel)return'unposted';
+  const days=Math.round((new Date(today()+'T00:00:00')-new Date(p.dateReel+'T00:00:00'))/(864e5));
+  if(days>=60)return'heavy_discount';
+  if(days>=45)return'discount';
+  if(days>=25&&!p.dateStory2)return'story2';
+  if(days>=10&&!p.dateStory1)return'story1';
+  return'ok';
+}
+
+function getStageLabel(stage){
+  return{
+    unposted:'⚠️ Reel not posted',
+    story1:'📱 Post Story 1',
+    story2:'📱 Post Story 2',
+    discount:'🏷️ Consider Discount',
+    heavy_discount:'🔻 Heavy Discount / Bundle',
+    ok:'✅ On track',
+  }[stage]||'';
+}
+
+function getStageColor(stage){
+  return{
+    unposted:'#e74c3c',
+    story1:'#3498db',
+    story2:'#8e44ad',
+    discount:'#e67e22',
+    heavy_discount:'#922b21',
+    ok:'#27ae60',
+  }[stage]||'#888';
+}
+
+// Mark reel/story posted
+function markPosted(prodNo,field){
+  const p=inventory.find(x=>parseInt(x.prodNo)===prodNo);if(!p)return;
+  const labels={dateReel:'Reel',dateStory1:'Story 1',dateStory2:'Story 2'};
+  p[field]=today();
+  saveStk();gsWrite(SHEETS.inventory,flattenProduct(p));
+  renderAgingGrid();renderPostingQueue();
+  toast('✅ '+labels[field]+' marked as posted for #'+prodNo+' today');
+}
+
+// Check if product is overdue to post (based on consignment date + count + 7 days buffer)
+function isOverdueToPost(p){
+  if(p.dateReel)return false; // already posted
+  if(parseInt(p.qty||0)<=0)return false; // sold out
+  const consignmentDate=p.dateAdded;
+  if(!consignmentDate)return false;
+  // Count products received on same date
+  const sameDay=inventory.filter(x=>x.dateAdded===consignmentDate);
+  const buffer=sameDay.length+7;
+  const daysSinceReceived=Math.round((new Date(today()+'T00:00:00')-new Date(consignmentDate+'T00:00:00'))/(864e5));
+  return daysSinceReceived>buffer;
+}
+
+// ── POSTING QUEUE DASHBOARD WIDGET ──
+function renderPostingQueue(){
+  const widget=document.getElementById('dash-posting-queue');
+  const content=document.getElementById('dash-posting-content');
+  if(!widget||!content)return;
+
+  const unsold=inventory.filter(p=>parseInt(p.qty||0)>0);
+
+  const overdue=unsold.filter(p=>isOverdueToPost(p));
+  const story1Due=unsold.filter(p=>p.dateReel&&!p.dateStory1&&getDaysFromReel(p)>=10&&getDaysFromReel(p)<25);
+  const story2Due=unsold.filter(p=>p.dateReel&&!p.dateStory2&&getDaysFromReel(p)>=25&&getDaysFromReel(p)<45);
+  const discountDue=unsold.filter(p=>p.dateReel&&getDaysFromReel(p)>=45&&getDaysFromReel(p)<60);
+  const heavyDue=unsold.filter(p=>p.dateReel&&getDaysFromReel(p)>=60);
+
+  if(!overdue.length&&!story1Due.length&&!story2Due.length&&!discountDue.length&&!heavyDue.length){
+    widget.style.display='none';return;
+  }
+  widget.style.display='block';
+
+  let html='';
+  const row=(icon,label,count,color)=>count>0?`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="font-size:13px;">${icon} ${label}</span>
+      <span style="font-size:12px;font-weight:700;color:${color};">${count} product${count>1?'s':''}</span>
+    </div>`:'';
+
+  html+=row('⚠️','Reel not yet posted (overdue)',overdue.length,'#e74c3c');
+  html+=row('📱','Post Story 1 due',story1Due.length,'#3498db');
+  html+=row('📱','Post Story 2 due',story2Due.length,'#8e44ad');
+  html+=row('🏷️','Consider discount (45+ days)',discountDue.length,'#e67e22');
+  html+=row('🔻','Heavy discount / bundle (60+ days)',heavyDue.length,'#922b21');
+  content.innerHTML=html;
+}
+
+function getDaysFromReel(p){
+  if(!p.dateReel)return 0;
+  return Math.round((new Date(today()+'T00:00:00')-new Date(p.dateReel+'T00:00:00'))/(864e5));
 }
 
 init();
