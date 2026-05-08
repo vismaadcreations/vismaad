@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.2 · 07-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.3 · 07-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -4420,34 +4420,26 @@ function setReligionOverride(arKey){
   const saveKey=phone||('name:'+name.trim().toLowerCase());
   overrides[saveKey]=newReligion;
   lsSet('vc_religion_overrides',overrides);
-  const first=(name.trim().split(/\s+/)[0]||'').toLowerCase();
-  if(newReligion==='Muslim'){
-    const custom=lsGet('vc_muslim_names',[]);
-    if(!custom.includes(first)){custom.push(first);lsSet('vc_muslim_names',custom);}
-    lsSet('vc_not_muslim',lsGet('vc_not_muslim',[]).filter(n=>n!==first));
-  }else{
-    if(MUSLIM_NAMES.has(first)||lsGet('vc_muslim_names',[]).includes(first)){
-      const notM=lsGet('vc_not_muslim',[]);
-      if(!notM.includes(first)){notM.push(first);lsSet('vc_not_muslim',notM);}
+  // Update Muslim/not-Muslim lists if needed
+  if(name){
+    const first=(name.trim().split(/\s+/)[0]||'').toLowerCase();
+    if(newReligion==='Muslim'){
+      const custom=lsGet('vc_muslim_names',[]);
+      if(!custom.includes(first)){custom.push(first);lsSet('vc_muslim_names',custom);}
+      lsSet('vc_not_muslim',lsGet('vc_not_muslim',[]).filter(n=>n!==first));
+    }else{
+      if(MUSLIM_NAMES.has(first)||lsGet('vc_muslim_names',[]).includes(first)){
+        const notM=lsGet('vc_not_muslim',[]);
+        if(!notM.includes(first)){notM.push(first);lsSet('vc_not_muslim',notM);}
+      }
     }
   }
-  // Update only the badge element for this phone — do NOT re-render entire sales list
-  document.querySelectorAll('[data-rel-phone]').forEach(el=>{
-    const elPhone=el.dataset.relPhone;
-    if((phone&&elPhone===phone)||(!phone&&el.dataset.relName===name.trim().toLowerCase())){
-      const col={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[newReligion]||'#888';
-      el.style.background=col;
-      el.textContent=newReligion;
-    }
-  });
   document.getElementById('religion-override-overlay')?.remove();
   toast('Religion updated to '+newReligion);
-  // For phone-less entries, re-render the sales list to show updated badge
-  if(!phone){
-    renderSales();
-  }
+  renderSales();
   renderOutreachWidget();
 }
+
 
 function showReligionOverride(arKey){
   const d=_ag(arKey);
