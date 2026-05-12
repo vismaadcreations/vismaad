@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.5 · 08-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.6 · 08-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -360,7 +360,7 @@ body.gst-mode .gst-only{display:block;}
 </div>
 
 <!-- ════ FOLLOW-UP POPUP ════ -->
-<div class="modal-bg" id="followup-popup">
+<div class="modal-bg" id="followup-popup" style="z-index:99990;">
   <div class="modal">
     <div class="modal-title">📬 Follow-up Due</div>
     <div id="followup-popup-content" style="margin-bottom:16px;"></div>
@@ -1001,13 +1001,13 @@ function fmtDate(d){
   }catch{return String(d);}
 }
 function getFY(d){
-  const dt=d?new Date(d+'T00:00:00'):new Date();
+  const dt=d?new Date(d+'T12:00:00'):new Date();
   const y=dt.getFullYear(),m=dt.getMonth();
   return m>=3?y+'-'+(y+1).toString().slice(2):(y-1)+'-'+y.toString().slice(2);
 }
 function nextDispatch(d){
   if(!d)return'';
-  const dt=new Date(d+'T00:00:00');
+  const dt=new Date(d+'T12:00:00');
   dt.setDate(dt.getDate()+1);
   if(dt.getDay()===0)dt.setDate(dt.getDate()+1);
   return dt.toISOString().split('T')[0];
@@ -2867,7 +2867,7 @@ function renderDashboard(){
 // ═══════════════════════════════════════════
 // INVENTORY
 // ═══════════════════════════════════════════
-function getAgeDays(d){try{return Math.floor((Date.now()-new Date(d+'T00:00:00').getTime())/864e5);}catch{return 0;}}
+function getAgeDays(d){try{return Math.floor((Date.now()-new Date(d+'T12:00:00').getTime())/864e5);}catch{return 0;}}
 function ageColor(days){
   if(days<30)return{bg:'#27ae60',fg:'#fff',lbl:'<1 mo'};
   if(days<60)return{bg:'#f39c12',fg:'#fff',lbl:'1–2 mo'};
@@ -4772,7 +4772,7 @@ function isFestivalEligible(customer,festival,activeFilter){
 
 function daysUntil(dateStr){
   try{
-    const d=new Date(dateStr+'T00:00:00');
+    const d=new Date(dateStr+'T12:00:00');
     const now=new Date();now.setHours(0,0,0,0);
     return Math.round((d-now)/(864e5));
   }catch{return 999;}
@@ -4790,7 +4790,7 @@ async function renderOutreachWidget(){
     if(isOptedOut(c.phone))return false;
     if(hasSentMsg(c.phone,'followup',yr))return false;
     if(!c.lastOrder)return false;
-    const days=Math.round((new Date(todayStr)-new Date(c.lastOrder+'T00:00:00'))/(864e5));
+    const days=Math.round((new Date(todayStr+'T12:00:00')-new Date(c.lastOrder+'T12:00:00'))/(864e5));
     return days>=45;
   });
 
@@ -4841,27 +4841,23 @@ let _followupQueue=[];
 let _followupIdx=0;
 
 async function checkFollowupPopup(){
-  // Only show once per day
   const lastShown=localStorage.getItem('vc_followup_shown_date')||'';
   if(lastShown===today())return;
-
   const customers=getUniqueCustomers();
   const yr=new Date().getFullYear();
   const todayStr=today();
-
   _followupQueue=customers.filter(c=>{
     if(isOptedOut(c.phone))return false;
     if(hasSentMsg(c.phone,'followup',yr))return false;
     if(!c.lastOrder)return false;
-    const days=Math.round((new Date(todayStr)-new Date(c.lastOrder+'T00:00:00'))/(864e5));
+    const days=Math.round((new Date(todayStr+'T12:00:00')-new Date(c.lastOrder+'T12:00:00'))/(864e5));
     return days>=45;
   });
-
   if(_followupQueue.length===0)return;
-  localStorage.setItem('vc_followup_shown_date',today());
   _followupIdx=0;
   showFollowupPopup();
 }
+
 
 function showFollowupPopup(){
   if(_followupIdx>=_followupQueue.length){
@@ -4869,7 +4865,7 @@ function showFollowupPopup(){
     return;
   }
   const c=_followupQueue[_followupIdx];
-  const days=Math.round((new Date(today())-new Date(c.lastOrder+'T00:00:00'))/(864e5));
+  const days=Math.round((new Date(today()+'T12:00:00')-new Date(c.lastOrder+'T12:00:00'))/(864e5));
   const content=document.getElementById('followup-popup-content');
   if(content)content.innerHTML=`
     <div style="font-size:15px;font-weight:700;margin-bottom:6px;">${c.name}</div>
@@ -4878,6 +4874,7 @@ function showFollowupPopup(){
     ${c.whatsapp?'<div style="font-size:12px;color:#27ae60;margin-top:4px;">💬 WhatsApp: +'+c.whatsapp+'</div>':'<div style="font-size:12px;color:#888;margin-top:4px;">📞 Phone: '+c.shippingPhone+'</div>'}`;
   const counter=document.getElementById('followup-popup-counter');
   if(counter&&_followupQueue.length>1)counter.textContent=(_followupIdx+1)+' of '+_followupQueue.length;
+  localStorage.setItem('vc_followup_shown_date',today());
   document.getElementById('followup-popup')?.classList.add('open');
 }
 
@@ -4894,8 +4891,24 @@ function sendFollowup(){
 }
 
 function skipFollowup(){
+  // Skip this customer but don't block others from showing later today
   _followupIdx++;
-  showFollowupPopup();
+  if(_followupIdx>=_followupQueue.length){
+    // All done for now — close popup, don't show again today
+    document.getElementById('followup-popup')?.classList.remove('open');
+  }else{
+    showFollowupPopup();
+  }
+}
+
+// Registry-based sendAllVisible
+function sendAllVisibleAR(arKey){
+  const d=_ag(arKey);
+  if(!d.links)return;
+  _sendAllQueue=[...d.links];
+  _sendAllFestKey=d.festKey;
+  _sendAllYear=d.yr;
+  sendNextInQueue();
 }
 
 function optOutFollowup(){
@@ -5010,10 +5023,14 @@ async function renderOutreachPage(){
         <span style="font-size:11px;color:#888;align-self:center;">Show:</span>
         ${filterBtns}
       </div>
-      ${visible.length>0?`<button class="btn btn-g" style="width:100%;margin-bottom:12px;"
-        onclick="sendAllVisible(${JSON.stringify(sendAllLinks.map(l=>({num:l.num,msg:l.msg,phone:l.phone,name:l.name}))).replace(/"/g,'&quot;')},'${f.key}',${yr})">
-        💬 Send All Visible (${visible.length})
-      </button>`:''}
+      ${(()=>{
+        if(!visible.length)return'';
+        const saKey=_ar({links:sendAllLinks,festKey:f.key,yr});
+        return`<button class="btn btn-g" style="width:100%;margin-bottom:12px;"
+          onclick="sendAllVisibleAR('${saKey}')">
+          💬 Send All Visible (${visible.length})
+        </button>`;
+      })()}
       ${visible.length===0
         ?`<div style="color:#aaa;text-align:center;padding:12px;">No customers match current filters.</div>`
         :visible.map((c,ci)=>{
@@ -5197,7 +5214,7 @@ function isOverdueToPost(p){
   // Count products received on same date
   const sameDay=inventory.filter(x=>x.dateAdded===consignmentDate);
   const buffer=sameDay.length+7;
-  const daysSinceReceived=Math.round((new Date(today()+'T00:00:00')-new Date(consignmentDate+'T00:00:00'))/(864e5));
+  const daysSinceReceived=Math.round((new Date(today()+'T00:00:00')-new Date(consignmentDate+'T12:00:00'))/(864e5));
   return daysSinceReceived>buffer;
 }
 
