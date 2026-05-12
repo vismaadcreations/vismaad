@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.6 · 08-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v7.7 · 08-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -3229,7 +3229,7 @@ function buildSubPage(id){
   if(id==='export')return buildExportPage();
   if(id==='bulk')return buildBulkPage();
   if(id==='bulkedit')return buildBulkEditPage();
-  if(id==='outreach')return buildOutreachPage();
+  if(id==='outreach')return'<div id="outreach-page-content"><div style="text-align:center;padding:30px;color:#aaa;">Loading outreach data...</div></div>';
   return '<p>Coming soon</p>';
 }
 // ═══════════════════════════════════════════
