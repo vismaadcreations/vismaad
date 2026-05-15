@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v8.0 · 09-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v8.1 · 09-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -447,7 +447,8 @@ body.gst-mode .gst-only{display:block;}
         </select>
       </div>
     </div>
-    <div class="fg"><label>Address</label><textarea id="c-address" placeholder="House No, Street, City, State — 141001 (include pincode)" rows="2"></textarea></div>
+    <div class="fg"><label>Address</label><textarea id="c-address" placeholder="House No, Street, City" rows="2"></textarea></div>
+    <div class="fg"><label>PIN Code</label><input id="c-pin" type="tel" inputmode="numeric" maxlength="6" placeholder="6-digit PIN code" oninput="onPinInput(this.value)"/></div>
     <div class="fg gst-only"><label>Buyer GSTIN <span style="font-weight:400;color:#aaa;">(only for B2B — leave blank for retail customers)</span></label>
       <input id="c-gstin" placeholder="Leave blank for B2C retail" style="text-transform:uppercase"/></div>
     <div class="fg gst-only"><label style="font-size:11px;color:#888;">Tax Type (Auto)</label><input id="tax-display" readonly placeholder="Select state first" style="background:#f0e8d8;font-size:13px;padding:10px 12px;"/></div>
@@ -770,7 +771,9 @@ body.gst-mode .gst-only{display:block;}
       </select></div>
 
     <div class="fg"><label>Customer Address</label>
-      <textarea id="edit-address" rows="2" placeholder="Full address"></textarea></div>
+      <textarea id="edit-address" rows="2" placeholder="House No, Street, City"></textarea></div>
+    <div class="fg"><label>PIN Code</label>
+      <input id="edit-pin" type="tel" inputmode="numeric" maxlength="6" placeholder="6-digit PIN code"/></div>
 
     <div class="fg"><label>Shipping Charged to Customer (₹)</label>
       <input type="number" id="edit-ship-charged" oninput="recalcEditTotal()"/></div>
@@ -1627,6 +1630,7 @@ function generateInvoice(){
   const custWhatsapp=document.getElementById('c-whatsapp')?.value||'';
   const custGstin=(document.getElementById('c-gstin')?.value||'').trim().toUpperCase();
   const custAddress=document.getElementById('c-address')?.value||'';
+  const custPin=document.getElementById('c-pin')?.value||'';
   const channel=document.getElementById('sale-channel')?.value||'';
 
   const{grandIncl,gstAmt,taxableExcl,suitsTotal}=calcTotals(items,ship,disc);
@@ -1635,7 +1639,7 @@ function generateInvoice(){
   const saved={
     id:Date.now(),
     invNo,invDate,fy:getFY(invDate),
-    custName,custPhone,custWhatsapp,custGstin,custAddress,custState,isIntra,
+    custName,custPhone,custWhatsapp,custGstin,custAddress,custPin,custState,isIntra,
     shipping:ship,shippingCost,discount:disc,tracking,dispatchDate,
     dispatchMethod,courierName,channel,
     grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
@@ -1687,7 +1691,7 @@ function resetInvoiceForm(){
     invCtr=Math.max(...nums,invCtr);
   }
   const el=document.getElementById('inv-no');if(el)el.value='INV-'+String(invCtr+1).padStart(3,'0');
-  ['c-name','c-phone','c-whatsapp','c-gstin','c-address','tracking'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['c-name','c-phone','c-whatsapp','c-gstin','c-address','c-pin','tracking'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   const cs=document.getElementById('c-state');if(cs)cs.value='';
   const td=document.getElementById('tax-display');if(td)td.value='';
   const sh=document.getElementById('shipping');if(sh)sh.value='0';
@@ -2127,6 +2131,7 @@ function editInvoiceByIdx(idx){
   document.getElementById('edit-phone').value=inv.custPhone||'';
   document.getElementById('edit-whatsapp').value=inv.custWhatsapp||'';
   document.getElementById('edit-address').value=inv.custAddress||'';
+  document.getElementById('edit-pin').value=inv.custPin||'';
   // State
   const stEl=document.getElementById('edit-state');
   if(stEl){
@@ -2533,32 +2538,67 @@ function parsePastedDetails(){
   document.getElementById('paste-results-section').style.display='block';
 }
 
-function cleanAddressForLabel(raw,name,phone,whatsapp,pin,stateName){
+function cleanAddressForLabel(raw,name,phone,whatsapp,pin){
   let addr=raw||'';
-  // Remove detected name
+
+  // ── REMOVE LABEL PREFIX LINES ──
+  // These are lines that start with a label word followed by : or - or –
+  // Covers all confirmed prefix words
+  const LABEL_PATTERN=/^[\s\u200b]*(name|customer\s*name|customer|naam|receiver|recipient|order\s*for|deliver\s*to|ship\s*to|c\/o|address|addr|add|delivery\s*address|shipping\s*address|phone|ph\.?|mobile|mob\.?|mobile\s*no\.?|mob\s*no\.?|mobile\s*number|phone\s*no\.?|contact|contact\s*no\.?|whatsapp|wa|wp|tel\.?|landline|call|h\.?\s*no\.?|h\/no|hno|house\s*no\.?|house\s*number|ghar\s*no|flat\s*no\.?|flat|door\s*no\.?|door|plot\s*no\.?|plot|f\/no|pin|pincode|pin\s*code|zip|zip\s*code|postal\s*code|state|district|dist\.?|पता|नाम|मोबाइल)\s*[:–\-]\s*/gim;
+  addr=addr.replace(LABEL_PATTERN,'');
+
+  // ── REMOVE PS LINES ──
+  addr=addr.replace(/^ps\s*[:–\-].*/gim,'');
+
+  // ── REMOVE DETECTED NAME ──
   if(name){
-    const nameRe=new RegExp('(Name\\s*[:–\\-]\\s*)?'+name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\s*[,\\n]?','gi');
-    addr=addr.replace(nameRe,'');
+    const escaped=name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    addr=addr.replace(new RegExp('^'+escaped+'\\s*[,\\n]?','gim'),'');
+    addr=addr.replace(new RegExp('\\b'+escaped+'\\b','gi'),'');
   }
-  // Remove detected phones
+
+  // ── REMOVE DETECTED PHONES ──
   [phone,whatsapp].filter(Boolean).forEach(ph=>{
     const clean=ph.replace(/\D/g,'');
-    if(clean){
-      const phRe=new RegExp('[\\(\\+]?\\d[\\d\\s\\-\\.\\(\\)]{7,15}','g');
-      addr=addr.replace(phRe,(m)=>m.replace(/\D/g,'')===clean||m.replace(/\D/g,'').endsWith(clean)?'':m);
+    if(clean.length>=10){
+      // Match any sequence of digits/spaces/dashes that resolves to this number
+      const re=/[\+\(]?\d[\d\s\-\.()]{7,17}/g;
+      addr=addr.replace(re,m=>{
+        const digits=m.replace(/\D/g,'');
+        return(digits===clean||digits.endsWith(clean)||clean.endsWith(digits))?'':m;
+      });
     }
   });
-  // Remove label prefixes: Name:, Phone:, Mob:, WhatsApp:, Address:, Pin:, etc.
-  addr=addr.replace(/^(name|customer|naam|receiver|recipient|order for|to|phone|ph|mob|mobile|contact|whatsapp|wp|wa|call|tel|address|addr|add|pin|pincode|state|पता|नाम|मोबाइल)\s*[:–\-]\s*/gim,'');
-  // Remove PS: lines
-  addr=addr.replace(/^ps\s*[:–\-].*/gim,'');
-  // Remove detected 6-digit PIN line if standalone
-  if(pin){
-    addr=addr.replace(new RegExp('\\b'+pin+'\\b'),'');
+
+  // ── REMOVE DETECTED PIN ──
+  if(pin&&/^\d{6}$/.test(pin)){
+    addr=addr.replace(new RegExp('\\b'+pin+'\\b','g'),'');
   }
-  // Clean up multiple blank lines and leading/trailing whitespace
-  addr=addr.split('\n').map(l=>l.trim()).filter(l=>l).join('\n').trim();
+
+  // ── CLEAN UP ──
+  addr=addr.split('\n')
+    .map(l=>l.trim())
+    .filter(l=>l&&!/^[,\s]+$/.test(l))
+    .join('\n')
+    .trim();
+
   return addr;
+}
+
+function onPinInput(val){
+  // Auto-detect state from PIN and set state dropdown
+  const pin=(val||'').trim();
+  if(pin.length===6){
+    const state=getStateFromPin(pin);
+    if(state){
+      const stEl=document.getElementById('c-state');
+      if(stEl){
+        const opts=Array.from(stEl.options);
+        const match=opts.find(o=>o.value===state||o.text===state||o.text.startsWith(state));
+        if(match){stEl.value=match.value||match.text;updateTaxType();}
+      }
+    }
+  }
 }
 
 function applyParsedDetails(){
@@ -2570,10 +2610,13 @@ function applyParsedDetails(){
   if(phoneEl&&!phoneEl.value&&d.phone)phoneEl.value=d.phone;
   const waEl=document.getElementById('c-whatsapp');
   if(waEl&&!waEl.value&&d.whatsapp)waEl.value=d.whatsapp;
-  // Clean address — remove auto-populated fields so they don't appear twice
+  // Fill PIN code field
+  const pinEl=document.getElementById('c-pin');
+  if(pinEl&&!pinEl.value&&d.pin)pinEl.value=d.pin;
+  // Clean address — remove everything that was auto-populated elsewhere
   const addrEl=document.getElementById('c-address');
   if(addrEl&&!addrEl.value){
-    const cleaned=cleanAddressForLabel(d.address,d.name,d.phone,d.whatsapp,d.pin,d.state);
+    const cleaned=cleanAddressForLabel(d.address,d.name,d.phone,d.whatsapp,d.pin);
     addrEl.value=cleaned;
   }
   if(d.state){
@@ -2613,6 +2656,7 @@ function saveInvoiceEdit(){
   inv.custPhone=document.getElementById('edit-phone').value;
   inv.custWhatsapp=document.getElementById('edit-whatsapp').value;
   inv.custAddress=document.getElementById('edit-address').value;
+  inv.custPin=document.getElementById('edit-pin').value;
   // State — changing state changes intra/inter GST type
   const newState=document.getElementById('edit-state').value;
   if(newState){
@@ -3106,6 +3150,7 @@ function goToLabel(){
     const p=document.getElementById('lbl-to-ph');if(p)p.value=currentInv.custPhone||'';
     const w=document.getElementById('lbl-to-wa');if(w)w.value=currentInv.custWhatsapp||'';
     const a=document.getElementById('lbl-to-addr');if(a)a.value=currentInv.custAddress||'';
+    const pi=document.getElementById('lbl-to-pin');if(pi)pi.value=currentInv.custPin||'';
     const i=document.getElementById('lbl-inv-no');if(i)i.value=currentInv.invNo||'';
     const t=document.getElementById('lbl-tracking2');if(t)t.value=currentInv.tracking||'';
   },100);}
@@ -3114,13 +3159,15 @@ function printLabel(){
   const name=document.getElementById('lbl-to-name')?.value.trim();
   if(!name){toast('⚠️ Enter customer name');return;}
   const rawAddr=document.getElementById('lbl-to-addr')?.value||'';
+  const pin=document.getElementById('lbl-to-pin')?.value||'';
   const ph=document.getElementById('lbl-to-ph')?.value||'';
   const wa=document.getElementById('lbl-to-wa')?.value||'';
   const invNo=document.getElementById('lbl-inv-no')?.value||'';
   const track=document.getElementById('lbl-tracking2')?.value||'';
   const rawFromAddr=document.getElementById('lbl-from-addr')?.value||'';
   const fromPh=document.getElementById('lbl-from-ph')?.value||'';
-  const addr=rawAddr.replace(/\n/g,'<br/>');
+  const addrParts=[rawAddr.trim(),pin?'PIN: '+pin:''].filter(Boolean);
+  const addr=addrParts.join('<br/>');
   const fromAddr=rawFromAddr.replace(/\n/g,'<br/>');
 
   // Build phone line — show both if different
@@ -3770,7 +3817,8 @@ function buildLabelPage(){
       <div class="fg"><label>Shipping Phone</label><input id="lbl-to-ph" placeholder="Mobile number" type="tel"/></div>
       <div class="fg"><label>WhatsApp Number</label><input id="lbl-to-wa" placeholder="If different" type="tel"/></div>
     </div>
-    <div class="fg"><label>Full Address *</label><textarea id="lbl-to-addr" placeholder="House, Street, City, State, Pincode" rows="3"></textarea></div>
+    <div class="fg"><label>Full Address *</label><textarea id="lbl-to-addr" placeholder="House, Street, City, State" rows="3"></textarea></div>
+    <div class="fg"><label>PIN Code</label><input id="lbl-to-pin" type="tel" inputmode="numeric" maxlength="6" placeholder="6-digit PIN code"/></div>
     <div class="row2">
       <div class="fg"><label>Bill / Invoice No.</label><input id="lbl-inv-no" placeholder="INV-001"/></div>
       <div class="fg"><label>Tracking No.</label><input id="lbl-tracking2" placeholder="EE123456789IN"/></div>
@@ -5314,46 +5362,95 @@ function getDaysFromReel(p){
 
 
 // ═══════════════════════════════════════════
-// POINT 2: BULK PRINT LABELS
+// POINT 2: BULK PRINT LABELS — reuses exact single label format
 // ═══════════════════════════════════════════
 function bulkPrintLabels(){
   const sel=getSelectedInvoices();
   if(!sel.length){toast('⚠️ Select at least one invoice');return;}
-  // Build label HTML for each selected invoice
+
+  // Build label for one invoice using same CSS/structure as single printLabel()
+  function buildOneLabelBody(inv){
+    const name=inv.custName||'—';
+    const rawAddr=inv.custAddress||'';
+    const pin=inv.custPin||'';
+    const ph=inv.custPhone||'';
+    const wa=inv.custWhatsapp||'';
+    const invNo=inv.invNo||'';
+    const track=inv.tracking||'';
+    const fromAddr=(S.address||'').replace(/\n/g,'<br/>');
+    const fromPh=S.phone||'';
+    const addrParts=[rawAddr.trim(),pin?'PIN: '+pin:''].filter(Boolean);
+    const addr=addrParts.join('<br/>');
+    const phLine=ph&&wa&&ph!==wa
+      ?'&#9990; '+ph+' &nbsp;|&nbsp; 💬 '+wa
+      :ph?'&#9990; '+ph:wa?'💬 '+wa:'';
+    const qrImg=qrB64
+      ?'<img src="'+qrB64+'" style="width:50mm;height:50mm;object-fit:contain;display:block;flex-shrink:0;"/>'
+      :'<div style="width:50mm;height:50mm;border:1px dashed #ccc;font-size:8pt;color:#aaa;display:flex;align-items:center;justify-content:center;text-align:center;flex-shrink:0;">QR</div>';
+    const logoImg=logoB64
+      ?'<img src="'+logoB64+'" style="max-height:20mm;max-width:50mm;object-fit:contain;display:block;margin:0 auto;"/>'
+      :'<span style="font-size:11pt;font-weight:700;color:#5c3d1e;">Vismaad<br/>Creations</span>';
+    return''
+      +'<div class="box">'
+        +'<div class="ref">'+(invNo?'Inv: '+invNo:'')+(track?(invNo?' · ':'')+track:'')+'</div>'
+        +'<div class="mid">'
+          +'<div class="to">'
+            +'<div class="tolbl">To</div>'
+            +'<div class="toname">'+name+'</div>'
+            +'<div class="toaddr">'+addr+'</div>'
+            +(phLine?'<div class="toph">'+phLine+'</div>':'')
+          +'</div>'
+          +qrImg
+        +'</div>'
+        +'<div class="ty"><span class="tytext">Thank you for shopping with us!</span></div>'
+        +'<div class="bot">'
+          +'<div class="botl"></div>'
+          +'<div class="botm">'+logoImg+'</div>'
+          +'<div class="botr">'
+            +'<div class="frlbl">From</div>'
+            +'<div class="frname">Vismaad Creations</div>'
+            +'<div class="frdet">'+(fromAddr||'')+(fromPh?'<br/>&#9990; '+fromPh:'')+'</div>'
+          +'</div>'
+        +'</div>'
+      +'</div>'
+      +'<div class="cut">✂ cut here</div>';
+  }
+
+  // Same CSS as single label
   const css=''
-    +'@page{margin:0;size:A4 portrait;}'
     +'*{box-sizing:border-box;margin:0;padding:0;}'
-    +'body{font-family:Arial,Helvetica,sans-serif;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
-    +'.lp{width:210mm;height:148mm;padding:8mm;display:flex;flex-direction:column;page-break-after:always;border-bottom:2px dashed #ccc;}'
-    +'.lp:last-child{page-break-after:auto;}'
-    +'.to-name{font-size:16pt;font-weight:700;margin-bottom:4mm;}'
-    +'.to-addr{font-size:11pt;line-height:1.5;flex:1;}'
-    +'.to-ph{font-size:10pt;color:#444;margin-top:4mm;}'
-    +'.sep{border:none;border-top:2px dashed #ccc;margin:4mm 0;}'
-    +'.from{font-size:9pt;color:#555;}'
-    +'.from-name{font-weight:700;font-size:10pt;color:#222;}';
+    +'@page{margin:0;size:A4 portrait;}'
+    +'body{font-family:Arial,Helvetica,sans-serif;background:#fff;padding:8mm 10mm;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+    +'.page{page-break-after:always;}'
+    +'.page:last-child{page-break-after:auto;}'
+    +'.box{width:170mm;max-height:128mm;overflow:hidden;border:1.5px solid #444;border-radius:2mm;padding:4mm 5mm;display:flex;flex-direction:column;gap:2mm;}'
+    +'.ref{font-size:8pt;color:#999;text-align:right;flex-shrink:0;}'
+    +'.mid{display:flex;gap:4mm;align-items:flex-start;flex:1;min-height:0;overflow:hidden;border-bottom:0.5px solid #ddd;padding-bottom:2mm;}'
+    +'.to{flex:1;min-width:0;overflow:hidden;}'
+    +'.tolbl{font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:1mm;flex-shrink:0;}'
+    +'.toname{font-size:14pt;font-weight:700;line-height:1.2;margin-bottom:1.5mm;flex-shrink:0;word-break:break-word;}'
+    +'.toaddr{font-size:12pt;font-weight:700;color:#111;line-height:1.45;word-break:break-word;overflow:hidden;}'
+    +'.toph{font-size:11pt;font-weight:700;color:#111;margin-top:1mm;flex-shrink:0;}'
+    +'.ty{text-align:center;padding:2mm 0;border-bottom:0.5px solid #ddd;flex-shrink:0;}'
+    +'.tytext{font-family:"Great Vibes","Brush Script MT",cursive;font-size:22pt;color:#7B3F00;line-height:1;}'
+    +'.bot{display:flex;align-items:center;flex-shrink:0;}'
+    +'.botl{flex:1;}.botm{flex:1;text-align:center;}.botr{flex:1;text-align:right;}'
+    +'.frlbl{font-size:7pt;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:0.5mm;}'
+    +'.frname{font-size:10pt;font-weight:700;color:#111;}'
+    +'.frdet{font-size:10pt;font-weight:700;color:#111;line-height:1.4;word-break:break-word;}'
+    +'.cut{width:170mm;margin-top:3mm;padding-top:2mm;border-top:1px dashed #bbb;text-align:center;font-size:7.5pt;color:#bbb;letter-spacing:2px;}';
 
-  const pages=sel.map(inv=>{
-    const ph=[inv.custPhone,inv.custWhatsapp].filter(Boolean).join(' | ');
-    return`<div class="lp">
-      <div class="to-name">${inv.custName||'—'}</div>
-      <div class="to-addr">${(inv.custAddress||'').replace(/\n/g,'<br/>')}</div>
-      ${ph?`<div class="to-ph">☎ ${ph}</div>`:''}
-      ${inv.tracking?`<div style="font-size:9pt;margin-top:3mm;color:#444;">Tracking: ${inv.tracking}</div>`:''}
-      <hr class="sep"/>
-      <div class="from">
-        <div class="from-name">Vismaad Creations</div>
-        <div>${S.address||''}</div>
-        ${S.phone?`<div>☎ ${S.phone}</div>`:''}
-      </div>
-    </div>`;
-  }).join('');
-
-  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"/><style>${css}</style></head><body>${pages}</body></html>`;
+  const pages=sel.map(inv=>'<div class="page">'+buildOneLabelBody(inv)+'</div>').join('');
+  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
+    +'<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet"/>'
+    +'<style>'+css+'</style>'
+    +'<script>window.onload=function(){if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){setTimeout(function(){window.print();},600);});}else{setTimeout(function(){window.print();},1600);}};<\/script>'
+    +'</head><body>'+pages+'</body></html>';
   const blob=new Blob([html],{type:'text/html'});
   const url=URL.createObjectURL(blob);
   const w=window.open(url,'_blank');
-  if(w)setTimeout(()=>{w.print();URL.revokeObjectURL(url);},600);
+  if(!w){toast('⚠️ Popup blocked — allow popups in browser settings',5000);URL.revokeObjectURL(url);}
+  else{setTimeout(()=>URL.revokeObjectURL(url),30000);}
 }
 
 // ═══════════════════════════════════════════
