@@ -2110,6 +2110,7 @@ function deleteInvoiceByIdx(idx){
 let editingInvId=null;
 function editInvoiceByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
+  const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   editingInvId=String(inv.id);
   const gst=inv.isGST===true||inv.isGST==='true';
   document.getElementById('edit-modal-subtitle').textContent=
