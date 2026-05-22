@@ -1,8 +1,8 @@
 <!--
-APP: Vismaad Creations v9.1
+APP: Vismaad Creations v9.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 22-May-2026 - Fixed "Excel library not loaded" error on Export Tracking Nos and Import Result buttons; XLSX now lazy-loads on demand for tracking functions
+LAST_CHANGE: 22-May-2026 - Fixed delivery/shipped status showing incorrectly. Root cause: Google Sheets returns booleans as strings ('true'/'false'), so `inv.isShipped` stored as string 'false' is truthy in JS. Added isShippedFlag() helper that normalises to real boolean. Applied fix in: renderSales filter, sales card badge, dashboard recent orders, export Status column, sync merge for new remote invoices, and init() startup normalisation pass.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
@@ -223,7 +223,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v9.0 · 22-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v9.2 · 22-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -1204,6 +1204,10 @@ async function syncAll(){
         }
         const local=localMap[rid];
         if(!local){
+          // Normalize isShipped: Sheets returns booleans as strings
+          const remShippedNew=r.isShipped==='true'||r.isShipped===true||r.status==='Shipped';
+          r.isShipped=remShippedNew;
+          r.status=remShippedNew?'Shipped':'Pending';
           localMap[rid]=r;
         }else{
           const remShipped=r.isShipped==='true'||r.isShipped===true||r.status==='Shipped';
@@ -1324,6 +1328,7 @@ function closeSubPage(){
 function init(){
   try{
     // Normalise all invoice dates to YYYY-MM-DD on load
+    // Also normalise isShipped: may be stored as string 'true'/'false' from older Sheets sync
     invoices.forEach(inv=>{
       if(inv.invDate){
         const d=String(inv.invDate).trim();
@@ -1333,6 +1338,12 @@ function init(){
             inv.invDate=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
           }
         }
+      }
+      // Fix isShipped stored as string 'true'/'false' from Sheets
+      if(typeof inv.isShipped==='string'){
+        const shipped=inv.isShipped==='true'||inv.status==='Shipped';
+        inv.isShipped=shipped;
+        inv.status=shipped?'Shipped':'Pending';
       }
     });
     save();
@@ -1999,7 +2010,7 @@ function renderSales(){
   invoices.forEach(inv=>{const k=inv.invNo||String(inv.id);if(!seen[k]||inv.id>seen[k].id)seen[k]=inv;});
   const deduped=Object.values(seen);
   salesFiltered=applySortToList(deduped.filter(inv=>{
-    const shipped=inv.isShipped||inv.status==='Shipped';
+    const shipped=isShippedFlag(inv);
     if(sf==='Shipped'&&!shipped)return false;
     if(sf==='Pending'&&shipped)return false;
     if(q&&!inv.custName?.toLowerCase().includes(q)&&!inv.invNo?.toLowerCase().includes(q)&&!(inv.itemsSummary||'').toLowerCase().includes(q))return false;
@@ -2022,7 +2033,7 @@ function renderSales(){
   if(!salesFiltered.length){el.innerHTML='<div style="color:#aaa;text-align:center;padding:30px;">No invoices found</div>';return;}
   const chIcon={WhatsApp:'💬',Instagram:'📸',Facebook:'👍',Website:'🌐',Offline:'🏪'};
   el.innerHTML=salesFiltered.map((inv,idx)=>{
-    const shipped=inv.isShipped||inv.status==='Shipped';
+    const shipped=isShippedFlag(inv);
     const badge=shipped?'<span class="badge b-green">Shipped</span>':'<span class="badge b-yellow">Pending</span>';
     const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
     const rel=getInvReligion(inv);
@@ -3043,8 +3054,7 @@ function renderDashboard(){
   const recent=[...invoices].sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1).slice(0,5);
   const dord=document.getElementById('dash-orders');
   if(dord)dord.innerHTML=recent.length?recent.map(inv=>{
-    const shipped=inv.isShipped||inv.status==='Shipped';
-    // Find index in salesFiltered-compatible way using id
+    const shipped=isShippedFlag(inv);
     return`<div class="list-row" style="cursor:pointer;" onclick="openInvoiceFromDash('${inv.id}')">
       <div><div class="list-main">${inv.custName}</div>
       <div class="list-sub">${inv.invNo||'—'} · ${fmtDate(inv.invDate)}</div></div>
@@ -4292,7 +4302,7 @@ function _doExport(type,from,to,label){
       inv.channel||'',
       dispMap[inv.dispatchMethod||'']||'',
       inv.tracking||'',
-      inv.isShipped||inv.status==='Shipped'?'Shipped':'Pending'
+      isShippedFlag(inv)?'Shipped':'Pending'
     ];
   });
   const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
@@ -5706,6 +5716,12 @@ function parseBookedOn(str){
 }
 
 // Returns true if >6 calendar days since bookedOn and NOT delivered
+// Safely resolve isShipped regardless of whether stored as bool or string 'true'/'false'
+// (Google Sheets JSONP returns everything as strings; this normalises across sources)
+function isShippedFlag(inv){
+  return inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
+}
+
 function isTrackingOverdue(td, invDate){
   const status=td.status||'';
   if(/delivered/i.test(status))return false;
