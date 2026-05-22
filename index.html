@@ -1,8 +1,8 @@
 <!--
-APP: Vismaad Creations v9.0
+APP: Vismaad Creations v9.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 22-May-2026 - Added bulk tracking: export 1000 tracking numbers, import India Post results, delivery status screen and inline badges in Sales, 6-day overdue flagging
+LAST_CHANGE: 22-May-2026 - Fixed "Excel library not loaded" error on Export Tracking Nos and Import Result buttons; XLSX now lazy-loads on demand for tracking functions
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
@@ -5724,20 +5724,31 @@ function getTop1000Tracked(){
     .slice(0,1000);
 }
 
+// Shared lazy-loader for SheetJS (same CDN used elsewhere in the app)
+function ensureXLSX(cb){
+  if(window.XLSX){cb();return;}
+  const s=document.createElement('script');
+  s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+  s.onload=cb;
+  s.onerror=function(){toast('❌ Could not load Excel library — check your internet connection');};
+  document.head.appendChild(s);
+}
+
 // Export tracking template (Article Numbers only, matching sample-bulk-track format)
 function exportTrackingTemplate(){
-  if(typeof XLSX==='undefined'){toast('⚠️ Excel library not loaded yet — try again in a moment');return;}
-  const top=getTop1000Tracked();
-  if(!top.length){toast('⚠️ No India Post tracking numbers found in invoices');return;}
-  const rows=top.map(i=>[i.tracking.trim()]);
-  const wb=XLSX.utils.book_new();
-  const ws=XLSX.utils.aoa_to_sheet([['Article Numbers'],...rows]);
-  ws['!cols']=[{wch:22}];
-  XLSX.utils.book_append_sheet(wb,ws,'Sheet1');
-  const d=new Date();
-  const dStr=String(d.getDate()).padStart(2,'0')+'-'+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]+'-'+d.getFullYear();
-  XLSX.writeFile(wb,'Vismaad_Tracking_'+dStr+'.xlsx');
-  toast('✅ '+top.length+' tracking numbers exported');
+  ensureXLSX(function(){
+    const top=getTop1000Tracked();
+    if(!top.length){toast('⚠️ No India Post tracking numbers found in invoices');return;}
+    const rows=top.map(function(i){return[i.tracking.trim()];});
+    const wb=XLSX.utils.book_new();
+    const ws=XLSX.utils.aoa_to_sheet([['Article Numbers']].concat(rows));
+    ws['!cols']=[{wch:22}];
+    XLSX.utils.book_append_sheet(wb,ws,'Sheet1');
+    const d=new Date();
+    const dStr=String(d.getDate()).padStart(2,'0')+'-'+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]+'-'+d.getFullYear();
+    XLSX.writeFile(wb,'Vismaad_Tracking_'+dStr+'.xlsx');
+    toast('✅ '+top.length+' tracking numbers exported');
+  });
 }
 
 // Import tracking results from filled bulk-articles-tracking.xlsx
@@ -5745,50 +5756,51 @@ function handleTrackingImport(e){
   const file=e.target.files[0];
   if(!file)return;
   e.target.value='';
-  if(typeof XLSX==='undefined'){toast('⚠️ Excel library not loaded');return;}
   showLoading('Reading tracking file…');
-  const reader=new FileReader();
-  reader.onload=function(ev){
-    hideLoading();
-    try{
-      const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
-      const ws=wb.Sheets[wb.SheetNames[0]];
-      const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
-      if(!rows.length){toast('⚠️ No rows found in file');return;}
-      // Find column keys (case-insensitive)
-      const keys=Object.keys(rows[0]).map(k=>k.trim());
-      const findCol=(search)=>keys.find(k=>k.toLowerCase().includes(search.toLowerCase()))||'';
-      const colArticle=findCol('Article Number')||findCol('article')||keys[0]||'';
-      const colType=findCol('Article Type');
-      const colAt=findCol('Booked At');
-      const colOn=findCol('Booked On');
-      const colDest=findCol('Destination');
-      const colStatus=findCol('Status');
-      const colEvent=findCol('Last Event');
+  ensureXLSX(function(){
+    const reader=new FileReader();
+    reader.onload=function(ev){
+      hideLoading();
+      try{
+        const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+        if(!rows.length){toast('⚠️ No rows found in file');return;}
+        // Find column keys (case-insensitive)
+        const keys=Object.keys(rows[0]).map(function(k){return k.trim();});
+        const findCol=function(search){return keys.find(function(k){return k.toLowerCase().includes(search.toLowerCase());})||'';};
+        const colArticle=findCol('Article Number')||findCol('article')||keys[0]||'';
+        const colType=findCol('Article Type');
+        const colAt=findCol('Booked At');
+        const colOn=findCol('Booked On');
+        const colDest=findCol('Destination');
+        const colStatus=findCol('Status');
+        const colEvent=findCol('Last Event');
 
-      let updated=0,skipped=0;
-      rows.forEach(row=>{
-        const art=(row[colArticle]||'').toString().trim().toUpperCase();
-        if(!art){skipped++;return;}
-        trackingData[art]={
-          articleType:colType?row[colType]||'':'',
-          bookedAt:colAt?row[colAt]||'':'',
-          bookedOn:colOn?row[colOn]||'':'',
-          destination:colDest?row[colDest]||'':'',
-          status:colStatus?row[colStatus]||'':'',
-          lastEvent:colEvent?row[colEvent]||'':'',
-          updatedAt:new Date().toISOString()
-        };
-        updated++;
-      });
-      saveTracking();
-      renderTrackingPage();
-      renderSales(); // refresh badges
-      toast('✅ '+updated+' tracking records imported'+(skipped?' ('+skipped+' skipped)':''));
-    }catch(err){toast('❌ Import error: '+err.message,6000);}
-  };
-  reader.onerror=()=>{hideLoading();toast('❌ Could not read file');};
-  reader.readAsArrayBuffer(file);
+        let updated=0,skipped=0;
+        rows.forEach(function(row){
+          const art=(row[colArticle]||'').toString().trim().toUpperCase();
+          if(!art){skipped++;return;}
+          trackingData[art]={
+            articleType:colType?row[colType]||'':'',
+            bookedAt:colAt?row[colAt]||'':'',
+            bookedOn:colOn?row[colOn]||'':'',
+            destination:colDest?row[colDest]||'':'',
+            status:colStatus?row[colStatus]||'':'',
+            lastEvent:colEvent?row[colEvent]||'':'',
+            updatedAt:new Date().toISOString()
+          };
+          updated++;
+        });
+        saveTracking();
+        renderTrackingPage();
+        renderSales(); // refresh badges
+        toast('✅ '+updated+' tracking records imported'+(skipped?' ('+skipped+' skipped)':''));
+      }catch(err){toast('❌ Import error: '+err.message,6000);}
+    };
+    reader.onerror=function(){hideLoading();toast('❌ Could not read file');};
+    reader.readAsArrayBuffer(file);
+  });
 }
 
 // Build the tracking sub-page HTML (static shell — table rendered by renderTrackingPage)
