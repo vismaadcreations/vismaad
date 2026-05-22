@@ -1,3 +1,14 @@
+<!--
+APP: Vismaad Creations v9.0
+PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
+STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
+LAST_CHANGE: 22-May-2026 - Added bulk tracking: export 1000 tracking numbers, import India Post results, delivery status screen and inline badges in Sales, 6-day overdue flagging
+KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
+          SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
+          salesFiltered(current filtered invoice list), currentInv(invoice in preview),
+          S(settings object: gstin/address/phone/email/gstEnabled),
+          lsGet/lsSet(safe localStorage), gsRead/gsWrite/gsWriteConfirmed/gsDelete(Sheets API)
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -212,7 +223,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v8.2 · 22-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v9.0 · 22-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -680,6 +691,7 @@ body.gst-mode .gst-only{display:block;}
       <button class="btn btn-o btn-sm" onclick="showSubPage('bulk')">📊 Bulk Import</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('export')">⬇️ Export to Excel</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('bulkedit')">✏️ Bulk Invoice Editor</button>
+      <button class="btn btn-o btn-sm" onclick="showSubPage('tracking')">📡 Tracking Status</button>
       <button class="btn btn-o btn-sm" onclick="toggleSettings()">⚙️ Settings</button>
     </div>
   </div>
@@ -968,6 +980,7 @@ let S      = lsGet('vc_s',{});
 let invoices  = lsGet('vc_inv',[]);
 let inventory = lsGet('vc_stk',[]);
 let purchases = lsGet('vc_pur',[]);
+let trackingData = lsGet('vc_tracking',{});  // keyed by tracking number
 let invCtr = parseInt(localStorage.getItem('vc_ctr')||'0')||0;
 let items=[],itemId=0,selChannel='',currentInv=null,syncing=false;
 let logoB64=localStorage.getItem('vc_logo')||null;
@@ -983,6 +996,7 @@ function save(){
 }
 function saveStk(){lsSet('vc_stk',inventory);}
 function savePur(){lsSet('vc_pur',purchases);}
+function saveTracking(){lsSet('vc_tracking',trackingData);}
 
 // ═══════════════════════════════════════════
 // UI HELPERS
@@ -1287,7 +1301,8 @@ function showSubPage(id){
     bulk:'📊 Bulk Import',
     export:'⬇️ Export to Excel',
     bulkedit:'✏️ Bulk Invoice Editor',
-    outreach:'📬 Outreach Centre'
+    outreach:'📬 Outreach Centre',
+    tracking:'📡 Tracking Status'
   };
   if(titleEl)titleEl.textContent=titles[id]||id;
   content.innerHTML=buildSubPage(id);
@@ -1296,6 +1311,7 @@ function showSubPage(id){
   if(id==='pl')renderPLSubPage();
   if(id==='labels')loadLabelDefaults();
   if(id==='outreach')renderOutreachPage();
+  if(id==='tracking')renderTrackingPage();
 }
 function closeSubPage(){
   const c=document.getElementById('sub-page-container');
@@ -2011,6 +2027,17 @@ function renderSales(){
     const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
     const rel=getInvReligion(inv);
     const col={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[rel]||'#888';
+    // Tracking delivery status badge
+    let trackBadge='';
+    if(inv.tracking&&trackingData[inv.tracking.trim().toUpperCase()]){
+      const td=trackingData[inv.tracking.trim().toUpperCase()];
+      const st=td.status||'';
+      const isDelivered=/delivered/i.test(st);
+      const isOverdue=isTrackingOverdue(td,inv.invDate);
+      const tColor=isDelivered?'b-green':isOverdue?'b-red':'b-blue';
+      const tLabel=isDelivered?'✅ Delivered':isOverdue?'⚠️ Overdue — '+st:st||'In Transit';
+      trackBadge=`<div style="margin-top:4px;"><span class="badge ${tColor}" style="font-size:10px;">${esc(tLabel)}</span></div>`;
+    }
     return`<div class="card" style="margin-bottom:10px;">
       <div style="display:flex;align-items:flex-start;gap:10px;">
         <input type="checkbox" class="sale-cb" data-idx="${idx}" onchange="updateSelCount()" style="width:18px;height:18px;margin-top:3px;flex-shrink:0;"/>
@@ -2029,6 +2056,7 @@ function renderSales(){
           </div>
           <div style="font-size:12px;color:#888;margin-top:2px;">${esc(inv.itemsSummary)||''}</div>
           ${inv.channel?`<div style="font-size:12px;color:#888;margin-top:2px;">${chIcon[inv.channel]||''} ${esc(inv.channel)}</div>`:''}
+          ${trackBadge}
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;padding-bottom:4px;">
             <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="viewInvoiceByIdx(${idx})">👁 View</button>
             <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="openShareModal(salesFiltered[${idx}])">📤 Share</button>
@@ -3408,6 +3436,7 @@ function buildSubPage(id){
   if(id==='bulk')return buildBulkPage();
   if(id==='bulkedit')return buildBulkEditPage();
   if(id==='outreach')return'<div id="outreach-page-content"><div style="text-align:center;padding:30px;color:#aaa;">Loading outreach data...</div></div>';
+  if(id==='tracking')return buildTrackingPage();
   return '<p>Coming soon</p>';
 }
 // ═══════════════════════════════════════════
@@ -5647,6 +5676,224 @@ function toggleMoneyVisibility(){
     el.style.filter=_moneyVisible?'none':'blur(6px)';
     el.style.userSelect=_moneyVisible?'auto':'none';
   });
+}
+
+
+// ═══════════════════════════════════════════
+// TRACKING STATUS FEATURE
+// ═══════════════════════════════════════════
+
+// Booked-on date parser — India Post uses DD/MM/YYYY in the sheet
+function parseBookedOn(str){
+  if(!str)return null;
+  str=String(str).trim();
+  // DD/MM/YYYY
+  if(/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)){
+    const[d,m,y]=str.split('/');
+    return new Date(parseInt(y),parseInt(m)-1,parseInt(d));
+  }
+  // YYYY-MM-DD
+  if(/^\d{4}-\d{2}-\d{2}$/.test(str)){
+    const[y,m,d]=str.split('-');
+    return new Date(parseInt(y),parseInt(m)-1,parseInt(d));
+  }
+  // DD-MMM-YYYY
+  const MONTHS={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+  const mm=str.match(/^(\d{1,2})[- ]([a-zA-Z]{3})[- ](\d{4})$/);
+  if(mm)return new Date(parseInt(mm[3]),MONTHS[mm[2].toLowerCase()]||0,parseInt(mm[1]));
+  const d=new Date(str);
+  return isNaN(d)?null:d;
+}
+
+// Returns true if >6 calendar days since bookedOn and NOT delivered
+function isTrackingOverdue(td, invDate){
+  const status=td.status||'';
+  if(/delivered/i.test(status))return false;
+  // Use bookedOn from tracking data, fall back to invoice date
+  const ref=parseBookedOn(td.bookedOn)||parseBookedOn(invDate);
+  if(!ref)return false;
+  const diffDays=Math.floor((Date.now()-ref.getTime())/864e5);
+  return diffDays>6;
+}
+
+// Get top 1000 invoices sorted newest first that have India Post tracking numbers
+function getTop1000Tracked(){
+  return [...invoices]
+    .filter(i=>i.tracking&&/^[A-Z]{2}\d{9}IN$/i.test(i.tracking.trim()))
+    .sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1)
+    .slice(0,1000);
+}
+
+// Export tracking template (Article Numbers only, matching sample-bulk-track format)
+function exportTrackingTemplate(){
+  if(typeof XLSX==='undefined'){toast('⚠️ Excel library not loaded yet — try again in a moment');return;}
+  const top=getTop1000Tracked();
+  if(!top.length){toast('⚠️ No India Post tracking numbers found in invoices');return;}
+  const rows=top.map(i=>[i.tracking.trim()]);
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet([['Article Numbers'],...rows]);
+  ws['!cols']=[{wch:22}];
+  XLSX.utils.book_append_sheet(wb,ws,'Sheet1');
+  const d=new Date();
+  const dStr=String(d.getDate()).padStart(2,'0')+'-'+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]+'-'+d.getFullYear();
+  XLSX.writeFile(wb,'Vismaad_Tracking_'+dStr+'.xlsx');
+  toast('✅ '+top.length+' tracking numbers exported');
+}
+
+// Import tracking results from filled bulk-articles-tracking.xlsx
+function handleTrackingImport(e){
+  const file=e.target.files[0];
+  if(!file)return;
+  e.target.value='';
+  if(typeof XLSX==='undefined'){toast('⚠️ Excel library not loaded');return;}
+  showLoading('Reading tracking file…');
+  const reader=new FileReader();
+  reader.onload=function(ev){
+    hideLoading();
+    try{
+      const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(!rows.length){toast('⚠️ No rows found in file');return;}
+      // Find column keys (case-insensitive)
+      const keys=Object.keys(rows[0]).map(k=>k.trim());
+      const findCol=(search)=>keys.find(k=>k.toLowerCase().includes(search.toLowerCase()))||'';
+      const colArticle=findCol('Article Number')||findCol('article')||keys[0]||'';
+      const colType=findCol('Article Type');
+      const colAt=findCol('Booked At');
+      const colOn=findCol('Booked On');
+      const colDest=findCol('Destination');
+      const colStatus=findCol('Status');
+      const colEvent=findCol('Last Event');
+
+      let updated=0,skipped=0;
+      rows.forEach(row=>{
+        const art=(row[colArticle]||'').toString().trim().toUpperCase();
+        if(!art){skipped++;return;}
+        trackingData[art]={
+          articleType:colType?row[colType]||'':'',
+          bookedAt:colAt?row[colAt]||'':'',
+          bookedOn:colOn?row[colOn]||'':'',
+          destination:colDest?row[colDest]||'':'',
+          status:colStatus?row[colStatus]||'':'',
+          lastEvent:colEvent?row[colEvent]||'':'',
+          updatedAt:new Date().toISOString()
+        };
+        updated++;
+      });
+      saveTracking();
+      renderTrackingPage();
+      renderSales(); // refresh badges
+      toast('✅ '+updated+' tracking records imported'+(skipped?' ('+skipped+' skipped)':''));
+    }catch(err){toast('❌ Import error: '+err.message,6000);}
+  };
+  reader.onerror=()=>{hideLoading();toast('❌ Could not read file');};
+  reader.readAsArrayBuffer(file);
+}
+
+// Build the tracking sub-page HTML (static shell — table rendered by renderTrackingPage)
+function buildTrackingPage(){
+  const total=Object.keys(trackingData).length;
+  const top=getTop1000Tracked();
+  return`<div class="card" style="margin-bottom:14px;">
+    <div class="card-title">📡 Bulk Tracking — India Post</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px;line-height:1.7;">
+      <strong>Step 1:</strong> Export tracking numbers → upload to indiapost.gov.in bulk tracker<br/>
+      <strong>Step 2:</strong> Download the results sheet → import here to update delivery status<br/>
+      <strong>${total}</strong> tracking records stored · <strong>${top.length}</strong> India Post invoices eligible
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <button class="btn btn-p" style="flex:1;" onclick="exportTrackingTemplate()">⬇️ Export ${Math.min(top.length,1000)} Tracking Nos.</button>
+      <button class="btn btn-g" style="flex:1;" onclick="document.getElementById('tracking-import').click()">📤 Import Results</button>
+    </div>
+    <input type="file" id="tracking-import" accept=".xlsx,.xls" style="display:none;" onchange="handleTrackingImport(event)"/>
+    ${total?'<button class="btn btn-d btn-sm" style="width:100%;margin-bottom:4px;" onclick="if(confirm(\'Clear all '+total+' stored tracking records?\'))clearTrackingData()">🗑 Clear All Tracking Data</button>':''}
+  </div>
+  <div id="tracking-table-area"></div>`;
+}
+
+function clearTrackingData(){
+  trackingData={};
+  saveTracking();
+  renderTrackingPage();
+  renderSales();
+  toast('🗑 Tracking data cleared');
+}
+
+// Render the tracking results table into the sub-page
+function renderTrackingPage(){
+  const area=document.getElementById('tracking-table-area');
+  if(!area)return;
+  const top=getTop1000Tracked();
+  if(!top.length){
+    area.innerHTML='<div style="color:#aaa;text-align:center;padding:24px;font-size:13px;">No India Post tracking numbers found.<br/>Add tracking numbers to your invoices first.</div>';
+    return;
+  }
+  // Build stats
+  let delivered=0,overdue=0,inTransit=0,noData=0;
+  top.forEach(inv=>{
+    const td=trackingData[inv.tracking.trim().toUpperCase()];
+    if(!td){noData++;return;}
+    if(/delivered/i.test(td.status||''))delivered++;
+    else if(isTrackingOverdue(td,inv.invDate))overdue++;
+    else inTransit++;
+  });
+
+  let statsHtml=`<div class="stat-grid" style="margin-bottom:14px;">
+    <div class="stat-card"><div class="stat-val" style="color:#27ae60;">${delivered}</div><div class="stat-lbl">Delivered</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:#e74c3c;">${overdue}</div><div class="stat-lbl">Overdue (&gt;6d)</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:#2980b9;">${inTransit}</div><div class="stat-lbl">In Transit</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:#aaa;">${noData}</div><div class="stat-lbl">No Data Yet</div></div>
+  </div>`;
+
+  const esc2=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const rows=top.map((inv,i)=>{
+    const key=inv.tracking.trim().toUpperCase();
+    const td=trackingData[key];
+    if(!td){
+      return`<tr>
+        <td style="font-weight:600;color:var(--brown);">${i+1}</td>
+        <td>${esc2(inv.invNo)}</td>
+        <td style="font-size:12px;">${esc2(inv.custName)}</td>
+        <td style="font-size:11px;font-family:monospace;">${esc2(inv.tracking)}</td>
+        <td>${fmtDate(inv.invDate)}</td>
+        <td colspan="3" style="color:#aaa;font-size:12px;">— no data yet —</td>
+      </tr>`;
+    }
+    const isDelivered=/delivered/i.test(td.status||'');
+    const isOD=isTrackingOverdue(td,inv.invDate);
+    const rowBg=isOD&&!isDelivered?'background:#fde8e8;':'';
+    const stBadge=isDelivered
+      ?'<span class="badge b-green">Delivered</span>'
+      :isOD
+        ?'<span class="badge b-red">⚠️ Overdue</span>'
+        :'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
+    return`<tr style="${rowBg}">
+      <td style="font-weight:600;color:var(--brown);">${i+1}</td>
+      <td>${esc2(inv.invNo)}</td>
+      <td style="font-size:12px;">${esc2(inv.custName)}</td>
+      <td style="font-size:11px;font-family:monospace;">${esc2(inv.tracking)}</td>
+      <td>${fmtDate(inv.invDate)}</td>
+      <td>${esc2(td.bookedOn||'')}</td>
+      <td>${stBadge}</td>
+      <td style="font-size:11px;color:#555;max-width:180px;word-break:break-word;">${esc2(td.lastEvent||'')}</td>
+    </tr>`;
+  }).join('');
+
+  area.innerHTML=statsHtml+`<div class="card" style="padding:0;overflow:hidden;">
+    <div class="tbl-wrap">
+      <table style="min-width:700px;">
+        <thead><tr>
+          <th>#</th><th>Invoice</th><th>Customer</th><th>Tracking No.</th>
+          <th>Inv. Date</th><th>Booked On</th><th>Status</th><th>Last Event</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>
+  <div style="font-size:11px;color:#aaa;text-align:center;margin-top:8px;padding-bottom:8px;">
+    ⚠️ Flagged overdue = &gt;6 days since Booked On date and not yet delivered
+  </div>`;
 }
 
 init();
