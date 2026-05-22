@@ -212,7 +212,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v8.1 · 09-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v8.2 · 22-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -1204,6 +1204,7 @@ async function syncAll(){
           if(r.dispatchMethod&&!local.dispatchMethod)local.dispatchMethod=r.dispatchMethod;
           if(r.courierName&&!local.courierName)local.courierName=r.courierName;
           if(r.notes&&!local.notes)local.notes=r.notes;
+          if(r.religion&&!local.religion)local.religion=r.religion;
         }
       });
       invoices=Object.values(localMap).sort((a,b)=>(a.invDate||'')<(b.invDate||'')?-1:1);
@@ -1481,9 +1482,42 @@ function onInvDateChange(){
 function addItem(){
   itemId++;
   items.push({id:itemId,prodNo:'',desc:'Unstitched Suit',hsn:'540754',qty:1,unitPrice:0});
+  // Auto-set shipping: ₹50 per suit, only if channel is not Offline and dispatch is not walkin
+  const channel=document.getElementById('sale-channel')?.value||'';
+  const dispatch=document.getElementById('dispatch-method')?.value||'';
+  const isOffline=channel==='Offline'||dispatch==='walkin'||dispatch==='hand';
+  if(!isOffline){
+    const shipEl=document.getElementById('shipping');
+    if(shipEl){
+      // Only auto-set if user hasn't manually overridden (value is a multiple of 50 or 0)
+      const cur=parseFloat(shipEl.value)||0;
+      const expected=(items.length-1)*50;  // before push counted
+      if(cur===0||cur===expected){
+        shipEl.value=items.length*50;
+      }
+    }
+  }
   renderItems();
 }
-function removeItem(id){items=items.filter(i=>i.id!==id);renderItems();}
+function removeItem(id){
+  items=items.filter(i=>i.id!==id);
+  // Recalculate auto-shipping
+  const channel=document.getElementById('sale-channel')?.value||'';
+  const dispatch=document.getElementById('dispatch-method')?.value||'';
+  const isOffline=channel==='Offline'||dispatch==='walkin'||dispatch==='hand';
+  if(!isOffline&&items.length>0){
+    const shipEl=document.getElementById('shipping');
+    if(shipEl){
+      const cur=parseFloat(shipEl.value)||0;
+      const expected=(items.length+1)*50;
+      if(cur===expected||cur===0){shipEl.value=items.length*50;}
+    }
+  }else if(items.length===0){
+    const shipEl=document.getElementById('shipping');
+    if(shipEl)shipEl.value='0';
+  }
+  renderItems();
+}
 function renderItems(){
   const c=document.getElementById('items-container');if(!c)return;
   c.innerHTML=items.map((it,idx)=>`
@@ -1578,6 +1612,23 @@ function setChannel(el,val){
   document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
   el.classList.add('active');selChannel=val;
   const sc=document.getElementById('sale-channel');if(sc)sc.value=val;
+  // Auto-manage shipping based on channel
+  const shipEl=document.getElementById('shipping');
+  if(shipEl){
+    if(val==='Offline'){
+      shipEl.value='0';
+    }else{
+      // Restore auto-shipping if currently 0 and there are items
+      const cur=parseFloat(shipEl.value)||0;
+      if(cur===0&&items.length>0){
+        const dispatch=document.getElementById('dispatch-method')?.value||'';
+        if(dispatch!=='walkin'&&dispatch!=='hand'){
+          shipEl.value=items.length*50;
+        }
+      }
+    }
+  }
+  recalc();
 }
 function updateTaxType(){
   const st=document.getElementById('c-state')?.value;
@@ -1595,6 +1646,21 @@ function updateDispatchFields(){
   const showCourier=method==='courier';
   if(trackRow)trackRow.style.display=showTracking?'':'none';
   if(courierRow)courierRow.style.display=showCourier?'block':'none';
+  // Auto-manage shipping based on dispatch method
+  const shipEl=document.getElementById('shipping');
+  if(shipEl){
+    if(method==='walkin'||method==='hand'){
+      shipEl.value='0';
+    }else{
+      // Restore auto-shipping if currently 0 and items present and channel not Offline
+      const cur=parseFloat(shipEl.value)||0;
+      const channel=document.getElementById('sale-channel')?.value||'';
+      if(cur===0&&items.length>0&&channel!=='Offline'){
+        shipEl.value=items.length*50;
+      }
+    }
+  }
+  recalc();
 }
 
 // ═══════════════════════════════════════════
@@ -1648,6 +1714,7 @@ function generateInvoice(){
     itemsArr:validItems,
     gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,
     isShipped:false,status:'Pending',
+    religion:getAutoReligion(custName,custPhone,custWhatsapp),
   };
   invoices.push(saved);save();
 
@@ -2110,22 +2177,21 @@ function deleteInvoiceByIdx(idx){
 let editingInvId=null;
 function editInvoiceByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
-  const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   editingInvId=String(inv.id);
   const gst=inv.isGST===true||inv.isGST==='true';
   document.getElementById('edit-modal-subtitle').textContent=
     (gst?'Tax Invoice':'Bill of Supply')+' · '+(inv.invNo||'—')+'  ·  '+(inv.custName||'—')+'  ·  '+fmtDate(inv.invDate);
-  // Show religion in modal
-  const ph2=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
-  const overrides2=lsGet('vc_religion_overrides',{});
-  const rel2=overrides2[ph2]||detectReligion(inv.custName||'');
-  const col2={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[rel2]||'#888';
+  // Show religion in modal — simple select, always editable
+  const rel2=getInvReligion(inv);
   const relDiv=document.getElementById('edit-religion-row');
   if(relDiv){
-    relDiv.innerHTML=`<span style="font-size:11px;font-weight:700;color:#fff;background:${col2};padding:2px 8px;border-radius:8px;">${rel2}</span>
-      <button data-rphone="${ph2}" data-rname="${esc(inv.custName||'')}" data-rcurrent="${rel2}"
-        style="font-size:11px;color:#888;background:none;border:none;padding:0 6px;cursor:pointer;text-decoration:underline;"
-        onclick="showReligionOverride(this)">Change religion</button>`;
+    const colours={Hindu:'#c0392b',Sikh:'#c47b00',Muslim:'#1a7f3c',Unknown:'#888'};
+    const col2=colours[rel2]||'#888';
+    relDiv.innerHTML=`<span style="font-size:12px;font-weight:600;color:var(--brown);">Religion:</span>
+      <select id="edit-religion-select" style="padding:6px 10px;border-radius:8px;border:1.5px solid ${col2};font-size:13px;font-weight:600;color:${col2};background:var(--cream);cursor:pointer;"
+        onchange="this.style.borderColor={Hindu:'#c0392b',Sikh:'#c47b00',Muslim:'#1a7f3c',Unknown:'#888'}[this.value]||'#888';this.style.color={Hindu:'#c0392b',Sikh:'#c47b00',Muslim:'#1a7f3c',Unknown:'#888'}[this.value]||'#888';">
+        ${['Hindu','Sikh','Muslim','Unknown'].map(r=>`<option value="${r}" ${r===rel2?'selected':''}>${r}</option>`).join('')}
+      </select>`;
   }
   // Customer details
   document.getElementById('edit-name').value=inv.custName||'';
@@ -2426,11 +2492,18 @@ function parsePastedDetails(){
   // Also handle leading 0: 09876543210 and leading 91: 919876543210
   const indianPhones=[];
   // Match 10-digit starting with 6-9, with optional prefix (+91, 91, 0)
-  // Allow separators: space, dash, dot between groups
-  const indRe=/(?<!\d)(?:\+91|91|0)?[\s\-]?([6-9]\d{2})[\s\-\.]?(\d{3})[\s\-\.]?(\d{4})(?!\d)/g;
+  // Allow separators: space, dash, dot between ANY digits (e.g. 98765-43210, 9876 543 210, 98765 43210)
+  // Strategy: find all sequences that contain 10+ digits starting with 6-9, strip separators
+  const indRe=/(?<!\d)(?:\+91|91|0)?[\s\-]?([6-9][\d][\d][\s\-\.]?[\d][\d][\d][\s\-\.]?[\d][\s\-\.]?[\d][\s\-\.]?[\d][\s\-\.]?[\d])(?!\d)/g;
   while((m=indRe.exec(phoneText))!==null){
-    const num=m[1]+m[2]+m[3];
-    if(!indianPhones.includes(num))indianPhones.push(num);
+    const num=m[1].replace(/[\s\-\.]/g,'');
+    if(num.length===10&&!indianPhones.includes(num))indianPhones.push(num);
+  }
+  // Also try a broader sweep: extract any 10-consecutive-digit block starting with 6-9 after stripping separators within a local window
+  const broadRe=/(?:\+91|91|0)?[\s\-\.]?([6-9](?:[\d][\s\-\.]?){9}[\d]?)(?!\d)/g;
+  while((m=broadRe.exec(phoneText))!==null){
+    const num=m[1].replace(/[\s\-\.]/g,'');
+    if(num.length===10&&!indianPhones.includes(num))indianPhones.push(num);
   }
 
   // Assign phones
@@ -2678,6 +2751,9 @@ function saveInvoiceEdit(){
   inv.channel=document.getElementById('edit-channel').value;
   // Notes (internal only)
   inv.notes=document.getElementById('edit-notes').value;
+  // Religion — read from select in edit modal if present
+  const relSel=document.getElementById('edit-religion-select');
+  if(relSel&&relSel.value)inv.religion=relSel.value;
 
   delete inv.html;
   save();
@@ -4547,6 +4623,16 @@ const MUSLIM_NAMES=new Set([
   'aroha','arooba','areeba','abida','abira','afshan','afsana'
 ]);
 
+// Get best religion for a new invoice - checks overrides then auto-detects
+function getAutoReligion(name,phone,whatsapp){
+  const overrides=lsGet('vc_religion_overrides',{});
+  const ph=(whatsapp||phone||'').replace(/\D/g,'');
+  if(ph&&overrides[ph])return overrides[ph];
+  const nameKey='name:'+(name||'').trim().toLowerCase();
+  if(overrides[nameKey])return overrides[nameKey];
+  return detectReligion(name||'');
+}
+
 // Pure name-based detection — no side effects, no localStorage reads
 function detectReligion(name){
   if(!name)return'Unknown';
@@ -4571,12 +4657,16 @@ function getCustomerReligion(customer){
 
 // Get religion for an invoice directly (used in sales card)
 function getInvReligion(inv){
+  // 1. Stored directly on invoice (new system)
+  if(inv.religion&&inv.religion!=='Unknown'&&inv.religion!=='')return inv.religion;
+  // 2. Phone-based override (legacy)
   const overrides=lsGet('vc_religion_overrides',{});
   const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
   if(ph&&overrides[ph])return overrides[ph];
-  // Fallback: name-based key for invoices with no phone
+  // 3. Name-based override (legacy)
   const nameKey='name:'+(inv.custName||'').trim().toLowerCase();
   if(overrides[nameKey])return overrides[nameKey];
+  // 4. Auto-detect from name
   return detectReligion(inv.custName||'');
 }
 
@@ -4617,13 +4707,20 @@ function setReligionOverride(arKey){
 }
 
 
-function showReligionOverride(arKey){
-  const d=_ag(arKey);
-  if(!d.phone){
-    // Legacy call — wrap args into registry
-    const phone=arguments[0],name=arguments[1],religion=arguments[2];
-    showReligionOverride(_ar({phone,name,religion}));
-    return;
+function showReligionOverride(elOrKey){
+  // Called with a DOM element (onclick="showReligionOverride(this)")
+  const isEl=elOrKey instanceof Element||elOrKey instanceof HTMLElement||(elOrKey&&typeof elOrKey==='object'&&elOrKey.dataset);
+  let phone='',name='',currentRel='';
+  if(isEl){
+    phone=(elOrKey.dataset.rphone||'').replace(/\D/g,'');
+    name=elOrKey.dataset.rname||'';
+    currentRel=elOrKey.dataset.rcurrent||'Unknown';
+  }else{
+    // Legacy registry key
+    const d=_ag(elOrKey)||{};
+    phone=(d.phone||'').replace(/\D/g,'');
+    name=d.name||'';
+    currentRel=d.religion||'Unknown';
   }
   document.getElementById('religion-override-overlay')?.remove();
 
@@ -4634,12 +4731,9 @@ function showReligionOverride(arKey){
     +'box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:99999;'
     +'pointer-events:all;';
 
-  const safeName=d.name||'this customer';
-  const safePhone=d.phone||'';
-
   const title=document.createElement('div');
   title.style.cssText='font-size:13px;font-weight:600;margin-bottom:12px;color:var(--brown);';
-  title.textContent='Set religion for: '+safeName;
+  title.textContent='Set religion for: '+(name||'this customer');
   sheet.appendChild(title);
 
   const btnRow=document.createElement('div');
@@ -4649,8 +4743,8 @@ function showReligionOverride(arKey){
   ['Hindu','Sikh','Muslim','Unknown'].forEach(r=>{
     const btn=document.createElement('button');
     btn.style.cssText='flex:1;min-height:48px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:2px solid '+(colours[r]||'#888')+';';
-    btn.textContent=r+(r===d.religion?' ✓':'');
-    if(r===d.religion){
+    btn.textContent=r+(r===currentRel?' ✓':'');
+    if(r===currentRel){
       btn.style.background=colours[r]||'#888';
       btn.style.color='#fff';
     }else{
@@ -4658,7 +4752,8 @@ function showReligionOverride(arKey){
       btn.style.color=colours[r]||'#888';
     }
     btn.addEventListener('click',()=>{
-      setReligionOverride(_ar({phone:safePhone,name:safeName==='this customer'?'':safeName,religion:r}));
+      applyReligionChange(phone,name,r);
+      sheet.remove();
     });
     btnRow.appendChild(btn);
   });
@@ -4670,9 +4765,46 @@ function showReligionOverride(arKey){
   cancel.textContent='Cancel';
   cancel.addEventListener('click',()=>sheet.remove());
   sheet.appendChild(cancel);
-
   document.body.appendChild(sheet);
   setTimeout(()=>sheet.remove(),15000);
+}
+
+function applyReligionChange(phone,name,newReligion){
+  phone=(phone||'').replace(/\D/g,'');
+  // 1. Save to override store (keyed by phone if available, else name)
+  const overrides=lsGet('vc_religion_overrides',{});
+  const saveKey=phone||('name:'+(name||'').trim().toLowerCase());
+  if(saveKey)overrides[saveKey]=newReligion;
+  lsSet('vc_religion_overrides',overrides);
+  // 2. Save directly onto all matching invoices
+  let changed=0;
+  invoices.forEach(inv=>{
+    const invPh=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+    const invName=(inv.custName||'').trim().toLowerCase();
+    const nameKey=(name||'').trim().toLowerCase();
+    if((phone&&invPh===phone)||(name&&invName===nameKey)){
+      inv.religion=newReligion;
+      changed++;
+    }
+  });
+  if(changed>0){save();}
+  // 3. Update Muslim/not-Muslim name lists
+  if(name){
+    const first=(name.trim().split(/\s+/)[0]||'').toLowerCase();
+    if(newReligion==='Muslim'){
+      const custom=lsGet('vc_muslim_names',[]);
+      if(!custom.includes(first)){custom.push(first);lsSet('vc_muslim_names',custom);}
+      lsSet('vc_not_muslim',lsGet('vc_not_muslim',[]).filter(n=>n!==first));
+    }else{
+      if(MUSLIM_NAMES.has(first)||lsGet('vc_muslim_names',[]).includes(first)){
+        const notM=lsGet('vc_not_muslim',[]);
+        if(!notM.includes(first)){notM.push(first);lsSet('vc_not_muslim',notM);}
+      }
+    }
+  }
+  toast('Religion updated to '+newReligion);
+  renderSales();
+  renderOutreachWidget();
 }
 
 
