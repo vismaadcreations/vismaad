@@ -1,8 +1,8 @@
 <!--
-APP: Vismaad Creations v9.3
+APP: Vismaad Creations v9.4
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 23-May-2026 - Fixed "Not Delivered" parcels showing as Delivered (regex was substring-matching "delivered" inside "Not Delivered"). Changed all delivered checks to exact-match /^delivered$/i. Also added trackingData sync to Google Sheets so tracking import results are shared across all devices.
+LAST_CHANGE: 23-May-2026 - Fixed tracking not syncing across devices. gsWrite (fire-and-forget no-cors fetch) silently fails for Apps Script — replaced with gsWriteConfirmed (JSONP). Tracking data now stored as a single JSON blob row (id=tracking_all) and pushed immediately on import and on every sync. Phone pulls the blob on sync and merges by updatedAt per article.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
@@ -223,7 +223,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v9.3 · 23-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v9.4 · 23-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -1277,10 +1277,10 @@ async function syncAll(){
     inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
     purchases.forEach(p=>gsWrite(SHEETS.purchases,p));
     if(S.gstin)gsWrite(SHEETS.settings,{id:'settings',...S});
-    // Push tracking data to sheet so all devices can see it
-    Object.entries(trackingData).forEach(([art,td])=>{
-      gsWrite(SHEETS.tracking,{id:art,...td});
-    });
+    // Push tracking blob — confirmed JSONP so it actually reaches the sheet
+    if(Object.keys(trackingData).length>0){
+      gsWriteConfirmed(SHEETS.tracking,{id:'tracking_all',data:JSON.stringify(trackingData)});
+    }
 
     localStorage.removeItem('vc_inv_cleared');
     setInvNumber();
@@ -5828,9 +5828,12 @@ function handleTrackingImport(e){
           updated++;
         });
         saveTracking();
+        // Push to sheet immediately so other devices can pull on next sync
+        gsWriteConfirmed(SHEETS.tracking,{id:'tracking_all',data:JSON.stringify(trackingData)})
+          .then(ok=>{ if(!ok)toast('⚠️ Saved locally — sheet sync failed. Tap sync to retry.',5000); });
         renderTrackingPage();
         renderSales(); // refresh badges
-        toast('✅ '+updated+' tracking records imported'+(skipped?' ('+skipped+' skipped)':''));
+        toast('✅ '+updated+' tracking records imported — syncing to sheet…'+(skipped?' ('+skipped+' skipped)':''));
       }catch(err){toast('❌ Import error: '+err.message,6000);}
     };
     reader.onerror=function(){hideLoading();toast('❌ Could not read file');};
