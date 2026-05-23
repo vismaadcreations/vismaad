@@ -1,8 +1,8 @@
 <!--
-APP: Vismaad Creations v9.2
+APP: Vismaad Creations v9.3
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 22-May-2026 - Fixed delivery status mismatch between app and exported Excel. Export Status column now reads trackingData first — if India Post tracking shows "Delivered", export says "Delivered" regardless of manual Shipped toggle. Prevents "Pending" appearing in export for parcels confirmed delivered via tracking import.
+LAST_CHANGE: 23-May-2026 - Fixed "Not Delivered" parcels showing as Delivered (regex was substring-matching "delivered" inside "Not Delivered"). Changed all delivered checks to exact-match /^delivered$/i. Also added trackingData sync to Google Sheets so tracking import results are shared across all devices.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
@@ -223,7 +223,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v9.2 · 22-May-2026</div>
+      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v9.3 · 23-May-2026</div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -968,7 +968,7 @@ function getStateCode(state){return STATE_CODES[state]||'';}
 // SAFE STORAGE — never crash on bad data
 // ═══════════════════════════════════════════
 const SCRIPT_URL='https://script.google.com/macros/s/AKfycbwpfwN3NXnsxyOnYUyiMvEYCLJJaqzFqzuIWMSJ2XLucP6LEHZ4nLhGuuew2HtDmEIgbQ/exec';
-const SHEETS={invoices:'Invoices',inventory:'Inventory',purchases:'Purchases',settings:'Settings'};
+const SHEETS={invoices:'Invoices',inventory:'Inventory',purchases:'Purchases',settings:'Settings',tracking:'Tracking'};
 
 function lsGet(key,def){try{const v=localStorage.getItem(key);return v?JSON.parse(v):def;}catch(e){return def;}}
 function lsSet(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch(e){console.warn('localStorage full:',e);}}
@@ -1247,6 +1247,29 @@ async function syncAll(){
       lsSet('vc_s',S);
     }
 
+    // TRACKING DATA — merge remote into local (newer updatedAt wins per article number)
+    let remTracking=[];
+    try{remTracking=await gsRead(SHEETS.tracking);}catch(e){console.warn('Tracking sheet read failed:',e.message);}
+    remTracking.forEach(r=>{
+      if(!r.id)return; // article number stored as 'id'
+      const key=String(r.id).trim().toUpperCase();
+      const local=trackingData[key];
+      const remTime=r.updatedAt?new Date(r.updatedAt).getTime():0;
+      const locTime=local&&local.updatedAt?new Date(local.updatedAt).getTime():0;
+      if(!local||remTime>locTime){
+        trackingData[key]={
+          articleType:r.articleType||'',
+          bookedAt:r.bookedAt||'',
+          bookedOn:r.bookedOn||'',
+          destination:r.destination||'',
+          status:r.status||'',
+          lastEvent:r.lastEvent||'',
+          updatedAt:r.updatedAt||new Date().toISOString()
+        };
+      }
+    });
+    saveTracking();
+
     save();saveStk();savePur();
 
     // Push small datasets back — inventory and purchases only
@@ -1254,6 +1277,10 @@ async function syncAll(){
     inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
     purchases.forEach(p=>gsWrite(SHEETS.purchases,p));
     if(S.gstin)gsWrite(SHEETS.settings,{id:'settings',...S});
+    // Push tracking data to sheet so all devices can see it
+    Object.entries(trackingData).forEach(([art,td])=>{
+      gsWrite(SHEETS.tracking,{id:art,...td});
+    });
 
     localStorage.removeItem('vc_inv_cleared');
     setInvNumber();
@@ -2032,7 +2059,7 @@ function renderSales(){
     if(inv.tracking&&trackingData[inv.tracking.trim().toUpperCase()]){
       const td=trackingData[inv.tracking.trim().toUpperCase()];
       const st=td.status||'';
-      const isDelivered=/delivered/i.test(st);
+      const isDelivered=/^delivered$/i.test(st);
       const isOverdue=isTrackingOverdue(td,inv.invDate);
       const tColor=isDelivered?'b-green':isOverdue?'b-red':'b-blue';
       const tLabel=isDelivered?'✅ Delivered':isOverdue?'⚠️ Overdue — '+st:st||'In Transit';
@@ -4296,7 +4323,7 @@ function _doExport(type,from,to,label){
         // Check tracking data first — India Post "Delivered" overrides manual toggle
         if(inv.tracking){
           const td=trackingData[(inv.tracking||'').trim().toUpperCase()];
-          if(td&&/delivered/i.test(td.status||''))return 'Delivered';
+          if(td&&/^delivered$/i.test(td.status||''))return 'Delivered';
         }
         const shipped=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
         return shipped?'Shipped':'Pending';
@@ -5716,7 +5743,7 @@ function parseBookedOn(str){
 // Returns true if >6 calendar days since bookedOn and NOT delivered
 function isTrackingOverdue(td, invDate){
   const status=td.status||'';
-  if(/delivered/i.test(status))return false;
+  if(/^delivered$/i.test(status))return false;
   // Use bookedOn from tracking data, fall back to invoice date
   const ref=parseBookedOn(td.bookedOn)||parseBookedOn(invDate);
   if(!ref)return false;
@@ -5854,7 +5881,7 @@ function renderTrackingPage(){
   top.forEach(inv=>{
     const td=trackingData[inv.tracking.trim().toUpperCase()];
     if(!td){noData++;return;}
-    if(/delivered/i.test(td.status||''))delivered++;
+    if(/^delivered$/i.test(td.status||''))delivered++;
     else if(isTrackingOverdue(td,inv.invDate))overdue++;
     else inTransit++;
   });
@@ -5880,7 +5907,7 @@ function renderTrackingPage(){
         <td colspan="3" style="color:#aaa;font-size:12px;">— no data yet —</td>
       </tr>`;
     }
-    const isDelivered=/delivered/i.test(td.status||'');
+    const isDelivered=/^delivered$/i.test(td.status||'');
     const isOD=isTrackingOverdue(td,inv.invDate);
     const rowBg=isOD&&!isDelivered?'background:#fde8e8;':'';
     const stBadge=isDelivered
