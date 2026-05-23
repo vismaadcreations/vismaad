@@ -1,8 +1,8 @@
 <!--
-APP: Vismaad Creations v9.4
+APP: Vismaad Creations v9.5
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 23-May-2026 - Fixed tracking not syncing across devices. gsWrite (fire-and-forget no-cors fetch) silently fails for Apps Script — replaced with gsWriteConfirmed (JSONP). Tracking data now stored as a single JSON blob row (id=tracking_all) and pushed immediately on import and on every sync. Phone pulls the blob on sync and merges by updatedAt per article.
+LAST_CHANGE: 23-May-2026 - (1) Fixed tracking sync: syncAll now correctly parses tracking_all JSON blob row instead of treating it as individual article key. (2) Tracking table is now mobile-responsive (card layout on small screens). (3) Sub-page bottom nav buttons now work — clicking any bnav tab from a sub-page closes it and navigates correctly. (4) After generating an invoice, "+ New Invoice" button is more prominent and the page auto-scrolls to it. (5) Pull-down-to-refresh works from sub-pages too. (6) Back button in sub-page header is always visible, clear of the iOS safe area, and never hidden behind the ribbon.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
@@ -531,7 +531,7 @@ body.gst-mode .gst-only{display:block;}
     <button class="btn btn-g" onclick="printCurrentInvoice()" style="margin-bottom:10px;">🖨️ Print Invoice</button>
     <button class="btn btn-p" onclick="openShareModal(currentInv)" style="margin-bottom:10px;">📤 Share Invoice</button>
     <button class="btn btn-o" onclick="goToLabel()" style="margin-bottom:10px;">📦 Create Shipping Label</button>
-    <button class="btn btn-o" onclick="resetInvoiceForm()">+ New Invoice</button>
+    <button id="new-invoice-btn" class="btn btn-p" onclick="resetInvoiceForm()" style="margin-bottom:4px;background:var(--green);border-color:var(--green);">+ New Invoice</button>
   </div>
 </div>
 
@@ -913,12 +913,15 @@ body.gst-mode .gst-only{display:block;}
 </div>
 
 <!-- ════ SUB-PAGES (slide in from right) ════ -->
-<div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;overflow-y:auto;padding-bottom:calc(env(safe-area-inset-bottom) + 80px);">
-  <div style="background:var(--brown);color:#fff;min-height:var(--header-h);display:flex;align-items:center;padding:0 16px;padding-top:calc(env(safe-area-inset-top) + 8px);padding-bottom:8px;gap:12px;position:sticky;top:0;z-index:10;">
+<div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;display:none;flex-direction:column;">
+  <div style="background:var(--brown);color:#fff;display:flex;align-items:center;padding:0 16px;padding-top:env(safe-area-inset-top);min-height:calc(var(--header-h) + env(safe-area-inset-top));gap:12px;flex-shrink:0;position:relative;z-index:10;">
     <button onclick="closeSubPage()" style="background:rgba(255,255,255,.15);border:none;border-radius:8px;color:#fff;padding:10px 14px;font-size:15px;cursor:pointer;min-height:44px;flex-shrink:0;">← Back</button>
     <span id="sub-page-title" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;"></span>
   </div>
-  <div id="sub-page-content" style="padding:16px;padding-bottom:32px;"></div>
+  <div id="sub-page-scroll" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px);">
+    <div class="ptr" id="ptr-sub-indicator">↓ Syncing…</div>
+    <div id="sub-page-content" style="padding:16px;padding-bottom:32px;"></div>
+  </div>
 </div>
 
 </div><!-- end scroll-area -->
@@ -1248,25 +1251,33 @@ async function syncAll(){
     }
 
     // TRACKING DATA — merge remote into local (newer updatedAt wins per article number)
+    // Data is stored as a single JSON blob row: id='tracking_all', data=JSON string of {KEY:{...}}
     let remTracking=[];
     try{remTracking=await gsRead(SHEETS.tracking);}catch(e){console.warn('Tracking sheet read failed:',e.message);}
+    let remTrackingMap={};
     remTracking.forEach(r=>{
-      if(!r.id)return; // article number stored as 'id'
-      const key=String(r.id).trim().toUpperCase();
-      const local=trackingData[key];
-      const remTime=r.updatedAt?new Date(r.updatedAt).getTime():0;
-      const locTime=local&&local.updatedAt?new Date(local.updatedAt).getTime():0;
-      if(!local||remTime>locTime){
-        trackingData[key]={
-          articleType:r.articleType||'',
-          bookedAt:r.bookedAt||'',
-          bookedOn:r.bookedOn||'',
-          destination:r.destination||'',
-          status:r.status||'',
-          lastEvent:r.lastEvent||'',
+      if(!r.id)return;
+      if(String(r.id).trim()==='tracking_all'&&r.data){
+        // New blob format
+        try{
+          const blob=JSON.parse(r.data);
+          if(blob&&typeof blob==='object')Object.assign(remTrackingMap,blob);
+        }catch(e){console.warn('Tracking blob parse error:',e.message);}
+      } else {
+        // Legacy per-row fallback
+        const key=String(r.id).trim().toUpperCase();
+        remTrackingMap[key]={
+          articleType:r.articleType||'',bookedAt:r.bookedAt||'',bookedOn:r.bookedOn||'',
+          destination:r.destination||'',status:r.status||'',lastEvent:r.lastEvent||'',
           updatedAt:r.updatedAt||new Date().toISOString()
         };
       }
+    });
+    Object.entries(remTrackingMap).forEach(([key,rd])=>{
+      const local=trackingData[key];
+      const remTime=rd.updatedAt?new Date(rd.updatedAt).getTime():0;
+      const locTime=local&&local.updatedAt?new Date(local.updatedAt).getTime():0;
+      if(!local||remTime>locTime)trackingData[key]=rd;
     });
     saveTracking();
 
@@ -1302,6 +1313,9 @@ async function syncAll(){
 // ═══════════════════════════════════════════
 let curPage='dash';
 function showPage(id,btn){
+  // Close sub-page if open
+  const sp=document.getElementById('sub-page-container');
+  if(sp)sp.style.display='none';
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.bnav-btn').forEach(b=>b.classList.remove('active'));
   const pg=document.getElementById('page-'+id);
@@ -1320,6 +1334,7 @@ function showSubPage(id){
   const container=document.getElementById('sub-page-container');
   const content=document.getElementById('sub-page-content');
   const titleEl=document.getElementById('sub-page-title');
+  const scrollEl=document.getElementById('sub-page-scroll');
   if(!container||!content)return;
   const titles={
     purchases:'🛒 Purchases Register',
@@ -1333,8 +1348,8 @@ function showSubPage(id){
   };
   if(titleEl)titleEl.textContent=titles[id]||id;
   content.innerHTML=buildSubPage(id);
-  container.style.display='block';
-  container.scrollTop=0;
+  container.style.display='flex';
+  if(scrollEl)scrollEl.scrollTop=0;
   if(id==='pl')renderPLSubPage();
   if(id==='labels')loadLabelDefaults();
   if(id==='outreach')renderOutreachPage();
@@ -1786,6 +1801,8 @@ function generateInvoice(){
   }
   localStorage.setItem('vc_ctr',invCtr);
   toast('✅ Invoice '+invNo+' saved!');
+  // Scroll to "+ New Invoice" button so it's easy to start another
+  setTimeout(()=>{const nb=document.getElementById('new-invoice-btn');if(nb)nb.scrollIntoView({behavior:'smooth',block:'center'});},600);
 }
 function getInvHtml(inv){
   return buildInvoiceHTML({...inv,itemsArr:expandItems(inv.itemsArr),logoB64});
@@ -5889,7 +5906,7 @@ function renderTrackingPage(){
     else inTransit++;
   });
 
-  let statsHtml=`<div class="stat-grid" style="margin-bottom:14px;">
+  const statsHtml=`<div class="stat-grid" style="margin-bottom:14px;">
     <div class="stat-card"><div class="stat-val" style="color:#27ae60;">${delivered}</div><div class="stat-lbl">Delivered</div></div>
     <div class="stat-card"><div class="stat-val" style="color:#e74c3c;">${overdue}</div><div class="stat-lbl">Overdue (&gt;6d)</div></div>
     <div class="stat-card"><div class="stat-val" style="color:#2980b9;">${inTransit}</div><div class="stat-lbl">In Transit</div></div>
@@ -5897,54 +5914,126 @@ function renderTrackingPage(){
   </div>`;
 
   const esc2=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const rows=top.map((inv,i)=>{
-    const key=inv.tracking.trim().toUpperCase();
-    const td=trackingData[key];
-    if(!td){
-      return`<tr>
+  const isMobile=window.innerWidth<600;
+
+  if(isMobile){
+    // Card layout for mobile
+    const cards=top.map((inv,i)=>{
+      const key=inv.tracking.trim().toUpperCase();
+      const td=trackingData[key];
+      const isDelivered=td&&/^delivered$/i.test(td.status||'');
+      const isOD=td&&isTrackingOverdue(td,inv.invDate);
+      const cardBg=!td?'':(isOD&&!isDelivered?'border-color:#e74c3c;background:#fff8f8;':'');
+      const stBadge=!td
+        ?'<span class="badge" style="background:#eee;color:#aaa;">No data</span>'
+        :isDelivered
+          ?'<span class="badge b-green">Delivered</span>'
+          :isOD
+            ?'<span class="badge b-red">⚠️ Overdue</span>'
+            :'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
+      return`<div class="card" style="margin-bottom:10px;padding:12px;${cardBg}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+          <div>
+            <span style="font-weight:700;color:var(--brown);font-size:14px;">${esc2(inv.invNo)}</span>
+            <span style="margin-left:8px;font-size:13px;">${esc2(inv.custName)}</span>
+          </div>
+          ${stBadge}
+        </div>
+        <div style="font-family:monospace;font-size:12px;color:#555;margin-bottom:4px;">${esc2(inv.tracking)}</div>
+        <div style="font-size:12px;color:#888;display:flex;gap:14px;flex-wrap:wrap;">
+          <span>Inv: ${fmtDate(inv.invDate)}</span>
+          ${td&&td.bookedOn?'<span>Booked: '+esc2(td.bookedOn)+'</span>':''}
+        </div>
+        ${td&&td.lastEvent?'<div style="font-size:12px;color:#555;margin-top:4px;font-style:italic;">'+esc2(td.lastEvent)+'</div>':''}
+      </div>`;
+    }).join('');
+    area.innerHTML=statsHtml+cards+`<div style="font-size:11px;color:#aaa;text-align:center;margin-top:8px;padding-bottom:8px;">⚠️ Overdue = &gt;6 days since booked, not yet delivered</div>`;
+  } else {
+    // Desktop table layout
+    const rows=top.map((inv,i)=>{
+      const key=inv.tracking.trim().toUpperCase();
+      const td=trackingData[key];
+      if(!td){
+        return`<tr>
+          <td style="font-weight:600;color:var(--brown);">${i+1}</td>
+          <td>${esc2(inv.invNo)}</td>
+          <td style="font-size:12px;">${esc2(inv.custName)}</td>
+          <td style="font-size:11px;font-family:monospace;">${esc2(inv.tracking)}</td>
+          <td>${fmtDate(inv.invDate)}</td>
+          <td colspan="3" style="color:#aaa;font-size:12px;">— no data yet —</td>
+        </tr>`;
+      }
+      const isDelivered=/^delivered$/i.test(td.status||'');
+      const isOD=isTrackingOverdue(td,inv.invDate);
+      const rowBg=isOD&&!isDelivered?'background:#fde8e8;':'';
+      const stBadge=isDelivered
+        ?'<span class="badge b-green">Delivered</span>'
+        :isOD
+          ?'<span class="badge b-red">⚠️ Overdue</span>'
+          :'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
+      return`<tr style="${rowBg}">
         <td style="font-weight:600;color:var(--brown);">${i+1}</td>
         <td>${esc2(inv.invNo)}</td>
         <td style="font-size:12px;">${esc2(inv.custName)}</td>
         <td style="font-size:11px;font-family:monospace;">${esc2(inv.tracking)}</td>
         <td>${fmtDate(inv.invDate)}</td>
-        <td colspan="3" style="color:#aaa;font-size:12px;">— no data yet —</td>
+        <td>${esc2(td.bookedOn||'')}</td>
+        <td>${stBadge}</td>
+        <td style="font-size:11px;color:#555;max-width:180px;word-break:break-word;">${esc2(td.lastEvent||'')}</td>
       </tr>`;
-    }
-    const isDelivered=/^delivered$/i.test(td.status||'');
-    const isOD=isTrackingOverdue(td,inv.invDate);
-    const rowBg=isOD&&!isDelivered?'background:#fde8e8;':'';
-    const stBadge=isDelivered
-      ?'<span class="badge b-green">Delivered</span>'
-      :isOD
-        ?'<span class="badge b-red">⚠️ Overdue</span>'
-        :'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
-    return`<tr style="${rowBg}">
-      <td style="font-weight:600;color:var(--brown);">${i+1}</td>
-      <td>${esc2(inv.invNo)}</td>
-      <td style="font-size:12px;">${esc2(inv.custName)}</td>
-      <td style="font-size:11px;font-family:monospace;">${esc2(inv.tracking)}</td>
-      <td>${fmtDate(inv.invDate)}</td>
-      <td>${esc2(td.bookedOn||'')}</td>
-      <td>${stBadge}</td>
-      <td style="font-size:11px;color:#555;max-width:180px;word-break:break-word;">${esc2(td.lastEvent||'')}</td>
-    </tr>`;
-  }).join('');
-
-  area.innerHTML=statsHtml+`<div class="card" style="padding:0;overflow:hidden;">
-    <div class="tbl-wrap">
-      <table style="min-width:700px;">
-        <thead><tr>
-          <th>#</th><th>Invoice</th><th>Customer</th><th>Tracking No.</th>
-          <th>Inv. Date</th><th>Booked On</th><th>Status</th><th>Last Event</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
+    }).join('');
+    area.innerHTML=statsHtml+`<div class="card" style="padding:0;overflow:hidden;">
+      <div class="tbl-wrap">
+        <table style="min-width:700px;">
+          <thead><tr>
+            <th>#</th><th>Invoice</th><th>Customer</th><th>Tracking No.</th>
+            <th>Inv. Date</th><th>Booked On</th><th>Status</th><th>Last Event</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
     </div>
-  </div>
-  <div style="font-size:11px;color:#aaa;text-align:center;margin-top:8px;padding-bottom:8px;">
-    ⚠️ Flagged overdue = &gt;6 days since Booked On date and not yet delivered
-  </div>`;
+    <div style="font-size:11px;color:#aaa;text-align:center;margin-top:8px;padding-bottom:8px;">
+      ⚠️ Flagged overdue = &gt;6 days since Booked On date and not yet delivered
+    </div>`;
+  }
 }
+
+// ═══════════════════════════════════════════
+// PULL-TO-REFRESH — main scroll area + sub-page scroll area
+// ═══════════════════════════════════════════
+(function setupPTR(){
+  function attachPTR(scrollEl,indicatorEl){
+    if(!scrollEl||!indicatorEl)return;
+    let startY=0,pulling=false,triggered=false;
+    const THRESHOLD=60;
+    scrollEl.addEventListener('touchstart',e=>{
+      if(scrollEl.scrollTop===0)startY=e.touches[0].clientY;
+    },{passive:true});
+    scrollEl.addEventListener('touchmove',e=>{
+      if(!startY)return;
+      const dy=e.touches[0].clientY-startY;
+      if(dy>0&&scrollEl.scrollTop===0){
+        pulling=true;
+        if(dy>THRESHOLD&&!triggered){
+          triggered=true;
+          indicatorEl.classList.add('show');
+        }
+      }
+    },{passive:true});
+    scrollEl.addEventListener('touchend',()=>{
+      if(triggered){
+        if(!syncing)syncAll();
+        setTimeout(()=>{indicatorEl.classList.remove('show');},1200);
+      }
+      startY=0;pulling=false;triggered=false;
+    },{passive:true});
+  }
+  // Run after DOM ready (init already called)
+  attachPTR(document.getElementById('scroll-area'),document.getElementById('ptr-indicator'));
+  // Sub-page scroll — attach after it exists (it's always in DOM)
+  attachPTR(document.getElementById('sub-page-scroll'),document.getElementById('ptr-sub-indicator'));
+})();
 
 init();
 </script>
