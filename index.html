@@ -1,8 +1,8 @@
 <!--
-APP: Vismaad Creations v9.6
+APP: Vismaad Creations v9.7
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 24-May-2026 - (1) Fixed credit note "Invoice not found" bug — invoice is now looked up before closing the edit modal, so editingInvId is still set when openCNModal is called. (2) Fixed follow-up popup only ever showing one customer — vc_followup_shown_date is now set only after the entire queue is exhausted (was being set on first display, blocking all subsequent sessions that day).
+LAST_CHANGE: 25-May-2026 - Fixed Outreach Centre (and all sub-pages) not opening — duplicate display:none in #sub-page-container inline style was preventing flex layout from rendering correctly.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
@@ -913,7 +913,7 @@ body.gst-mode .gst-only{display:block;}
 </div>
 
 <!-- ════ SUB-PAGES (slide in from right) ════ -->
-<div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;display:none;flex-direction:column;">
+<div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;flex-direction:column;">
   <div style="background:var(--brown);color:#fff;display:flex;align-items:center;padding:0 16px;padding-top:env(safe-area-inset-top);min-height:calc(var(--header-h) + env(safe-area-inset-top));gap:12px;flex-shrink:0;position:relative;z-index:10;">
     <button onclick="closeSubPage()" style="background:rgba(255,255,255,.15);border:none;border-radius:8px;color:#fff;padding:10px 14px;font-size:15px;cursor:pointer;min-height:44px;flex-shrink:0;">← Back</button>
     <span id="sub-page-title" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;"></span>
