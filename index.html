@@ -1,18 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v9.8
+APP: Vismaad Creations v9.9
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 25-May-2026 - Bug fixes: header version auto-derived from spec comment; removed duplicate #dash-posting-queue div; removed duplicate 'use strict'; promoted esc() to module-level; inventory page now auto-fills next product number on load; fixed bulkSaveAndPrint async race condition.
+LAST_CHANGE: 25-May-2026 19:30 IST - Fix header version (comment moved inside head so outerHTML includes it); tracking sync rewritten to per-article rows (fixes URL-too-long sheet sync failure); sync dot added to sub-page header; delivery review outreach section added to Outreach Centre.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
           S(settings object: gstin/address/phone/email/gstEnabled),
           lsGet/lsSet(safe localStorage), gsRead/gsWrite/gsWriteConfirmed/gsDelete(Sheets API)
 -->
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 <title>Vismaad Creations</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=Great+Vibes&display=swap" rel="stylesheet"/>
@@ -910,7 +910,11 @@ body.gst-mode .gst-only{display:block;}
 <div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;flex-direction:column;">
   <div style="background:var(--brown);color:#fff;display:flex;align-items:center;padding:0 16px;padding-top:env(safe-area-inset-top);min-height:calc(var(--header-h) + env(safe-area-inset-top));gap:12px;flex-shrink:0;position:relative;z-index:10;">
     <button onclick="closeSubPage()" style="background:rgba(255,255,255,.15);border:none;border-radius:8px;color:#fff;padding:10px 14px;font-size:15px;cursor:pointer;min-height:44px;flex-shrink:0;">← Back</button>
-    <span id="sub-page-title" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;"></span>
+    <span id="sub-page-title" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;flex:1;"></span>
+    <div class="hdr-sync" onclick="syncAll()" style="flex-shrink:0;">
+      <div class="sync-dot sub-sync-dot" id="sub-sync-dot"></div>
+      <span id="sub-sync-label" style="font-size:12px;opacity:.8;">Tap to sync</span>
+    </div>
   </div>
   <div id="sub-page-scroll" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px);">
     <div class="ptr" id="ptr-sub-indicator">↓ Syncing…</div>
@@ -1093,10 +1097,16 @@ function numberToWords(n){
 // GOOGLE SHEETS — CORS-safe
 // ═══════════════════════════════════════════
 function setSyncStatus(st){
+  const cls='sync-dot '+(st==='ok'?'ok':st==='err'?'err':st==='busy'?'busy':'');
+  const txt=st==='ok'?'Synced':st==='err'?'Sync failed':st==='busy'?'Syncing…':'Tap to sync';
   const dot=document.getElementById('sync-dot');
   const lbl=document.getElementById('sync-label');
-  if(dot)dot.className='sync-dot '+(st==='ok'?'ok':st==='err'?'err':st==='busy'?'busy':'');
-  if(lbl)lbl.textContent=st==='ok'?'Synced':st==='err'?'Sync failed':st==='busy'?'Syncing…':'Tap to sync';
+  if(dot)dot.className=cls;
+  if(lbl)lbl.textContent=txt;
+  const sdot=document.getElementById('sub-sync-dot');
+  const slbl=document.getElementById('sub-sync-label');
+  if(sdot)sdot.className=cls;
+  if(slbl)slbl.textContent=txt;
 }
 function gsRead(sheet){
   return new Promise((resolve,reject)=>{
@@ -1259,20 +1269,21 @@ async function syncAll(){
     }
 
     // TRACKING DATA — merge remote into local (newer updatedAt wins per article number)
-    // Data is stored as a single JSON blob row: id='tracking_all', data=JSON string of {KEY:{...}}
+    // Each article is now its own sheet row keyed by id=articleNumber (per-row format)
+    // Legacy blob row (id='tracking_all') is still read as fallback for first sync after migration
     let remTracking=[];
     try{remTracking=await gsRead(SHEETS.tracking);}catch(e){console.warn('Tracking sheet read failed:',e.message);}
     let remTrackingMap={};
     remTracking.forEach(r=>{
       if(!r.id)return;
       if(String(r.id).trim()==='tracking_all'&&r.data){
-        // New blob format
+        // Legacy blob — migrate on read
         try{
           const blob=JSON.parse(r.data);
           if(blob&&typeof blob==='object')Object.assign(remTrackingMap,blob);
         }catch(e){console.warn('Tracking blob parse error:',e.message);}
       } else {
-        // Legacy per-row fallback
+        // Per-row format (current)
         const key=String(r.id).trim().toUpperCase();
         remTrackingMap[key]={
           articleType:r.articleType||'',bookedAt:r.bookedAt||'',bookedOn:r.bookedOn||'',
@@ -1296,10 +1307,10 @@ async function syncAll(){
     inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
     purchases.forEach(p=>gsWrite(SHEETS.purchases,p));
     if(S.gstin)gsWrite(SHEETS.settings,{id:'settings',...S});
-    // Push tracking blob — confirmed JSONP so it actually reaches the sheet
-    if(Object.keys(trackingData).length>0){
-      gsWriteConfirmed(SHEETS.tracking,{id:'tracking_all',data:JSON.stringify(trackingData)});
-    }
+    // Push tracking — one row per article (no URL length limit)
+    Object.entries(trackingData).forEach(([key,td])=>{
+      gsWrite(SHEETS.tracking,{id:key,...td});
+    });
 
     localStorage.removeItem('vc_inv_cleared');
     setInvNumber();
@@ -4946,6 +4957,7 @@ function getFestivalMessage(festKey,custName,approx){
     ganesh_chaturthi:`Dear ${custName},\n\nGanesh Chaturthi is just 20 days away. There is still time to add something special to your wardrobe for the occasion. We have updated our collection:\ninstagram.com/vismaad_creations\n\nWishing you and your family a very happy Ganesh Chaturthi.\n\nVismaad Creations`,
     navratri:`Dear ${custName},\n\nThe festive season of Navratri and Durga Puja is just 20 days away. There is still time to dress in something new for the celebrations. We have updated our collection:\ninstagram.com/vismaad_creations\n\nWarm wishes for a joyful festive season to you and your family.\n\nVismaad Creations`,
     followup:`Dear ${custName},\n\nWe hope you are enjoying your recent purchase from Vismaad Creations.\n\nWe have added new designs to our collection and would love for you to take a look:\ninstagram.com/vismaad_creations\n\nThank you for your continued support.\n\nVismaad Creations`,
+    delivery_review:(productName)=>`Hi ${custName} 👋\n\nWe can see your parcel has been delivered — hope you love the ${productName||'suit'}! 🎁\n\nWe'd love to feature you on our Instagram. A quick photo or video wearing it would be amazing — your style could inspire so many others. 📸✨\n\nOr if you'd prefer, even a short written review about the fabric or fitting would mean a lot.\n\nThank you so much for choosing Vismaad Creations! 💛\n\n— Vismaad Creations`,
   };
   return msgs[festKey]||`Dear ${custName},\n\nWishing you and your family a joyful celebration.\n\nVismaad Creations`;
 }
@@ -5001,7 +5013,26 @@ function isOptedOut(phone){
   return msgLog.some(l=>l.phone===phone&&l.type==='followup_opt_out');
 }
 
-// ── FESTIVAL DATE FETCHING ──
+// ── DELIVERY REVIEW — one per invoice parcel, only India Post tracked ──
+function getPendingDeliveryReviews(){
+  const results=[];
+  invoices.forEach(inv=>{
+    if(!inv.tracking)return;
+    const art=inv.tracking.trim().toUpperCase();
+    const td=trackingData[art];
+    if(!td||!/^delivered$/i.test(td.status||''))return;
+    const phone=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+    if(!phone)return;
+    const msgKey='delivery_review_'+inv.invNo;
+    if(hasSentMsg(phone,msgKey,new Date().getFullYear()))return;
+    const items=expandItems(inv.itemsArr).filter(i=>i.desc&&i.desc.trim());
+    const productName=items.map(i=>i.desc).join(', ')||'suit';
+    results.push({inv,phone,productName,msgKey});
+  });
+  return results;
+}
+
+
 async function fetchFestivals(force){
   const cached=lsGet('vc_festivals',null);
   const yr=new Date().getFullYear();
@@ -5135,13 +5166,21 @@ async function renderOutreachWidget(){
   const content=document.getElementById('dash-outreach-content');
   if(!widget||!content)return;
 
-  if(followupsDue.length===0&&upcoming.length===0){
+  const deliveryReviews=getPendingDeliveryReviews();
+
+  if(followupsDue.length===0&&upcoming.length===0&&deliveryReviews.length===0){
     widget.style.display='none';
     return;
   }
 
   widget.style.display='block';
   let html='';
+  if(deliveryReviews.length>0){
+    html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="font-size:13px;">📦 ${deliveryReviews.length} delivery review${deliveryReviews.length>1?'s':''} to send</span>
+      <span style="font-size:12px;color:#888;">${deliveryReviews.length} parcel${deliveryReviews.length>1?'s':''}</span>
+    </div>`;
+  }
   if(followupsDue.length>0){
     html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
       <span style="font-size:13px;">📬 ${followupsDue.length} follow-up${followupsDue.length>1?'s':''} due</span>
@@ -5256,8 +5295,35 @@ async function renderOutreachPage(){
 
   const rColour={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'};
 
-  // Build safe registry entries for follow-up rows
+  // ── DELIVERY REVIEWS ──
+  const deliveryReviews=getPendingDeliveryReviews();
   let html=`<div class="card">
+    <div class="card-title">📦 Delivery Reviews (${deliveryReviews.length})</div>
+    <div style="font-size:12px;color:#888;margin-bottom:12px;">
+      Parcels marked Delivered — ask for a photo, video, or written review.
+    </div>`;
+  if(deliveryReviews.length===0){
+    html+=`<div style="color:#aaa;text-align:center;padding:16px;">No pending delivery reviews.</div>`;
+  }else{
+    deliveryReviews.forEach(({inv,phone,productName,msgKey})=>{
+      const num=phone.length===10?'91'+phone:phone;
+      const msgs=getFestivalMessage('delivery_review',inv.custName||'');
+      const msgText=typeof msgs==='function'?msgs(productName):msgs;
+      html+=`<div class="list-row" style="align-items:flex-start;gap:8px;">
+        <div style="flex:1;">
+          <div class="list-main">${esc(inv.custName||'—')}</div>
+          <div class="list-sub">${esc(inv.invNo)} · ${fmtDate(inv.invDate)} · ${esc(productName)}</div>
+        </div>
+        <a href="https://wa.me/${num}?text=${encodeURIComponent(msgText)}" target="_blank"
+          onclick="logMsg('${phone}','${msgKey}',${yr},'');setTimeout(()=>renderOutreachPage(),600);"
+          class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;text-align:center;flex-shrink:0;">💬 Send</a>
+      </div>`;
+    });
+  }
+  html+=`</div>`;
+
+  // Build safe registry entries for follow-up rows
+  html+=`<div class="card">
     <div class="card-title">📬 Follow-ups Due (${followups.length})</div>
     <div style="font-size:12px;color:#888;margin-bottom:12px;">
       Customers who ordered 45+ days ago with no recent reorder and no follow-up sent this year.
@@ -5846,12 +5912,14 @@ function handleTrackingImport(e){
           updated++;
         });
         saveTracking();
-        // Push to sheet immediately so other devices can pull on next sync
-        gsWriteConfirmed(SHEETS.tracking,{id:'tracking_all',data:JSON.stringify(trackingData)})
-          .then(ok=>{ if(!ok)toast('⚠️ Saved locally — sheet sync failed. Tap sync to retry.',5000); });
+        // Push each updated article as its own sheet row — no URL length limit
+        const updatedArts=rows.map(r=>(r[colArticle]||'').toString().trim().toUpperCase()).filter(Boolean);
+        updatedArts.forEach(art=>{
+          if(trackingData[art])gsWrite(SHEETS.tracking,{id:art,...trackingData[art]});
+        });
         renderTrackingPage();
         renderSales(); // refresh badges
-        toast('✅ '+updated+' tracking records imported — syncing to sheet…'+(skipped?' ('+skipped+' skipped)':''));
+        toast('✅ '+updated+' tracking records imported'+(skipped?' ('+skipped+' skipped)':''));
       }catch(err){toast('❌ Import error: '+err.message,6000);}
     };
     reader.onerror=function(){hideLoading();toast('❌ Could not read file');};
