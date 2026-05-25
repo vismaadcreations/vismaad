@@ -1,8 +1,8 @@
 <!--
-APP: Vismaad Creations v9.7
+APP: Vismaad Creations v9.8
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 25-May-2026 - Fixed Outreach Centre (and all sub-pages) not opening — duplicate display:none in #sub-page-container inline style was preventing flex layout from rendering correctly.
+LAST_CHANGE: 25-May-2026 - Bug fixes: header version auto-derived from spec comment; removed duplicate #dash-posting-queue div; removed duplicate 'use strict'; promoted esc() to module-level; inventory page now auto-fills next product number on load; fixed bulkSaveAndPrint async race condition.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
@@ -223,7 +223,7 @@ body.gst-mode .gst-only{display:block;}
     <img id="hdr-logo-img" class="hdr-logo" alt="logo"/>
     <div>
       <span id="hdr-logo-text" class="hdr-name">Vismaad Creations</span>
-      <div style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;">v9.4 · 23-May-2026</div>
+      <div id="hdr-version" style="font-size:9px;opacity:.55;letter-spacing:.5px;margin-top:1px;"></div>
     </div>
   </div>
   <div class="hdr-sync" onclick="syncAll()">
@@ -377,12 +377,6 @@ body.gst-mode .gst-only{display:block;}
     <button class="btn btn-o" style="margin-top:10px;width:100%;" onclick="showPage('inventory',document.getElementById('bnav-inventory'))">Open Inventory →</button>
   </div>
 
-  <!-- Posting Queue Widget -->
-  <div class="card" id="dash-posting-queue" style="display:none;">
-    <div class="card-title">📱 Posting Queue</div>
-    <div id="dash-posting-content"></div>
-    <button class="btn btn-o" style="margin-top:10px;width:100%;" onclick="showPage('inventory',document.getElementById('bnav-inventory'))">Open Inventory →</button>
-  </div>
 
   <div class="card">
     <div class="card-title">⚠️ Low / Aging Stock</div>
@@ -950,7 +944,21 @@ body.gst-mode .gst-only{display:block;}
 
 <script>
 'use strict';
-'use strict';
+// ═══════════════════════════════════════════
+// VERSION — auto-read from spec comment in HTML
+// ═══════════════════════════════════════════
+(function setHeaderVersion(){
+  const m=document.documentElement.outerHTML.match(/APP:\s*Vismaad Creations\s*(v[\d.]+)/);
+  const lastChange=document.documentElement.outerHTML.match(/LAST_CHANGE:\s*(\d{2}-[A-Za-z]{3}-\d{4})/);
+  const el=document.getElementById('hdr-version');
+  if(el&&m)el.textContent=m[1]+(lastChange?' · '+lastChange[1]:'');
+})();
+
+// ═══════════════════════════════════════════
+// MODULE-LEVEL HTML ESCAPE — available everywhere
+// ═══════════════════════════════════════════
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
 // ═══════════════════════════════════════════
 // STATE CODES — GST compliance
 // ═══════════════════════════════════════════
@@ -1325,7 +1333,10 @@ function showPage(id,btn){
   const sa=document.getElementById('scroll-area');
   if(sa)sa.scrollTop=0;
   if(id==='dash')renderDashboard();
-  if(id==='inventory'){renderInventory();renderAgingGrid();updateInventoryStats();}
+  if(id==='inventory'){renderInventory();renderAgingGrid();updateInventoryStats();
+    const _ipn=document.getElementById('ip-num');if(_ipn)_ipn.value=nextProdNo();
+    const _ipd=document.getElementById('ip-date');if(_ipd&&!_ipd.value)_ipd.value=today();
+  }
   if(id==='sales')renderSales();
   if(id==='more')renderSyncInfo();
 }
@@ -2060,9 +2071,6 @@ function renderSales(){
   if(cnt)cnt.textContent=salesFiltered.length+' invoice'+(salesFiltered.length!==1?'s':'');
   updateSelCount();
   const el=document.getElementById('sales-list');if(!el)return;
-  // HTML-safe escaping for any value injected into innerHTML
-  const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-
   if(!salesFiltered.length){el.innerHTML='<div style="color:#aaa;text-align:center;padding:30px;">No invoices found</div>';return;}
   const chIcon={WhatsApp:'💬',Instagram:'📸',Facebook:'👍',Website:'🌐',Offline:'🏪'};
   el.innerHTML=salesFiltered.map((inv,idx)=>{
@@ -4647,17 +4655,15 @@ async function bulkSaveOnly(){
     toast('❌ Import failed: '+err.message,6000);
   }
 }
-function bulkSaveAndPrint(){
+async function bulkSaveAndPrint(){
   if(isGSTEnabled()&&!S.gstin){toast('⚠️ Enter GSTIN in Settings first');return;}
   if(!window._bulkRows?.length){toast('⚠️ No rows to import');return;}
   const before=invoices.length;
-  bulkSaveOnly();
-  setTimeout(()=>{
-    const newInvs=invoices.slice(before);
-    if(!newInvs.length){toast('No new invoices to print');return;}
-    document.getElementById('print-area').innerHTML=newInvs.map(inv=>`<div class="print-page">${getInvHtml(inv)}</div>`).join('');
-    window.print();
-  },2000);
+  await bulkSaveOnly();
+  const newInvs=invoices.slice(before);
+  if(!newInvs.length){toast('No new invoices to print');return;}
+  document.getElementById('print-area').innerHTML=newInvs.map(inv=>`<div class="print-page">${getInvHtml(inv)}</div>`).join('');
+  window.print();
 }
 
 // ═══════════════════════════════════════════
