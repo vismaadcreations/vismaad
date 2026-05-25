@@ -1,8 +1,8 @@
 <!--
-APP: Vismaad Creations v9.5
+APP: Vismaad Creations v9.6
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 23-May-2026 - (1) Fixed tracking sync: syncAll now correctly parses tracking_all JSON blob row instead of treating it as individual article key. (2) Tracking table is now mobile-responsive (card layout on small screens). (3) Sub-page bottom nav buttons now work — clicking any bnav tab from a sub-page closes it and navigates correctly. (4) After generating an invoice, "+ New Invoice" button is more prominent and the page auto-scrolls to it. (5) Pull-down-to-refresh works from sub-pages too. (6) Back button in sub-page header is always visible, clear of the iOS safe area, and never hidden behind the ribbon.
+LAST_CHANGE: 24-May-2026 - (1) Fixed credit note "Invoice not found" bug — invoice is now looked up before closing the edit modal, so editingInvId is still set when openCNModal is called. (2) Fixed follow-up popup only ever showing one customer — vc_followup_shown_date is now set only after the entire queue is exhausted (was being set on first display, blocking all subsequent sessions that day).
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
@@ -2856,8 +2856,8 @@ function saveCNs(){lsSet('vc_cn',creditNotes);}
 let cnRefInvId=null;
 
 function openCreditNoteFromEdit(){
-  closeEditModal();
   const inv=invoices.find(i=>String(i.id)===editingInvId);
+  closeEditModal();
   if(!inv){toast('⚠️ Invoice not found');return;}
   openCNModal(inv);
 }
@@ -5177,6 +5177,8 @@ async function checkFollowupPopup(){
 
 function showFollowupPopup(){
   if(_followupIdx>=_followupQueue.length){
+    // All customers processed — mark today so we don't re-show this session
+    localStorage.setItem('vc_followup_shown_date',today());
     document.getElementById('followup-popup')?.classList.remove('open');
     return;
   }
@@ -5190,7 +5192,6 @@ function showFollowupPopup(){
     ${c.whatsapp?'<div style="font-size:12px;color:#27ae60;margin-top:4px;">💬 WhatsApp: +'+c.whatsapp+'</div>':'<div style="font-size:12px;color:#888;margin-top:4px;">📞 Phone: '+c.shippingPhone+'</div>'}`;
   const counter=document.getElementById('followup-popup-counter');
   if(counter&&_followupQueue.length>1)counter.textContent=(_followupIdx+1)+' of '+_followupQueue.length;
-  localStorage.setItem('vc_followup_shown_date',today());
   document.getElementById('followup-popup')?.classList.add('open');
 }
 
@@ -5207,14 +5208,8 @@ function sendFollowup(){
 }
 
 function skipFollowup(){
-  // Skip this customer but don't block others from showing later today
   _followupIdx++;
-  if(_followupIdx>=_followupQueue.length){
-    // All done for now — close popup, don't show again today
-    document.getElementById('followup-popup')?.classList.remove('open');
-  }else{
-    showFollowupPopup();
-  }
+  showFollowupPopup();
 }
 
 // Registry-based sendAllVisible
