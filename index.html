@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v9.9
+APP: Vismaad Creations v10.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 25-May-2026 19:30 IST - Fix header version (comment moved inside head so outerHTML includes it); tracking sync rewritten to per-article rows (fixes URL-too-long sheet sync failure); sync dot added to sub-page header; delivery review outreach section added to Outreach Centre.
+LAST_CHANGE: 25-May-2026 — Feedback/Delivery Reviews page redesigned: date filter (7/30/90/all), skip (7-day), never remind, bulk Send All + Skip All, show-skipped toggle; new delivery review popup fires on app load and after tracking import (only for newly-delivered items since last popup); Tracking page: status filter, date range filter, sort by invoice date/booked date/status, stat cards clickable as quick-filters, colour-coded rows.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
@@ -395,6 +395,17 @@ body.gst-mode .gst-only{display:block;}
       <button class="btn btn-o" style="min-height:44px;color:#c0392b;" onclick="optOutFollowup()">Do Not Remind Again for This Customer</button>
     </div>
     <div id="followup-popup-counter" style="text-align:center;font-size:12px;color:#aaa;margin-top:10px;"></div>
+  </div>
+</div>
+
+<!-- ════ DELIVERY REVIEW POPUP ════ -->
+<div class="modal-bg" id="review-popup" style="z-index:99991;">
+  <div class="modal">
+    <div class="modal-title">📦 New Delivery — Request Review?</div>
+    <div style="font-size:12px;color:#888;margin-bottom:14px;">These parcels were just marked Delivered. Ask customers for a photo, video, or written review.</div>
+    <div id="review-popup-content" style="margin-bottom:4px;"></div>
+    <div id="review-popup-counter" style="text-align:center;font-size:12px;color:#aaa;margin-top:10px;"></div>
+    <button class="btn btn-o" style="min-height:40px;width:100%;margin-top:12px;font-size:13px;" onclick="closeReviewPopup()">Later — Remind Next Time</button>
   </div>
 </div>
 
@@ -1427,6 +1438,7 @@ function init(){
       renderOutreachWidget();
       renderPostingQueue();
       checkFollowupPopup();
+      checkReviewPopup();
     },3000);
   }catch(e){
     console.error('Init error:',e);
@@ -5013,9 +5025,33 @@ function isOptedOut(phone){
   return msgLog.some(l=>l.phone===phone&&l.type==='followup_opt_out');
 }
 
+// ── DELIVERY REVIEW HELPERS ──
+function getReviewSkipped(){return lsGet('vc_review_skipped',{});}
+function saveReviewSkipped(d){lsSet('vc_review_skipped',d);}
+function getReviewNever(){return lsGet('vc_review_never',{});}
+function saveReviewNever(d){lsSet('vc_review_never',d);}
+
+function isReviewSkipped(invNo){
+  const d=getReviewSkipped();
+  if(!d[invNo])return false;
+  // expires after 7 days
+  return (Date.now()-d[invNo])<7*24*3600*1000;
+}
+function skipReview(invNo){
+  const d=getReviewSkipped();d[invNo]=Date.now();saveReviewSkipped(d);
+}
+function neverReview(phone){
+  const d=getReviewNever();d[phone]=true;saveReviewNever(d);
+}
+function isReviewNever(phone){return!!(getReviewNever()[phone]);}
+
 // ── DELIVERY REVIEW — one per invoice parcel, only India Post tracked ──
-function getPendingDeliveryReviews(){
+// dateFilter: 'all'|'7'|'30'|'90' (days ago)
+// showSkipped: bool
+function getPendingDeliveryReviews(dateFilter,showSkipped){
   const results=[];
+  const cutoff=dateFilter&&dateFilter!=='all'
+    ?Date.now()-parseInt(dateFilter)*24*3600*1000:0;
   invoices.forEach(inv=>{
     if(!inv.tracking)return;
     const art=inv.tracking.trim().toUpperCase();
@@ -5023,13 +5059,105 @@ function getPendingDeliveryReviews(){
     if(!td||!/^delivered$/i.test(td.status||''))return;
     const phone=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
     if(!phone)return;
+    if(isReviewNever(phone))return;
     const msgKey='delivery_review_'+inv.invNo;
     if(hasSentMsg(phone,msgKey,new Date().getFullYear()))return;
+    if(!showSkipped&&isReviewSkipped(inv.invNo))return;
+    // date filter on invoice date
+    if(cutoff){
+      const d=new Date(inv.invDate+'T00:00:00').getTime();
+      if(d<cutoff)return;
+    }
     const items=expandItems(inv.itemsArr).filter(i=>i.desc&&i.desc.trim());
     const productName=items.map(i=>i.desc).join(', ')||'suit';
-    results.push({inv,phone,productName,msgKey});
+    results.push({inv,phone,productName,msgKey,skipped:isReviewSkipped(inv.invNo)});
   });
   return results;
+}
+
+// Returns invNos currently delivered (for popup change detection)
+function getDeliveredInvNos(){
+  return invoices
+    .filter(inv=>{
+      if(!inv.tracking)return false;
+      const td=trackingData[inv.tracking.trim().toUpperCase()];
+      return td&&/^delivered$/i.test(td.status||'');
+    })
+    .map(inv=>inv.invNo);
+}
+
+// ── DELIVERY REVIEW POPUP ──
+let _reviewPopupQueue=[];
+let _reviewPopupIdx=0;
+
+function checkReviewPopup(){
+  const seenRaw=lsGet('vc_review_popup_seen',null);
+  const seen=Array.isArray(seenRaw)?seenRaw:[];
+  const deliveredNow=getDeliveredInvNos();
+  const newOnes=deliveredNow.filter(n=>!seen.includes(n));
+  // filter out never/sent
+  const actionable=newOnes.filter(n=>{
+    const inv=invoices.find(i=>i.invNo===n);if(!inv)return false;
+    const phone=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+    if(!phone)return false;
+    if(isReviewNever(phone))return false;
+    const msgKey='delivery_review_'+n;
+    if(hasSentMsg(phone,msgKey,new Date().getFullYear()))return false;
+    return true;
+  });
+  if(!actionable.length){
+    // still update seen so we don't check same ones again next time
+    lsSet('vc_review_popup_seen',deliveredNow);
+    return;
+  }
+  _reviewPopupQueue=actionable.map(n=>{
+    const inv=invoices.find(i=>i.invNo===n);
+    const phone=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+    const items=expandItems(inv.itemsArr).filter(i=>i.desc&&i.desc.trim());
+    const productName=items.map(i=>i.desc).join(', ')||'suit';
+    const msgKey='delivery_review_'+n;
+    return{inv,phone,productName,msgKey};
+  });
+  _reviewPopupIdx=0;
+  showReviewPopup();
+}
+
+function showReviewPopup(){
+  if(_reviewPopupIdx>=_reviewPopupQueue.length){
+    document.getElementById('review-popup')?.classList.remove('open');
+    // Mark all currently-delivered as seen
+    lsSet('vc_review_popup_seen',getDeliveredInvNos());
+    return;
+  }
+  const {inv,phone,productName,msgKey}=_reviewPopupQueue[_reviewPopupIdx];
+  const num=phone.length===10?'91'+phone:phone;
+  const msgs=getFestivalMessage('delivery_review',inv.custName||'');
+  const msgText=typeof msgs==='function'?msgs(productName):msgs;
+  const yr=new Date().getFullYear();
+  const content=document.getElementById('review-popup-content');
+  if(content)content.innerHTML=`
+    <div style="background:var(--goldp);border-radius:10px;padding:12px;margin-bottom:12px;">
+      <div style="font-size:15px;font-weight:700;margin-bottom:4px;">${esc(inv.custName||'—')}</div>
+      <div style="font-size:12px;color:#888;">${esc(inv.invNo)} · ${fmtDate(inv.invDate)}</div>
+      <div style="font-size:12px;color:var(--brown);margin-top:4px;">📦 ${esc(productName)}</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <a href="https://wa.me/${num}?text=${encodeURIComponent(msgText)}" target="_blank"
+        onclick="logMsg('${phone}','${msgKey}',${yr},'');_reviewPopupIdx++;showReviewPopup();"
+        class="btn btn-g" style="min-height:48px;text-decoration:none;text-align:center;">💬 Send Review Request</a>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-o" style="flex:1;min-height:44px;" onclick="skipReview('${inv.invNo}');_reviewPopupIdx++;showReviewPopup();">⏭ Skip (7 days)</button>
+        <button class="btn btn-o" style="flex:1;min-height:44px;color:#c0392b;" onclick="neverReview('${phone}');_reviewPopupIdx++;showReviewPopup();">🚫 Never Remind</button>
+      </div>
+    </div>`;
+  const counter=document.getElementById('review-popup-counter');
+  if(counter&&_reviewPopupQueue.length>1)counter.textContent=(_reviewPopupIdx+1)+' of '+_reviewPopupQueue.length;
+  document.getElementById('review-popup')?.classList.add('open');
+}
+
+function closeReviewPopup(){
+  document.getElementById('review-popup')?.classList.remove('open');
+  // Don't update seen — so it fires again next session
 }
 
 
@@ -5278,6 +5406,10 @@ function optOutFollowup(){
   showFollowupPopup();
 }
 
+// Outreach page filter state
+let _reviewDateFilter='30';
+let _reviewShowSkipped=false;
+
 async function renderOutreachPage(){
   const cache=await fetchFestivals(false);
   const customers=getUniqueCustomers();
@@ -5296,39 +5428,79 @@ async function renderOutreachPage(){
   const rColour={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'};
 
   // ── DELIVERY REVIEWS ──
-  const deliveryReviews=getPendingDeliveryReviews();
+  const deliveryReviews=getPendingDeliveryReviews(_reviewDateFilter,_reviewShowSkipped);
+  const totalDelivered=getPendingDeliveryReviews('all',true).length; // for context count
+
+  // Filter bar
+  const dfOptions=['7','30','90','all'];
+  const dfLabels={'7':'7 days','30':'30 days','90':'90 days','all':'All time'};
+  const dfBtns=dfOptions.map(v=>`<button onclick="setReviewDateFilter('${v}')"
+    style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);
+      background:${_reviewDateFilter===v?'var(--brown)':'transparent'};
+      color:${_reviewDateFilter===v?'#fff':'var(--brown)'};">${dfLabels[v]}</button>`).join('');
+
   let html=`<div class="card">
-    <div class="card-title">📦 Delivery Reviews (${deliveryReviews.length})</div>
-    <div style="font-size:12px;color:#888;margin-bottom:12px;">
-      Parcels marked Delivered — ask for a photo, video, or written review.
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+      <div class="card-title" style="margin-bottom:0;">📦 Delivery Reviews</div>
+      <span style="font-size:12px;color:#888;">${deliveryReviews.length} pending</span>
+    </div>
+    <div style="font-size:12px;color:#888;margin-bottom:10px;">Parcels marked Delivered — request a photo, video, or written review.</div>
+
+    <!-- Filter bar -->
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+      <span style="font-size:12px;color:#888;white-space:nowrap;">Invoice date:</span>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;">${dfBtns}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+        <input type="checkbox" ${_reviewShowSkipped?'checked':''} onchange="toggleReviewShowSkipped(this.checked)"
+          style="width:16px;height:16px;cursor:pointer;accent-color:var(--brown);">
+        Show skipped (${getPendingDeliveryReviews(_reviewDateFilter,true).length - getPendingDeliveryReviews(_reviewDateFilter,false).length} hidden)
+      </label>
     </div>`;
+
   if(deliveryReviews.length===0){
-    html+=`<div style="color:#aaa;text-align:center;padding:16px;">No pending delivery reviews.</div>`;
+    html+=`<div style="color:#aaa;text-align:center;padding:20px;font-size:13px;">
+      ${totalDelivered===0?'No delivered parcels pending review.':'All visible reviews sent, skipped, or filtered out.'}
+    </div>`;
   }else{
-    deliveryReviews.forEach(({inv,phone,productName,msgKey})=>{
+    // Bulk actions
+    html+=`<div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button class="btn btn-g" style="flex:1;min-height:42px;font-size:13px;" onclick="bulkSendReviews()">💬 Send All (${deliveryReviews.length})</button>
+      <button class="btn btn-o" style="flex:1;min-height:42px;font-size:13px;" onclick="bulkSkipReviews()">⏭ Skip All</button>
+    </div>`;
+
+    deliveryReviews.forEach(({inv,phone,productName,msgKey,skipped})=>{
       const num=phone.length===10?'91'+phone:phone;
       const msgs=getFestivalMessage('delivery_review',inv.custName||'');
       const msgText=typeof msgs==='function'?msgs(productName):msgs;
-      html+=`<div class="list-row" style="align-items:flex-start;gap:8px;">
-        <div style="flex:1;">
-          <div class="list-main">${esc(inv.custName||'—')}</div>
-          <div class="list-sub">${esc(inv.invNo)} · ${fmtDate(inv.invDate)} · ${esc(productName)}</div>
+      const skipLabel=skipped?'<span style="font-size:10px;background:#f0f0f0;color:#888;border-radius:8px;padding:1px 7px;margin-left:6px;">skipped</span>':'';
+      html+=`<div class="list-row" style="align-items:flex-start;gap:8px;${skipped?'opacity:0.6;':''}">
+        <div style="flex:1;min-width:0;">
+          <div class="list-main" style="word-break:break-word;">${esc(inv.custName||'—')}${skipLabel}</div>
+          <div class="list-sub">${esc(inv.invNo)} · ${fmtDate(inv.invDate)}</div>
+          <div style="font-size:12px;color:var(--brown);margin-top:2px;">📦 ${esc(productName)}</div>
         </div>
-        <a href="https://wa.me/${num}?text=${encodeURIComponent(msgText)}" target="_blank"
-          onclick="logMsg('${phone}','${msgKey}',${yr},'');setTimeout(()=>renderOutreachPage(),600);"
-          class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;text-align:center;flex-shrink:0;">💬 Send</a>
+        <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
+          <a href="https://wa.me/${num}?text=${encodeURIComponent(msgText)}" target="_blank"
+            onclick="logMsg('${phone}','${msgKey}',${yr},'');setTimeout(()=>renderOutreachPage(),600);"
+            class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;text-align:center;">💬 Send</a>
+          <button class="btn btn-o btn-sm" style="min-height:34px;font-size:11px;"
+            onclick="skipReview('${inv.invNo}');renderOutreachPage();">⏭ Skip</button>
+          <button class="btn btn-o btn-sm" style="min-height:34px;font-size:11px;color:#c0392b;"
+            onclick="neverReview('${phone}');renderOutreachPage();">🚫 Never</button>
+        </div>
       </div>`;
     });
   }
   html+=`</div>`;
 
-  // Build safe registry entries for follow-up rows
+  // ── FOLLOW-UPS ──
   html+=`<div class="card">
     <div class="card-title">📬 Follow-ups Due (${followups.length})</div>
     <div style="font-size:12px;color:#888;margin-bottom:12px;">
       Customers who ordered 45+ days ago with no recent reorder and no follow-up sent this year.
     </div>`;
-
   if(followups.length===0){
     html+=`<div style="color:#aaa;text-align:center;padding:16px;">No follow-ups due.</div>`;
   }else{
@@ -5339,7 +5511,7 @@ async function renderOutreachPage(){
       const msg=getFestivalMessage('followup',c.name);
       const rCol=rColour[c.religion]||'#888';
       html+=`<div class="list-row" style="align-items:flex-start;gap:8px;">
-        <div style="flex:1;">
+        <div style="flex:1;min-width:0;">
           <div class="list-main">${c.name}
             <span data-rel-phone="${c.phone}" style="font-size:10px;font-weight:700;color:#fff;background:${rCol};padding:1px 6px;border-radius:8px;margin-left:6px;">${c.religion}</span>
           </div>
@@ -5348,12 +5520,12 @@ async function renderOutreachPage(){
             style="font-size:10px;color:#888;background:none;border:none;padding:2px 0;cursor:pointer;"
             onclick="showReligionOverride(this)">Change religion</button>
         </div>
-        <div style="display:flex;flex-direction:column;gap:4px;">
+        <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
           <a href="https://wa.me/${num}?text=${encodeURIComponent(msg)}" target="_blank"
             onclick="logMsg('${c.phone}','followup',${yr},'');setTimeout(()=>renderOutreachPage(),600);"
             class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;text-align:center;">💬 Send</a>
-          <button class="btn btn-o btn-sm" style="min-height:36px;font-size:10px;"
-            onclick="logMsg('${c.phone}','followup_opt_out',${yr},'');renderOutreachPage();">Never remind</button>
+          <button class="btn btn-o btn-sm" style="min-height:34px;font-size:11px;color:#c0392b;"
+            onclick="logMsg('${c.phone}','followup_opt_out',${yr},'');renderOutreachPage();">🚫 Never</button>
         </div>
       </div>`;
     });
@@ -5379,7 +5551,6 @@ async function renderOutreachPage(){
     const dayLabel=f.days===0?'Today':f.days===1?'Tomorrow':`In ${f.days} days`;
     const fallbackNote=f.isFallback?'<div style="font-size:11px;color:#e67e22;margin-bottom:8px;">Approximate date — add Calendarific API key in Settings for exact dates.</div>':'';
 
-    // Religion filter buttons
     const allReligions=['Hindu','Sikh','Muslim','Unknown'];
     const filterBtns=allReligions.map(r=>{
       const active=activeFilter.includes(r);
@@ -5389,8 +5560,6 @@ async function renderOutreachPage(){
           background:${active?col:'transparent'};color:${active?'#fff':col};">${r}</button>`;
     }).join('');
 
-    // Build send-all URLs
-    // Store send-all data in global — avoids passing through onclick attributes
     window._sendAllData=window._sendAllData||{};
     window._sendAllData[f.key]={links:[],festKey:f.key,yr};
     const sendAllLinks=visible.map(c=>{
@@ -5399,10 +5568,6 @@ async function renderOutreachPage(){
       return{num,msg:getFestivalMessage(f.key,c.name,f.approx),phone:c.phone,name:c.name};
     });
     if(window._sendAllData&&window._sendAllData[f.key])window._sendAllData[f.key].links=[...sendAllLinks];
-
-    // Build safe data map for this festival's customers
-    let festMapKey=0;
-    const festMapPrefix=`fest_${f.key}_`;
 
     html+=`<div class="card">
       <div class="card-title">🎉 ${f.name} — ${dayLabel}</div>
@@ -5424,7 +5589,7 @@ async function renderOutreachPage(){
           const msg=getFestivalMessage(f.key,c.name,f.approx);
           const rCol=rColour[c.religion]||'#888';
           return`<div class="list-row" style="align-items:flex-start;gap:8px;">
-            <div style="flex:1;">
+            <div style="flex:1;min-width:0;">
               <div class="list-main">${c.name}
                 <span data-rel-phone="${c.phone}" style="font-size:10px;font-weight:700;color:#fff;background:${rCol};padding:1px 6px;border-radius:8px;margin-left:6px;">${c.religion}</span>
               </div>
@@ -5450,6 +5615,43 @@ async function renderOutreachPage(){
 
   const el=document.getElementById('outreach-page-content');
   if(el)el.innerHTML=html;
+}
+
+function setReviewDateFilter(v){_reviewDateFilter=v;renderOutreachPage();}
+function toggleReviewShowSkipped(v){_reviewShowSkipped=v;renderOutreachPage();}
+
+// Bulk skip all visible reviews
+function bulkSkipReviews(){
+  const list=getPendingDeliveryReviews(_reviewDateFilter,_reviewShowSkipped);
+  if(!list.length){toast('Nothing to skip');return;}
+  list.forEach(({inv})=>skipReview(inv.invNo));
+  toast('⏭ '+list.length+' review'+( list.length>1?'s':'')+' skipped for 7 days');
+  renderOutreachPage();
+}
+
+// Bulk send all visible reviews one by one
+function bulkSendReviews(){
+  const list=getPendingDeliveryReviews(_reviewDateFilter,_reviewShowSkipped);
+  if(!list.length){toast('No reviews to send');return;}
+  const yr=new Date().getFullYear();
+  let idx=0;
+  function openNext(){
+    if(idx>=list.length){toast('✅ All review messages opened');renderOutreachPage();return;}
+    const {inv,phone,productName,msgKey}=list[idx];
+    const num=phone.length===10?'91'+phone:phone;
+    const msgs=getFestivalMessage('delivery_review',inv.custName||'');
+    const msgText=typeof msgs==='function'?msgs(productName):msgs;
+    logMsg(phone,msgKey,yr,'');
+    window.open('https://wa.me/'+num+'?text='+encodeURIComponent(msgText),'_blank');
+    idx++;
+    if(idx<list.length){
+      setTimeout(()=>{
+        if(confirm('Opened for '+inv.custName+'. Open next? ('+(list.length-idx)+' remaining)'))openNext();
+        else{toast('Stopped. '+(list.length-idx)+' remaining.');renderOutreachPage();}
+      },600);
+    }else{setTimeout(()=>{toast('✅ All review messages opened');renderOutreachPage();},600);}
+  }
+  openNext();
 }
 
 // Send All Visible — opens WhatsApp one by one
@@ -5919,6 +6121,8 @@ function handleTrackingImport(e){
         });
         renderTrackingPage();
         renderSales(); // refresh badges
+        // Check for newly-delivered items and show review popup if any
+        setTimeout(()=>checkReviewPopup(),800);
         toast('✅ '+updated+' tracking records imported'+(skipped?' ('+skipped+' skipped)':''));
       }catch(err){toast('❌ Import error: '+err.message,6000);}
     };
@@ -5956,43 +6160,160 @@ function clearTrackingData(){
   toast('🗑 Tracking data cleared');
 }
 
+// Tracking page filter/sort state
+let _trackFilterStatus='all'; // all|delivered|intransit|overdue|nodata
+let _trackSortBy='invdate_desc'; // invdate_desc|invdate_asc|bookeddate_desc|bookeddate_asc|status
+let _trackDateFilter='all'; // all|30|60|90
+
 // Render the tracking results table into the sub-page
 function renderTrackingPage(){
   const area=document.getElementById('tracking-table-area');
   if(!area)return;
-  const top=getTop1000Tracked();
+  let top=getTop1000Tracked();
   if(!top.length){
     area.innerHTML='<div style="color:#aaa;text-align:center;padding:24px;font-size:13px;">No India Post tracking numbers found.<br/>Add tracking numbers to your invoices first.</div>';
     return;
   }
-  // Build stats
+
+  // Annotate each with status category
+  const now=Date.now();
+  const annotated=top.map(inv=>{
+    const key=inv.tracking.trim().toUpperCase();
+    const td=trackingData[key];
+    let cat='nodata';
+    if(td){
+      if(/^delivered$/i.test(td.status||''))cat='delivered';
+      else if(isTrackingOverdue(td,inv.invDate))cat='overdue';
+      else cat='intransit';
+    }
+    return{inv,td,cat};
+  });
+
+  // Date filter
+  const cutoff=_trackDateFilter!=='all'?now-parseInt(_trackDateFilter)*24*3600*1000:0;
+  let filtered=annotated;
+  if(cutoff){
+    filtered=filtered.filter(({inv})=>{
+      const d=new Date(inv.invDate+'T00:00:00').getTime();
+      return d>=cutoff;
+    });
+  }
+
+  // Status filter
+  if(_trackFilterStatus!=='all'){
+    filtered=filtered.filter(({cat})=>cat===_trackFilterStatus);
+  }
+
+  // Sort
+  filtered.sort((a,b)=>{
+    if(_trackSortBy==='invdate_asc')return new Date(a.inv.invDate)-new Date(b.inv.invDate);
+    if(_trackSortBy==='invdate_desc')return new Date(b.inv.invDate)-new Date(a.inv.invDate);
+    if(_trackSortBy==='bookeddate_asc'){
+      const da=a.td&&a.td.bookedOn?new Date(a.td.bookedOn):new Date(0);
+      const db=b.td&&b.td.bookedOn?new Date(b.td.bookedOn):new Date(0);
+      return da-db;
+    }
+    if(_trackSortBy==='bookeddate_desc'){
+      const da=a.td&&a.td.bookedOn?new Date(a.td.bookedOn):new Date(0);
+      const db=b.td&&b.td.bookedOn?new Date(b.td.bookedOn):new Date(0);
+      return db-da;
+    }
+    if(_trackSortBy==='status'){
+      const order={delivered:0,intransit:1,overdue:2,nodata:3};
+      return(order[a.cat]||3)-(order[b.cat]||3);
+    }
+    return 0;
+  });
+
+  // Build stats (from full annotated, not filtered)
   let delivered=0,overdue=0,inTransit=0,noData=0;
-  top.forEach(inv=>{
-    const td=trackingData[inv.tracking.trim().toUpperCase()];
-    if(!td){noData++;return;}
-    if(/^delivered$/i.test(td.status||''))delivered++;
-    else if(isTrackingOverdue(td,inv.invDate))overdue++;
-    else inTransit++;
+  annotated.forEach(({cat})=>{
+    if(cat==='delivered')delivered++;
+    else if(cat==='overdue')overdue++;
+    else if(cat==='intransit')inTransit++;
+    else noData++;
   });
 
   const statsHtml=`<div class="stat-grid" style="margin-bottom:14px;">
-    <div class="stat-card"><div class="stat-val" style="color:#27ae60;">${delivered}</div><div class="stat-lbl">Delivered</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:#e74c3c;">${overdue}</div><div class="stat-lbl">Overdue (&gt;6d)</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:#2980b9;">${inTransit}</div><div class="stat-lbl">In Transit</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:#aaa;">${noData}</div><div class="stat-lbl">No Data Yet</div></div>
+    <div class="stat-card" style="cursor:pointer;" onclick="setTrackFilter('delivered')">
+      <div class="stat-val" style="color:#27ae60;">${delivered}</div>
+      <div class="stat-lbl">Delivered</div>
+    </div>
+    <div class="stat-card" style="cursor:pointer;" onclick="setTrackFilter('overdue')">
+      <div class="stat-val" style="color:#e74c3c;">${overdue}</div>
+      <div class="stat-lbl">Overdue (&gt;6d)</div>
+    </div>
+    <div class="stat-card" style="cursor:pointer;" onclick="setTrackFilter('intransit')">
+      <div class="stat-val" style="color:#2980b9;">${inTransit}</div>
+      <div class="stat-lbl">In Transit</div>
+    </div>
+    <div class="stat-card" style="cursor:pointer;" onclick="setTrackFilter('nodata')">
+      <div class="stat-val" style="color:#aaa;">${noData}</div>
+      <div class="stat-lbl">No Data Yet</div>
+    </div>
+  </div>`;
+
+  // Filter & sort controls
+  const statusOptions=[
+    {v:'all',l:'All'},
+    {v:'delivered',l:'✅ Delivered'},
+    {v:'intransit',l:'🔵 In Transit'},
+    {v:'overdue',l:'🔴 Overdue'},
+    {v:'nodata',l:'⬜ No Data'}
+  ];
+  const dateOptions=[
+    {v:'all',l:'All time'},
+    {v:'30',l:'Last 30 days'},
+    {v:'60',l:'Last 60 days'},
+    {v:'90',l:'Last 90 days'}
+  ];
+  const sortOptions=[
+    {v:'invdate_desc',l:'Invoice Date ↓'},
+    {v:'invdate_asc',l:'Invoice Date ↑'},
+    {v:'bookeddate_desc',l:'Booked Date ↓'},
+    {v:'bookeddate_asc',l:'Booked Date ↑'},
+    {v:'status',l:'Status (grouped)'}
+  ];
+
+  const filterBar=`<div class="card" style="margin-bottom:12px;padding:12px 14px;">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;">
+      <div style="flex:1;min-width:130px;">
+        <div style="font-size:11px;color:#888;margin-bottom:4px;font-weight:600;">STATUS</div>
+        <select onchange="setTrackFilter(this.value)" style="width:100%;padding:7px 8px;border-radius:8px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;">
+          ${statusOptions.map(o=>`<option value="${o.v}" ${_trackFilterStatus===o.v?'selected':''}>${o.l}</option>`).join('')}
+        </select>
+      </div>
+      <div style="flex:1;min-width:130px;">
+        <div style="font-size:11px;color:#888;margin-bottom:4px;font-weight:600;">DATE RANGE</div>
+        <select onchange="setTrackDateFilter(this.value)" style="width:100%;padding:7px 8px;border-radius:8px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;">
+          ${dateOptions.map(o=>`<option value="${o.v}" ${_trackDateFilter===o.v?'selected':''}>${o.l}</option>`).join('')}
+        </select>
+      </div>
+      <div style="flex:1;min-width:130px;">
+        <div style="font-size:11px;color:#888;margin-bottom:4px;font-weight:600;">SORT BY</div>
+        <select onchange="setTrackSort(this.value)" style="width:100%;padding:7px 8px;border-radius:8px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;">
+          ${sortOptions.map(o=>`<option value="${o.v}" ${_trackSortBy===o.v?'selected':''}>${o.l}</option>`).join('')}
+        </select>
+      </div>
+      ${(_trackFilterStatus!=='all'||_trackDateFilter!=='all')?
+        `<button class="btn btn-o btn-sm" style="height:36px;margin-bottom:1px;" onclick="clearTrackFilters()">✕ Clear</button>`:''}
+    </div>
+    <div style="font-size:12px;color:#888;margin-top:8px;">Showing ${filtered.length} of ${annotated.length} shipments${_trackFilterStatus!=='all'||_trackDateFilter!=='all'?' (filtered)':''}</div>
   </div>`;
 
   const esc2=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const isMobile=window.innerWidth<600;
 
+  if(!filtered.length){
+    area.innerHTML=statsHtml+filterBar+`<div style="color:#aaa;text-align:center;padding:24px;font-size:13px;">No shipments match the current filters.</div>`;
+    return;
+  }
+
   if(isMobile){
-    // Card layout for mobile
-    const cards=top.map((inv,i)=>{
-      const key=inv.tracking.trim().toUpperCase();
-      const td=trackingData[key];
-      const isDelivered=td&&/^delivered$/i.test(td.status||'');
-      const isOD=td&&isTrackingOverdue(td,inv.invDate);
-      const cardBg=!td?'':(isOD&&!isDelivered?'border-color:#e74c3c;background:#fff8f8;':'');
+    const cards=filtered.map(({inv,td,cat},i)=>{
+      const isDelivered=cat==='delivered';
+      const isOD=cat==='overdue';
+      const cardBg=isOD?'border-color:#e74c3c;background:#fff8f8;':isDelivered?'border-color:#27ae60;background:#f0fff4;':'';
       const stBadge=!td
         ?'<span class="badge" style="background:#eee;color:#aaa;">No data</span>'
         :isDelivered
@@ -6016,12 +6337,12 @@ function renderTrackingPage(){
         ${td&&td.lastEvent?'<div style="font-size:12px;color:#555;margin-top:4px;font-style:italic;">'+esc2(td.lastEvent)+'</div>':''}
       </div>`;
     }).join('');
-    area.innerHTML=statsHtml+cards+`<div style="font-size:11px;color:#aaa;text-align:center;margin-top:8px;padding-bottom:8px;">⚠️ Overdue = &gt;6 days since booked, not yet delivered</div>`;
+    area.innerHTML=statsHtml+filterBar+cards+`<div style="font-size:11px;color:#aaa;text-align:center;margin-top:8px;padding-bottom:8px;">⚠️ Overdue = &gt;6 days since booked, not yet delivered</div>`;
   } else {
-    // Desktop table layout
-    const rows=top.map((inv,i)=>{
-      const key=inv.tracking.trim().toUpperCase();
-      const td=trackingData[key];
+    const rows=filtered.map(({inv,td,cat},i)=>{
+      const isDelivered=cat==='delivered';
+      const isOD=cat==='overdue';
+      const rowBg=isOD?'background:#fde8e8;':isDelivered?'background:#f0fff4;':'';
       if(!td){
         return`<tr>
           <td style="font-weight:600;color:var(--brown);">${i+1}</td>
@@ -6032,9 +6353,6 @@ function renderTrackingPage(){
           <td colspan="3" style="color:#aaa;font-size:12px;">— no data yet —</td>
         </tr>`;
       }
-      const isDelivered=/^delivered$/i.test(td.status||'');
-      const isOD=isTrackingOverdue(td,inv.invDate);
-      const rowBg=isOD&&!isDelivered?'background:#fde8e8;':'';
       const stBadge=isDelivered
         ?'<span class="badge b-green">Delivered</span>'
         :isOD
@@ -6051,7 +6369,7 @@ function renderTrackingPage(){
         <td style="font-size:11px;color:#555;max-width:180px;word-break:break-word;">${esc2(td.lastEvent||'')}</td>
       </tr>`;
     }).join('');
-    area.innerHTML=statsHtml+`<div class="card" style="padding:0;overflow:hidden;">
+    area.innerHTML=statsHtml+filterBar+`<div class="card" style="padding:0;overflow:hidden;">
       <div class="tbl-wrap">
         <table style="min-width:700px;">
           <thead><tr>
@@ -6067,6 +6385,11 @@ function renderTrackingPage(){
     </div>`;
   }
 }
+
+function setTrackFilter(v){_trackFilterStatus=v;renderTrackingPage();}
+function setTrackDateFilter(v){_trackDateFilter=v;renderTrackingPage();}
+function setTrackSort(v){_trackSortBy=v;renderTrackingPage();}
+function clearTrackFilters(){_trackFilterStatus='all';_trackDateFilter='all';renderTrackingPage();}
 
 // ═══════════════════════════════════════════
 // PULL-TO-REFRESH — main scroll area + sub-page scroll area
