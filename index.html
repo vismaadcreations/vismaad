@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v10.1
+APP: Vismaad Creations v10.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 28-May-2026 — (1) Festival days fixed: cache now refreshes daily (not once per year), daysUntil uses pure local-date arithmetic to avoid timezone drift, Eid al-Adha fallback corrected to 28-May-2026; (2) Unified status badge: one badge per invoice (tracking data wins over manual toggle — shows Delivered/Part Delivered/Overdue/In Transit/Shipped/Pending), removed duplicate tracking badge from sales list and dashboard; (3) Dispatch date override: tracking import now writes earliest bookedOn back to inv.dispatchDate; (4) Multi-package tracking: inv.tracking supports comma-separated numbers, export/import/WhatsApp/tracking page all handle multiple packages per order (one row per number for India Post export).
+LAST_CHANGE: 29-May-2026 — Customer messages overhaul: (1) All emojis removed from all customer-facing WhatsApp messages; (2) All messages shortened for readability; (3) Shipping message now shows expected delivery date (dispatch + 10 days) instead of generic "7-10 working days"; (4) Delivery review message now tells customer their order arrived N days early (promise = dispatch + 10 days, actual = trackingData deliveredOn) and asks for photo/video for Instagram; delivery_review function now accepts (productName, inv) — all 3 call sites updated.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
@@ -2411,12 +2411,12 @@ function shareInvoiceWhatsApp(){
   const itemList=items.map(i=>i.desc.trim()+(i.qty>1?' (x'+i.qty+')':'')).join(', ');
   const msg=
     'Dear '+inv.custName+',\n\n'
-    +'Thank you for shopping with Vismaad Creations! 🙏\n\n'
-    +(gst?'Invoice No: ':'Bill No: ')+(inv.invNo||'—')+'\n'
+    +'Thank you for shopping with Vismaad Creations.\n\n'
+    +(gst?'Invoice No: ':'Bill No: ')+(inv.invNo||'')+'\n'
     +'Date: '+fmtDate(inv.invDate)+'\n'
     +'Items: '+itemList+'\n'
-    +'Amount: ₹'+parseFloat(inv.grandTotal||0).toLocaleString('en-IN')+'\n\n'
-    +'— Vismaad Creations';
+    +'Amount: Rs '+parseFloat(inv.grandTotal||0).toLocaleString('en-IN')+'\n\n'
+    +'Vismaad Creations';
   const url='https://wa.me/'+ph+'?text='+encodeURIComponent(msg);
   window.open(url,'_blank');
   closeShareModal();
@@ -2442,18 +2442,23 @@ function shareTrackingWhatsApp(){
     ? trackNos.map((t,i)=>'Package '+(i+1)+': '+t).join('\n')
     : 'Tracking No: '+trackNos[0];
   const trackInstructions=multiPkg
-    ? 'Track your parcels at www.indiapost.gov.in → Track Consignment → enter each number above.'
-    : 'Track your parcel:\n1. Go to www.indiapost.gov.in\n2. Click "Track Consignment"\n3. Enter tracking number: '+trackNos[0]+'\n4. Click Search';
+    ? 'Track at www.indiapost.gov.in (Track Consignment).'
+    : 'Track at www.indiapost.gov.in (Track Consignment) using number: '+trackNos[0];
+  let expectedDelivery='';
+  try{
+    const base=inv.dispatchDate?new Date(inv.dispatchDate+'T00:00:00'):new Date();
+    base.setDate(base.getDate()+10);
+    expectedDelivery=base.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+  }catch(e){}
   const msg=
     'Dear '+inv.custName+',\n\n'+
-    'Your order from Vismaad Creations has been dispatched! 🚚📦\n\n'+
-    (multiPkg?'Your order has been packed in '+trackNos.length+' parcels:\n':'')+
+    'Your order has been dispatched.\n\n'+
+    (multiPkg?'Packed in '+trackNos.length+' parcels:\n':'')+
     trackLines+'\n\n'+
-    trackInstructions+'\n\n'+
-    'Estimated delivery: 7-10 working days.\n\n'+
-    '📹 IMPORTANT: Please make a video while opening the package — without any cuts or edits. '+
-    'Refund or exchange requests will not be entertained without an unboxing video.\n\n'+
-    '— Vismaad Creations';
+    trackInstructions+'\n'+
+    (expectedDelivery?'Expected delivery by '+expectedDelivery+'.\n':'')+
+    '\nPlease record a video while opening the package. Refund or exchange requests will not be entertained without an unboxing video.\n\n'+
+    'Vismaad Creations';
   const url='https://wa.me/'+ph+'?text='+encodeURIComponent(msg);
   window.open(url,'_blank');
   closeShareModal();
@@ -4996,25 +5001,48 @@ function toggleFestFilter(key,religion,defaultFilter){
 }
 
 // ── FESTIVAL MESSAGE TEMPLATES ──
-function getFestivalMessage(festKey,custName,approx){
+function getFestivalMessage(festKey,custName,approx,inv){
   const onDay=approx===false; // used for New Year and Gurpurab
   const msgs={
-    newyear:`Dear ${custName},\n\nAs we step into the new year, we want to take a moment to thank you for your support and trust in Vismaad Creations.\n\nWe look forward to serving you in the year ahead and have started it with some new additions to our collection:\ninstagram.com/vismaad_creations\n\nWishing you and your family a very Happy New Year.\n\nVismaad Creations`,
-    lohri:`Dear ${custName},\n\nLohri is just 20 days away. There is still time to add something special to your wardrobe for the occasion. We have added new designs to our collection:\ninstagram.com/vismaad_creations\n\nWarm wishes for a happy Lohri to you and your family.\n\nVismaad Creations`,
-    pongal:`Dear ${custName},\n\nPongal is just 20 days away. There is still time to dress in something new for the harvest celebration. We have updated our collection for the festive season:\ninstagram.com/vismaad_creations\n\nWarm wishes for a happy Pongal to you and your family.\n\nVismaad Creations`,
-    vaisakhi:`Dear ${custName},\n\nVaisakhi is just 20 days away. It is a wonderful occasion to dress in something new and we have updated our collection with designs suited for the celebration:\ninstagram.com/vismaad_creations\n\nWishing you and your family a very happy Vaisakhi.\n\nVismaad Creations`,
-    diwali:`Dear ${custName},\n\nDiwali is just 20 days away. There is still time to order a new suit, have it stitched, and be ready for the celebration.\n\nWe have updated our collection with designs suited for the festive season:\ninstagram.com/vismaad_creations\n\nWishing you and your family a joyful Diwali.\n\nVismaad Creations`,
-    holi:`Dear ${custName},\n\nHoli is just 20 days away. We have added festive designs to our collection and would love for you to take a look:\ninstagram.com/vismaad_creations\n\nWishing you and your family a very happy Holi.\n\nVismaad Creations`,
-    eid_al_fitr:`Dear ${custName},\n\nEid ul-Fitr is approximately 20 days away. There is still time to order a new suit and have it stitched before the celebration.\n\nWe have updated our collection with designs for the occasion:\ninstagram.com/vismaad_creations\n\nEid Mubarak in advance to you and your family.\n\nVismaad Creations`,
-    eid_al_adha:`Dear ${custName},\n\nEid ul-Adha is approximately 20 days away. There is still time to order a new suit and have it stitched before the celebration.\n\nWe have updated our collection with designs for the occasion:\ninstagram.com/vismaad_creations\n\nEid Mubarak in advance to you and your family.\n\nVismaad Creations`,
-    guru_nanak_jayanti:`Dear ${custName},\n\nOn this blessed occasion of the Gurpurab of Guru Nanak Dev Ji, we extend our warmest wishes to you and your family.\n\nMay the teachings of Guru Nanak Dev Ji bring peace, wisdom and happiness to your home.\n\nWishing you and your family a blessed Gurpurab.\n\nVismaad Creations`,
-    onam:`Dear ${custName},\n\nOnam is just 20 days away. There is still time to add something beautiful to your wardrobe for the celebration. We have added new designs to our collection:\ninstagram.com/vismaad_creations\n\nWishing you and your family a very happy Onam.\n\nVismaad Creations`,
-    ganesh_chaturthi:`Dear ${custName},\n\nGanesh Chaturthi is just 20 days away. There is still time to add something special to your wardrobe for the occasion. We have updated our collection:\ninstagram.com/vismaad_creations\n\nWishing you and your family a very happy Ganesh Chaturthi.\n\nVismaad Creations`,
-    navratri:`Dear ${custName},\n\nThe festive season of Navratri and Durga Puja is just 20 days away. There is still time to dress in something new for the celebrations. We have updated our collection:\ninstagram.com/vismaad_creations\n\nWarm wishes for a joyful festive season to you and your family.\n\nVismaad Creations`,
-    followup:`Dear ${custName},\n\nWe hope you are enjoying your recent purchase from Vismaad Creations.\n\nWe have added new designs to our collection and would love for you to take a look:\ninstagram.com/vismaad_creations\n\nThank you for your continued support.\n\nVismaad Creations`,
-    delivery_review:(productName)=>`Hi ${custName} 👋\n\nWe can see your parcel has been delivered — hope you love the ${productName||'suit'}! 🎁\n\nWe'd love to feature you on our Instagram. A quick photo or video wearing it would be amazing — your style could inspire so many others. 📸✨\n\nOr if you'd prefer, even a short written review about the fabric or fitting would mean a lot.\n\nThank you so much for choosing Vismaad Creations! 💛\n\n— Vismaad Creations`,
+    newyear:`Hi ${custName},\n\nWishing you and your family a very Happy New Year. We have added new designs to our collection:\ninstagram.com/vismaad_creations\n\nVismaad Creations`,
+    lohri:`Hi ${custName},\n\nLohri is 20 days away. New designs are up on our page — there is still time to order:\ninstagram.com/vismaad_creations\n\nHappy Lohri to you and your family.\n\nVismaad Creations`,
+    pongal:`Hi ${custName},\n\nPongal is 20 days away. New designs are up on our page — there is still time to order:\ninstagram.com/vismaad_creations\n\nHappy Pongal to you and your family.\n\nVismaad Creations`,
+    vaisakhi:`Hi ${custName},\n\nVaisakhi is 20 days away. New designs are up on our page — there is still time to order:\ninstagram.com/vismaad_creations\n\nHappy Vaisakhi to you and your family.\n\nVismaad Creations`,
+    diwali:`Hi ${custName},\n\nDiwali is 20 days away. Still time to order, get it stitched, and be ready. New collection is up:\ninstagram.com/vismaad_creations\n\nHappy Diwali to you and your family.\n\nVismaad Creations`,
+    holi:`Hi ${custName},\n\nHoli is 20 days away. New festive designs are up on our page:\ninstagram.com/vismaad_creations\n\nHappy Holi to you and your family.\n\nVismaad Creations`,
+    eid_al_fitr:`Hi ${custName},\n\nEid ul-Fitr is about 20 days away. Still time to order and get it stitched. New collection is up:\ninstagram.com/vismaad_creations\n\nEid Mubarak in advance.\n\nVismaad Creations`,
+    eid_al_adha:`Hi ${custName},\n\nEid ul-Adha is about 20 days away. Still time to order and get it stitched. New collection is up:\ninstagram.com/vismaad_creations\n\nEid Mubarak in advance.\n\nVismaad Creations`,
+    guru_nanak_jayanti:`Hi ${custName},\n\nWishing you and your family a blessed Gurpurab of Guru Nanak Dev Ji.\n\nVismaad Creations`,
+    onam:`Hi ${custName},\n\nOnam is 20 days away. New designs are up on our page — there is still time to order:\ninstagram.com/vismaad_creations\n\nHappy Onam to you and your family.\n\nVismaad Creations`,
+    ganesh_chaturthi:`Hi ${custName},\n\nGanesh Chaturthi is 20 days away. New designs are up on our page — there is still time to order:\ninstagram.com/vismaad_creations\n\nHappy Ganesh Chaturthi to you and your family.\n\nVismaad Creations`,
+    navratri:`Hi ${custName},\n\nNavratri is 20 days away. New designs are up on our page — there is still time to order:\ninstagram.com/vismaad_creations\n\nWarm wishes for the festive season.\n\nVismaad Creations`,
+    followup:`Hi ${custName},\n\nWe have added new designs to our collection. Would love for you to take a look:\ninstagram.com/vismaad_creations\n\nVismaad Creations`,
+    delivery_review:(productName,inv)=>{
+      let daysEarlyLine='';
+      try{
+        const dispRaw=inv&&inv.dispatchDate;
+        if(dispRaw){
+          const promised=new Date(dispRaw+'T00:00:00');
+          promised.setDate(promised.getDate()+10);
+          const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
+          let deliveredDate=null;
+          trackNos.forEach(t=>{
+            const td=trackingData&&trackingData[t];
+            if(td&&td.deliveredOn){
+              const d=new Date(td.deliveredOn+'T00:00:00');
+              if(!deliveredDate||d<deliveredDate)deliveredDate=d;
+            }
+          });
+          if(deliveredDate){
+            const diff=Math.round((promised-deliveredDate)/(864e5));
+            if(diff>0)daysEarlyLine='Your order was delivered '+diff+' day'+(diff>1?'s':'')+' ahead of schedule.\n\n';
+          }
+        }
+      }catch(e){}
+      return 'Hi '+custName+',\n\n'+daysEarlyLine+'A quick photo or video wearing it would be wonderful. We would love to feature it on our page.\n\nVismaad Creations';
+    },
   };
-  return msgs[festKey]||`Dear ${custName},\n\nWishing you and your family a joyful celebration.\n\nVismaad Creations`;
+  return msgs[festKey]||`Hi ${custName},\n\nWishing you and your family a joyful celebration.\n\nVismaad Creations`;
 }
 
 // ── CUSTOMER DEDUPLICATION ──
@@ -5181,8 +5209,8 @@ function showReviewPopup(){
   }
   const {inv,phone,productName,msgKey}=_reviewPopupQueue[_reviewPopupIdx];
   const num=phone.length===10?'91'+phone:phone;
-  const msgs=getFestivalMessage('delivery_review',inv.custName||'');
-  const msgText=typeof msgs==='function'?msgs(productName):msgs;
+  const msgs=getFestivalMessage('delivery_review',inv.custName||'',undefined,inv);
+  const msgText=typeof msgs==='function'?msgs(productName,inv):msgs;
   const yr=new Date().getFullYear();
   const content=document.getElementById('review-popup-content');
   if(content)content.innerHTML=`
@@ -5540,8 +5568,8 @@ async function renderOutreachPage(){
 
     deliveryReviews.forEach(({inv,phone,productName,msgKey,skipped})=>{
       const num=phone.length===10?'91'+phone:phone;
-      const msgs=getFestivalMessage('delivery_review',inv.custName||'');
-      const msgText=typeof msgs==='function'?msgs(productName):msgs;
+      const msgs=getFestivalMessage('delivery_review',inv.custName||'',undefined,inv);
+      const msgText=typeof msgs==='function'?msgs(productName,inv):msgs;
       const skipLabel=skipped?'<span style="font-size:10px;background:#f0f0f0;color:#888;border-radius:8px;padding:1px 7px;margin-left:6px;">skipped</span>':'';
       html+=`<div class="list-row" style="align-items:flex-start;gap:8px;${skipped?'opacity:0.6;':''}">
         <div style="flex:1;min-width:0;">
@@ -5707,8 +5735,8 @@ function bulkSendReviews(){
     if(idx>=list.length){toast('✅ All review messages opened');renderOutreachPage();return;}
     const {inv,phone,productName,msgKey}=list[idx];
     const num=phone.length===10?'91'+phone:phone;
-    const msgs=getFestivalMessage('delivery_review',inv.custName||'');
-    const msgText=typeof msgs==='function'?msgs(productName):msgs;
+    const msgs=getFestivalMessage('delivery_review',inv.custName||'',undefined,inv);
+    const msgText=typeof msgs==='function'?msgs(productName,inv):msgs;
     logMsg(phone,msgKey,yr,'');
     window.open('https://wa.me/'+num+'?text='+encodeURIComponent(msgText),'_blank');
     idx++;
