@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v10.0
+APP: Vismaad Creations v10.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 25-May-2026 — Feedback/Delivery Reviews page redesigned: date filter (7/30/90/all), skip (7-day), never remind, bulk Send All + Skip All, show-skipped toggle; new delivery review popup fires on app load and after tracking import (only for newly-delivered items since last popup); Tracking page: status filter, date range filter, sort by invoice date/booked date/status, stat cards clickable as quick-filters, colour-coded rows.
+LAST_CHANGE: 28-May-2026 — (1) Festival days fixed: cache now refreshes daily (not once per year), daysUntil uses pure local-date arithmetic to avoid timezone drift, Eid al-Adha fallback corrected to 28-May-2026; (2) Unified status badge: one badge per invoice (tracking data wins over manual toggle — shows Delivered/Part Delivered/Overdue/In Transit/Shipped/Pending), removed duplicate tracking badge from sales list and dashboard; (3) Dispatch date override: tracking import now writes earliest bookedOn back to inv.dispatchDate; (4) Multi-package tracking: inv.tracking supports comma-separated numbers, export/import/WhatsApp/tracking page all handle multiple packages per order (one row per number for India Post export).
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
@@ -496,7 +496,7 @@ body.gst-mode .gst-only{display:block;}
       </select>
     </div>
     <div id="dispatch-tracking-row" class="row2" style="display:none;">
-      <div class="fg"><label>Tracking No.</label><input id="tracking" placeholder="EE123456789IN"/></div>
+      <div class="fg"><label>Tracking No. <span style="font-weight:400;color:#aaa;">(comma-separate for multiple)</span></label><input id="tracking" placeholder="EE123456789IN"/></div>
       <div class="fg"><label>Dispatch Date</label><input type="date" id="dispatch-date"/></div>
     </div>
     <div id="dispatch-courier-row" class="fg" style="display:none;">
@@ -813,8 +813,8 @@ body.gst-mode .gst-only{display:block;}
         <option value="walkin">Walk-in / Collected in person</option>
       </select></div>
 
-    <div class="fg"><label>Tracking Number</label>
-      <input id="edit-tracking" placeholder="EE123456789IN"/></div>
+    <div class="fg"><label>Tracking Number <span style="font-weight:400;color:#aaa;">(comma-separate for multiple packages)</span></label>
+      <input id="edit-tracking" placeholder="EE123456789IN or EE123456789IN, EE987654321IN"/></div>
 
     <div class="fg"><label>Sale Channel</label>
       <select id="edit-channel">
@@ -2077,9 +2077,18 @@ function renderSales(){
   invoices.forEach(inv=>{const k=inv.invNo||String(inv.id);if(!seen[k]||inv.id>seen[k].id)seen[k]=inv;});
   const deduped=Object.values(seen);
   salesFiltered=applySortToList(deduped.filter(inv=>{
-    const shipped=inv.isShipped||inv.status==='Shipped';
-    if(sf==='Shipped'&&!shipped)return false;
-    if(sf==='Pending'&&shipped)return false;
+    // Use unified status for filter (tracking wins over manual)
+    const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
+    let isShippedOrDelivered=false;
+    if(trackNos.length>0&&trackNos.some(t=>trackingData[t])){
+      isShippedOrDelivered=trackNos.some(t=>{const s=(trackingData[t]?.status||'');return/^delivered$/i.test(s)||s;});
+      // For filter: "Shipped" = any tracking data present (in transit or delivered)
+      isShippedOrDelivered=trackNos.some(t=>trackingData[t]?.status);
+    }else{
+      isShippedOrDelivered=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
+    }
+    if(sf==='Shipped'&&!isShippedOrDelivered)return false;
+    if(sf==='Pending'&&isShippedOrDelivered)return false;
     if(q&&!inv.custName?.toLowerCase().includes(q)&&!inv.invNo?.toLowerCase().includes(q)&&!(inv.itemsSummary||'').toLowerCase().includes(q))return false;
     // Religion filter
     if(_salesReligionFilter&&_salesReligionFilter!=='All'){
@@ -2097,22 +2106,35 @@ function renderSales(){
   if(!salesFiltered.length){el.innerHTML='<div style="color:#aaa;text-align:center;padding:30px;">No invoices found</div>';return;}
   const chIcon={WhatsApp:'💬',Instagram:'📸',Facebook:'👍',Website:'🌐',Offline:'🏪'};
   el.innerHTML=salesFiltered.map((inv,idx)=>{
-    const shipped=inv.isShipped||inv.status==='Shipped';
-    const badge=shipped?'<span class="badge b-green">Shipped</span>':'<span class="badge b-yellow">Pending</span>';
+    // ── UNIFIED STATUS BADGE: tracking data wins over manual toggle ──
+    const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
+    let unifiedStatus='Pending'; // default
+    if(trackNos.length>0){
+      const statuses=trackNos.map(t=>trackingData[t]?.status||'');
+      const allDelivered=statuses.every(s=>/^delivered$/i.test(s));
+      const anyDelivered=statuses.some(s=>/^delivered$/i.test(s));
+      const anyOverdue=trackNos.some((t,i)=>trackingData[t]&&isTrackingOverdue(trackingData[t],inv.invDate));
+      const anyInTransit=statuses.some(s=>s&&!/^delivered$/i.test(s));
+      if(allDelivered) unifiedStatus='Delivered';
+      else if(anyDelivered&&trackNos.length>1) unifiedStatus='Part Delivered';
+      else if(anyOverdue) unifiedStatus='Overdue';
+      else if(anyInTransit) unifiedStatus=statuses.find(s=>s&&!/^delivered$/i.test(s))||'In Transit';
+      else{
+        // No tracking data found — fall back to manual
+        const manualShipped=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
+        unifiedStatus=manualShipped?'Shipped':'Pending';
+      }
+    }else{
+      const manualShipped=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
+      unifiedStatus=manualShipped?'Shipped':'Pending';
+    }
+    const badgeClass=unifiedStatus==='Delivered'?'b-green':unifiedStatus==='Shipped'?'b-green':unifiedStatus==='Pending'?'b-yellow':unifiedStatus==='Part Delivered'?'b-blue':unifiedStatus==='Overdue'?'b-red':'b-blue';
+    const badgeIcon=unifiedStatus==='Delivered'?'✅ ':unifiedStatus==='Overdue'?'⚠️ ':unifiedStatus==='Part Delivered'?'📦 ':'';
+    const badge=`<span class="badge ${badgeClass}">${badgeIcon}${unifiedStatus}</span>`;
+    const shipped=unifiedStatus==='Delivered'||unifiedStatus==='Shipped';
     const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
     const rel=getInvReligion(inv);
     const col={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[rel]||'#888';
-    // Tracking delivery status badge
-    let trackBadge='';
-    if(inv.tracking&&trackingData[inv.tracking.trim().toUpperCase()]){
-      const td=trackingData[inv.tracking.trim().toUpperCase()];
-      const st=td.status||'';
-      const isDelivered=/^delivered$/i.test(st);
-      const isOverdue=isTrackingOverdue(td,inv.invDate);
-      const tColor=isDelivered?'b-green':isOverdue?'b-red':'b-blue';
-      const tLabel=isDelivered?'✅ Delivered':isOverdue?'⚠️ Overdue — '+st:st||'In Transit';
-      trackBadge=`<div style="margin-top:4px;"><span class="badge ${tColor}" style="font-size:10px;">${esc(tLabel)}</span></div>`;
-    }
     return`<div class="card" style="margin-bottom:10px;">
       <div style="display:flex;align-items:flex-start;gap:10px;">
         <input type="checkbox" class="sale-cb" data-idx="${idx}" onchange="updateSelCount()" style="width:18px;height:18px;margin-top:3px;flex-shrink:0;"/>
@@ -2131,7 +2153,6 @@ function renderSales(){
           </div>
           <div style="font-size:12px;color:#888;margin-top:2px;">${esc(inv.itemsSummary)||''}</div>
           ${inv.channel?`<div style="font-size:12px;color:#888;margin-top:2px;">${chIcon[inv.channel]||''} ${esc(inv.channel)}</div>`:''}
-          ${trackBadge}
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;padding-bottom:4px;">
             <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="viewInvoiceByIdx(${idx})">👁 View</button>
             <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="openShareModal(salesFiltered[${idx}])">📤 Share</button>
@@ -2349,7 +2370,8 @@ function openShareModal(inv){
   const trackNo=document.getElementById('share-tracking-no');
   if(inv.tracking){
     trackBtn.style.display='flex';
-    if(trackNo)trackNo.textContent=inv.tracking;
+    const nos=inv.tracking.split(',').map(t=>t.trim()).filter(Boolean);
+    if(trackNo)trackNo.textContent=nos.length>1?nos.length+' parcels: '+nos.join(', '):nos[0];
   }else{
     trackBtn.style.display='none';
   }
@@ -2412,17 +2434,22 @@ function shareInvoicePDF(){
 function shareTrackingWhatsApp(){
   const ph=getSharePhone();if(!ph)return;
   const inv=sharingInv;
-  const track=inv.tracking||'';
-  if(!track){toast('⚠️ No tracking number on this invoice');return;}
+  const trackRaw=inv.tracking||'';
+  if(!trackRaw){toast('⚠️ No tracking number on this invoice');return;}
+  const trackNos=trackRaw.split(',').map(t=>t.trim()).filter(Boolean);
+  const multiPkg=trackNos.length>1;
+  const trackLines=multiPkg
+    ? trackNos.map((t,i)=>'Package '+(i+1)+': '+t).join('\n')
+    : 'Tracking No: '+trackNos[0];
+  const trackInstructions=multiPkg
+    ? 'Track your parcels at www.indiapost.gov.in → Track Consignment → enter each number above.'
+    : 'Track your parcel:\n1. Go to www.indiapost.gov.in\n2. Click "Track Consignment"\n3. Enter tracking number: '+trackNos[0]+'\n4. Click Search';
   const msg=
     'Dear '+inv.custName+',\n\n'+
     'Your order from Vismaad Creations has been dispatched! 🚚📦\n\n'+
-    'Tracking No: '+track+'\n\n'+
-    'Track your parcel:\n'+
-    '1. Go to www.indiapost.gov.in\n'+
-    '2. Click "Track Consignment"\n'+
-    '3. Enter tracking number: '+track+'\n'+
-    '4. Click Search\n\n'+
+    (multiPkg?'Your order has been packed in '+trackNos.length+' parcels:\n':'')+
+    trackLines+'\n\n'+
+    trackInstructions+'\n\n'+
     'Estimated delivery: 7-10 working days.\n\n'+
     '📹 IMPORTANT: Please make a video while opening the package — without any cuts or edits. '+
     'Refund or exchange requests will not be entertained without an unboxing video.\n\n'+
@@ -3118,14 +3145,26 @@ function renderDashboard(){
   const recent=[...invoices].sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1).slice(0,5);
   const dord=document.getElementById('dash-orders');
   if(dord)dord.innerHTML=recent.length?recent.map(inv=>{
-    const shipped=inv.isShipped||inv.status==='Shipped';
-    // Find index in salesFiltered-compatible way using id
+    const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
+    let dashStatus='Pending';
+    if(trackNos.length>0){
+      const statuses=trackNos.map(t=>trackingData[t]?.status||'');
+      if(statuses.every(s=>/^delivered$/i.test(s)))dashStatus='Delivered';
+      else if(statuses.some(s=>/^delivered$/i.test(s))&&trackNos.length>1)dashStatus='Part Delivered';
+      else if(statuses.some(s=>s&&!/^delivered$/i.test(s)))dashStatus=statuses.find(s=>s&&!/^delivered$/i.test(s))||'In Transit';
+      else{const m=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';dashStatus=m?'Shipped':'Pending';}
+    }else{
+      const m=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
+      dashStatus=m?'Shipped':'Pending';
+    }
+    const dBadgeClass=dashStatus==='Delivered'||dashStatus==='Shipped'?'b-green':dashStatus==='Pending'?'b-yellow':'b-blue';
+    const dBadgeIcon=dashStatus==='Delivered'?'✅ ':dashStatus==='Part Delivered'?'📦 ':'';
     return`<div class="list-row" style="cursor:pointer;" onclick="openInvoiceFromDash('${inv.id}')">
       <div><div class="list-main">${inv.custName}</div>
       <div class="list-sub">${inv.invNo||'—'} · ${fmtDate(inv.invDate)}</div></div>
       <div class="list-right">
         <div class="list-amt">₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}</div>
-        <span class="badge ${shipped?'b-green':'b-yellow'}">${shipped?'Shipped':'Pending'}</span>
+        <span class="badge ${dBadgeClass}">${dBadgeIcon}${dashStatus}</span>
       </div>
     </div>`;
   }).join(''):'<div style="color:#aaa;font-size:13px;text-align:center;padding:16px;">No orders yet</div>';
@@ -4366,12 +4405,16 @@ function _doExport(type,from,to,label){
       gst?(shipActualExcl||''):'N/A',
       inv.channel||'',
       dispMap[inv.dispatchMethod||'']||'',
-      inv.tracking||'',
+      (inv.tracking||'').split(',').map(t=>t.trim()).filter(Boolean).join(' / '),
       (function(){
-        // Check tracking data first — India Post "Delivered" overrides manual toggle
-        if(inv.tracking){
-          const td=trackingData[(inv.tracking||'').trim().toUpperCase()];
-          if(td&&/^delivered$/i.test(td.status||''))return 'Delivered';
+        // Unified status: check all tracking numbers
+        const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
+        if(trackNos.length>0){
+          const statuses=trackNos.map(t=>(trackingData[t]?.status||''));
+          if(statuses.every(s=>/^delivered$/i.test(s)))return 'Delivered';
+          if(statuses.some(s=>/^delivered$/i.test(s)))return 'Part Delivered';
+          const inTransit=statuses.find(s=>s&&!/^delivered$/i.test(s));
+          if(inTransit)return inTransit;
         }
         const shipped=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
         return shipped?'Shipped':'Pending';
@@ -5054,9 +5097,13 @@ function getPendingDeliveryReviews(dateFilter,showSkipped){
     ?Date.now()-parseInt(dateFilter)*24*3600*1000:0;
   invoices.forEach(inv=>{
     if(!inv.tracking)return;
-    const art=inv.tracking.trim().toUpperCase();
-    const td=trackingData[art];
-    if(!td||!/^delivered$/i.test(td.status||''))return;
+    const trackNos=inv.tracking.split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
+    // Only show review if ALL packages are delivered
+    const allDelivered=trackNos.length>0&&trackNos.every(t=>{
+      const td=trackingData[t];
+      return td&&/^delivered$/i.test(td.status||'');
+    });
+    if(!allDelivered)return;
     const phone=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
     if(!phone)return;
     if(isReviewNever(phone))return;
@@ -5080,8 +5127,11 @@ function getDeliveredInvNos(){
   return invoices
     .filter(inv=>{
       if(!inv.tracking)return false;
-      const td=trackingData[inv.tracking.trim().toUpperCase()];
-      return td&&/^delivered$/i.test(td.status||'');
+      const trackNos=inv.tracking.split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
+      return trackNos.length>0&&trackNos.every(t=>{
+        const td=trackingData[t];
+        return td&&/^delivered$/i.test(td.status||'');
+      });
     })
     .map(inv=>inv.invNo);
 }
@@ -5164,7 +5214,8 @@ function closeReviewPopup(){
 async function fetchFestivals(force){
   const cached=lsGet('vc_festivals',null);
   const yr=new Date().getFullYear();
-  if(!force&&cached&&cached.year===yr)return cached;
+  // Cache expires daily (not just yearly) so festival dates stay accurate
+  if(!force&&cached&&cached.year===yr&&cached.fetched===today())return cached;
   if(!S.calKey){
     // No API key — build from fixed festivals only
     return buildFestivalCache(yr,[]);
@@ -5217,12 +5268,26 @@ function buildFestivalCache(yr,apiHolidays){
         onDay:def.onDay||false,approx:def.approx||false,
       });
     }else{
-      // Fallback approximate dates if not found in API
+      // Fallback approximate dates — corrected for 2026; future years will be approximate
+      // Eid dates shift ~11 days earlier each year; Hindu festivals vary less
+      const baseYear=2026;
+      const yearDiff=yr-baseYear;
+      // Eid al-Fitr 2026: 31 Mar; Eid al-Adha 2026: 7 Jun — shift ~11d earlier/year
+      const eidFitrBase=new Date(2026,2,31); // 31-Mar-2026
+      const eidAdhaBase=new Date(2026,5,7);  // 7-Jun-2026
+      function shiftDate(base,shiftDays){
+        const d=new Date(base);d.setDate(d.getDate()+shiftDays);
+        return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      }
       const fallbacks={
-        diwali:`${yr}-10-20`,holi:`${yr}-03-14`,
-        eid_al_fitr:`${yr}-03-31`,eid_al_adha:`${yr}-06-07`,
-        guru_nanak_jayanti:`${yr}-11-05`,onam:`${yr}-09-05`,
-        ganesh_chaturthi:`${yr}-08-27`,navratri:`${yr}-10-02`,
+        diwali:yr===2026?`${yr}-10-20`:`${yr}-10-20`,
+        holi:yr===2026?`${yr}-03-14`:`${yr}-03-14`,
+        eid_al_fitr:shiftDate(eidFitrBase,Math.round(yearDiff*-10.875)),
+        eid_al_adha:shiftDate(eidAdhaBase,Math.round(yearDiff*-10.875)),
+        guru_nanak_jayanti:`${yr}-11-05`,
+        onam:`${yr}-09-05`,
+        ganesh_chaturthi:`${yr}-08-27`,
+        navratri:`${yr}-10-02`,
       };
       if(fallbacks[key]){
         festivals.push({
@@ -5253,8 +5318,11 @@ function isFestivalEligible(customer,festival,activeFilter){
 
 function daysUntil(dateStr){
   try{
-    const d=new Date(dateStr+'T12:00:00');
+    // Parse as local date components to avoid any UTC/timezone shift
+    const parts=dateStr.split('-');
+    const d=new Date(parseInt(parts[0]),parseInt(parts[1])-1,parseInt(parts[2]));
     const now=new Date();now.setHours(0,0,0,0);
+    d.setHours(0,0,0,0);
     return Math.round((d-now)/(864e5));
   }catch{return 999;}
 }
@@ -6039,10 +6107,20 @@ function isTrackingOverdue(td, invDate){
 
 // Get top 1000 invoices sorted newest first that have India Post tracking numbers
 function getTop1000Tracked(){
-  return [...invoices]
-    .filter(i=>i.tracking&&/^[A-Z]{2}\d{9}IN$/i.test(i.tracking.trim()))
+  // Expand: one entry per tracking number (multi-package invoices become multiple rows)
+  const expanded=[];
+  [...invoices]
     .sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1)
-    .slice(0,1000);
+    .forEach(inv=>{
+      if(!inv.tracking)return;
+      inv.tracking.split(',').forEach(function(t){
+        t=t.trim();
+        if(/^[A-Z]{2}\d{9}IN$/i.test(t)){
+          expanded.push({...inv,_singleTracking:t});
+        }
+      });
+    });
+  return expanded.slice(0,1000);
 }
 
 // Shared lazy-loader for SheetJS (same CDN used elsewhere in the app)
@@ -6060,7 +6138,7 @@ function exportTrackingTemplate(){
   ensureXLSX(function(){
     const top=getTop1000Tracked();
     if(!top.length){toast('⚠️ No India Post tracking numbers found in invoices');return;}
-    const rows=top.map(function(i){return[i.tracking.trim()];});
+    const rows=top.map(function(i){return[(i._singleTracking||i.tracking).trim()];});
     const wb=XLSX.utils.book_new();
     const ws=XLSX.utils.aoa_to_sheet([['Article Numbers']].concat(rows));
     ws['!cols']=[{wch:22}];
@@ -6113,6 +6191,33 @@ function handleTrackingImport(e){
           };
           updated++;
         });
+        // Write bookedOn back to invoice dispatchDate if present — tracking sheet wins
+        let dispUpdated=0;
+        invoices.forEach(function(inv){
+          if(!inv.tracking)return;
+          // Check each tracking number on the invoice
+          const trackNos=inv.tracking.split(',').map(function(t){return t.trim().toUpperCase();}).filter(Boolean);
+          // Use the earliest bookedOn across all packages as the dispatch date
+          let earliest=null;
+          trackNos.forEach(function(art){
+            const td=trackingData[art];
+            if(!td||!td.bookedOn)return;
+            const parsed=parseBookedOn(td.bookedOn);
+            if(!parsed)return;
+            if(!earliest||parsed<earliest)earliest=parsed;
+          });
+          if(earliest){
+            const yyyy=earliest.getFullYear();
+            const mm=String(earliest.getMonth()+1).padStart(2,'0');
+            const dd=String(earliest.getDate()).padStart(2,'0');
+            const isoDate=yyyy+'-'+mm+'-'+dd;
+            if(isoDate!==inv.dispatchDate){
+              inv.dispatchDate=isoDate;
+              dispUpdated++;
+            }
+          }
+        });
+        if(dispUpdated>0){save();}
         saveTracking();
         // Push each updated article as its own sheet row — no URL length limit
         const updatedArts=rows.map(r=>(r[colArticle]||'').toString().trim().toUpperCase()).filter(Boolean);
@@ -6178,7 +6283,7 @@ function renderTrackingPage(){
   // Annotate each with status category
   const now=Date.now();
   const annotated=top.map(inv=>{
-    const key=inv.tracking.trim().toUpperCase();
+    const key=(inv._singleTracking||inv.tracking||'').trim().toUpperCase();
     const td=trackingData[key];
     let cat='nodata';
     if(td){
@@ -6311,6 +6416,7 @@ function renderTrackingPage(){
 
   if(isMobile){
     const cards=filtered.map(({inv,td,cat},i)=>{
+      const trackDisplay=inv._singleTracking||inv.tracking;
       const isDelivered=cat==='delivered';
       const isOD=cat==='overdue';
       const cardBg=isOD?'border-color:#e74c3c;background:#fff8f8;':isDelivered?'border-color:#27ae60;background:#f0fff4;':'';
@@ -6321,15 +6427,19 @@ function renderTrackingPage(){
           :isOD
             ?'<span class="badge b-red">⚠️ Overdue</span>'
             :'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
+      // Show parcel label if multi-tracking invoice
+      const multiNos=(inv.tracking||'').split(',').filter(t=>t.trim()).length;
+      const parcelNote=multiNos>1?`<span style="font-size:11px;color:var(--gold);margin-left:6px;">pkg ${(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean).indexOf(inv._singleTracking)+1}/${multiNos}</span>`:'';
       return`<div class="card" style="margin-bottom:10px;padding:12px;${cardBg}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
           <div>
             <span style="font-weight:700;color:var(--brown);font-size:14px;">${esc2(inv.invNo)}</span>
+            ${parcelNote}
             <span style="margin-left:8px;font-size:13px;">${esc2(inv.custName)}</span>
           </div>
           ${stBadge}
         </div>
-        <div style="font-family:monospace;font-size:12px;color:#555;margin-bottom:4px;">${esc2(inv.tracking)}</div>
+        <div style="font-family:monospace;font-size:12px;color:#555;margin-bottom:4px;">${esc2(trackDisplay)}</div>
         <div style="font-size:12px;color:#888;display:flex;gap:14px;flex-wrap:wrap;">
           <span>Inv: ${fmtDate(inv.invDate)}</span>
           ${td&&td.bookedOn?'<span>Booked: '+esc2(td.bookedOn)+'</span>':''}
@@ -6343,12 +6453,15 @@ function renderTrackingPage(){
       const isDelivered=cat==='delivered';
       const isOD=cat==='overdue';
       const rowBg=isOD?'background:#fde8e8;':isDelivered?'background:#f0fff4;':'';
+      const trackDisplay=inv._singleTracking||inv.tracking;
+      const multiNos=(inv.tracking||'').split(',').filter(t=>t.trim()).length;
+      const pkgLabel=multiNos>1?` <span style="font-size:10px;color:var(--gold);">pkg ${(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean).indexOf(inv._singleTracking)+1}/${multiNos}</span>`:'';
       if(!td){
         return`<tr>
           <td style="font-weight:600;color:var(--brown);">${i+1}</td>
-          <td>${esc2(inv.invNo)}</td>
+          <td>${esc2(inv.invNo)}${pkgLabel}</td>
           <td style="font-size:12px;">${esc2(inv.custName)}</td>
-          <td style="font-size:11px;font-family:monospace;">${esc2(inv.tracking)}</td>
+          <td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td>
           <td>${fmtDate(inv.invDate)}</td>
           <td colspan="3" style="color:#aaa;font-size:12px;">— no data yet —</td>
         </tr>`;
@@ -6360,9 +6473,9 @@ function renderTrackingPage(){
           :'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
       return`<tr style="${rowBg}">
         <td style="font-weight:600;color:var(--brown);">${i+1}</td>
-        <td>${esc2(inv.invNo)}</td>
+        <td>${esc2(inv.invNo)}${pkgLabel}</td>
         <td style="font-size:12px;">${esc2(inv.custName)}</td>
-        <td style="font-size:11px;font-family:monospace;">${esc2(inv.tracking)}</td>
+        <td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td>
         <td>${fmtDate(inv.invDate)}</td>
         <td>${esc2(td.bookedOn||'')}</td>
         <td>${stBadge}</td>
