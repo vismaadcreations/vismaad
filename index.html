@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v10.2
+APP: Vismaad Creations v10.3
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 29-May-2026 — Customer messages overhaul: (1) All emojis removed from all customer-facing WhatsApp messages; (2) All messages shortened for readability; (3) Shipping message now shows expected delivery date (dispatch + 10 days) instead of generic "7-10 working days"; (4) Delivery review message now tells customer their order arrived N days early (promise = dispatch + 10 days, actual = trackingData deliveredOn) and asks for photo/video for Instagram; delivery_review function now accepts (productName, inv) — all 3 call sites updated.
+LAST_CHANGE: 29-May-2026 — Outreach sync fix: MessageLog sheet now read back during syncAll so sent/followup/festival messages and review-never flags sync across all devices. skipReview (7-day skip) stays device-local (short-lived); review-never and all sent-message records now persist cross-device.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
@@ -1310,6 +1310,30 @@ async function syncAll(){
       if(!local||remTime>locTime)trackingData[key]=rd;
     });
     saveTracking();
+
+    // MESSAGE LOG — read back from sheet so sent/followup/festival/never flags sync across devices
+    try{
+      const remMsgLog=await gsRead('MessageLog');
+      if(remMsgLog&&remMsgLog.length){
+        const localKeys=new Set(msgLog.map(l=>l.phone+'_'+l.type+'_'+l.year));
+        let changed=false;
+        remMsgLog.forEach(r=>{
+          if(!r.phone||!r.type)return;
+          const key=r.phone+'_'+r.type+'_'+r.year;
+          if(!localKeys.has(key)){
+            msgLog.push({phone:r.phone,type:r.type,year:r.year,sentDate:r.sentDate||'',name:r.name||''});
+            localKeys.add(key);
+            changed=true;
+            // If it's a review_never flag, also update the local never-map
+            if(r.type==='review_never'&&r.phone){
+              const nv=getReviewNever();
+              if(!nv[r.phone]){nv[r.phone]=true;saveReviewNever(nv);}
+            }
+          }
+        });
+        if(changed)saveMsgLog();
+      }
+    }catch(e){console.warn('MessageLog sync failed:',e.message);}
 
     save();saveStk();savePur();
 
@@ -5082,9 +5106,13 @@ function hasSentMsg(phone,type,year){
   return msgLog.some(l=>l.phone===phone&&l.type===type&&l.year===year);
 }
 function logMsg(phone,type,year,name){
-  msgLog.push({phone,type,year,sentDate:today(),name:name||''});
-  saveMsgLog();
-  gsWrite('MessageLog',{phone,type,year,sentDate:today(),name:name||''});
+  // Avoid duplicate entries locally
+  if(!msgLog.some(l=>l.phone===phone&&l.type===type&&(year?l.year===year:true))){
+    msgLog.push({phone,type,year,sentDate:today(),name:name||''});
+    saveMsgLog();
+  }
+  // Always push to sheet so other devices pick it up on sync
+  gsWrite('MessageLog',{id:phone+'_'+type+'_'+year,phone,type,year,sentDate:today(),name:name||''});
 }
 // Registry-based version — avoids inline string bugs
 function logMsgAR(arKey){
@@ -5097,8 +5125,10 @@ function isOptedOut(phone){
 }
 
 // ── DELIVERY REVIEW HELPERS ──
+// skipReview: device-local only (7-day short-lived skip, not worth syncing)
 function getReviewSkipped(){return lsGet('vc_review_skipped',{});}
 function saveReviewSkipped(d){lsSet('vc_review_skipped',d);}
+// neverReview: synced via MessageLog sheet (type='review_never')
 function getReviewNever(){return lsGet('vc_review_never',{});}
 function saveReviewNever(d){lsSet('vc_review_never',d);}
 
@@ -5110,11 +5140,16 @@ function isReviewSkipped(invNo){
 }
 function skipReview(invNo){
   const d=getReviewSkipped();d[invNo]=Date.now();saveReviewSkipped(d);
+  // Not synced — intentionally device-local (7-day temp skip)
 }
 function neverReview(phone){
   const d=getReviewNever();d[phone]=true;saveReviewNever(d);
+  // Sync to sheet so other devices respect this decision
+  logMsg(phone,'review_never',new Date().getFullYear(),'');
 }
-function isReviewNever(phone){return!!(getReviewNever()[phone]);}
+function isReviewNever(phone){
+  return!!(getReviewNever()[phone])||msgLog.some(l=>l.phone===phone&&l.type==='review_never');
+}
 
 // ── DELIVERY REVIEW — one per invoice parcel, only India Post tracked ──
 // dateFilter: 'all'|'7'|'30'|'90' (days ago)
