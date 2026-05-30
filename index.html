@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v11.0
+APP: Vismaad Creations v12.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 30-May-2026 — (1) Inventory: edit all product details, print price list with shipping add-on, mark as sold (link to invoice or standalone); (2) Supplier directory + Bills register with payment tracking and outstanding ledger; (3) All new data synced via Google Sheets (Suppliers + Bills sheets).
+LAST_CHANGE: 30-May-2026 — (1) Supplier ledger: opening balances (I owe them / they owe me), standalone payments, credits, returns with product linkage, full chronological ledger per supplier, net outstanding badge; (2) Supplier card redesigned with Bills/Txns/Ledger tabs; (3) supplierTxns array (vc_stxn) synced to SupplierTxns Google Sheet; (4) All entries retrospective (free date field).
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
-          suppliers(vc_sup), bills(vc_bills),
+          suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
           S(settings object: gstin/address/phone/email/gstEnabled),
@@ -969,6 +969,14 @@ body.gst-mode .gst-only{display:block;}
     </div>
     <div class="fg"><label>Address</label><textarea id="sup-address" rows="2" placeholder="City, State"></textarea></div>
     <div class="fg"><label>Notes</label><input id="sup-notes" placeholder="Any extra details"/></div>
+    <div style="background:var(--goldp);border-radius:8px;padding:10px 12px;margin-bottom:14px;">
+      <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:8px;">Opening Balance (enter retrospectively any time)</div>
+      <div class="row2">
+        <div class="fg" style="margin-bottom:0;"><label>I owe them (₹)</label><input type="number" id="sup-opening-owed" placeholder="0" min="0"/></div>
+        <div class="fg" style="margin-bottom:0;"><label>They owe me (₹)</label><input type="number" id="sup-opening-theyowe" placeholder="0" min="0"/></div>
+      </div>
+      <div style="font-size:11px;color:#888;margin-top:6px;">Net = I owe them minus They owe me. Use for amounts before you started using this app.</div>
+    </div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="saveSupplier()">Save Supplier</button>
       <button class="btn btn-o" onclick="closeSupModal()" style="width:auto;padding:13px 16px;">Cancel</button>
@@ -1040,7 +1048,91 @@ body.gst-mode .gst-only{display:block;}
 </div>
 
 
-<div class="modal-bg" id="share-modal">
+<!-- ════ SUPPLIER STANDALONE PAYMENT MODAL ════ -->
+<div class="modal-bg" id="stxn-pay-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeStxnModal('stxn-pay-modal')">✕</button>
+    <div class="modal-title">💸 Record Payment to Supplier</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px;" id="stxn-pay-sub"></div>
+    <input type="hidden" id="stxn-pay-supid"/>
+    <div class="row2">
+      <div class="fg"><label>Date *</label><input type="date" id="stxn-pay-date"/></div>
+      <div class="fg"><label>Amount (₹) *</label><input type="number" id="stxn-pay-amount" placeholder="0"/></div>
+    </div>
+    <div class="fg"><label>Payment Mode</label>
+      <select id="stxn-pay-mode">
+        <option value="UPI">UPI / GPay / PhonePe</option>
+        <option value="Bank Transfer">Bank Transfer / NEFT</option>
+        <option value="Cash">Cash</option>
+        <option value="Cheque">Cheque</option>
+        <option value="Other">Other</option>
+      </select></div>
+    <div class="fg"><label>Reference / UTR No.</label><input id="stxn-pay-ref" placeholder="Transaction reference (optional)"/></div>
+    <div class="fg"><label>Note</label><input id="stxn-pay-note" placeholder="e.g. Advance for next batch"/></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="saveStxnPayment()">Save Payment</button>
+      <button class="btn btn-o" onclick="closeStxnModal('stxn-pay-modal')" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SUPPLIER CREDIT MODAL ════ -->
+<div class="modal-bg" id="stxn-credit-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeStxnModal('stxn-credit-modal')">✕</button>
+    <div class="modal-title">🏷️ Record Credit from Supplier</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px;" id="stxn-credit-sub"></div>
+    <input type="hidden" id="stxn-credit-supid"/>
+    <div class="row2">
+      <div class="fg"><label>Date *</label><input type="date" id="stxn-credit-date"/></div>
+      <div class="fg"><label>Amount (₹) *</label><input type="number" id="stxn-credit-amount" placeholder="0"/></div>
+    </div>
+    <div class="fg"><label>Mode</label>
+      <select id="stxn-credit-mode">
+        <option value="Credit Note">Credit Note</option>
+        <option value="UPI Refund">UPI Refund</option>
+        <option value="Bank Refund">Bank Refund</option>
+        <option value="Cash">Cash</option>
+        <option value="Other">Other</option>
+      </select></div>
+    <div class="fg"><label>Note</label><input id="stxn-credit-note" placeholder="e.g. Discount, quality deduction"/></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="saveStxnCredit()">Save Credit</button>
+      <button class="btn btn-o" onclick="closeStxnModal('stxn-credit-modal')" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SUPPLIER RETURN MODAL ════ -->
+<div class="modal-bg" id="stxn-return-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeStxnModal('stxn-return-modal')">✕</button>
+    <div class="modal-title">↩️ Record Goods Return to Supplier</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px;" id="stxn-return-sub"></div>
+    <input type="hidden" id="stxn-return-supid"/>
+    <div class="fg"><label>Date *</label><input type="date" id="stxn-return-date"/></div>
+    <div class="row2">
+      <div class="fg"><label>Product No. (optional)</label><input type="number" id="stxn-return-prodno" placeholder="—" oninput="lookupReturnProduct()" min="1"/></div>
+      <div class="fg"><label>Qty Returned *</label><input type="number" id="stxn-return-qty" placeholder="1" min="1" value="1"/></div>
+    </div>
+    <div class="fg"><label>Product Description *</label><input id="stxn-return-desc" placeholder="e.g. Georgette Suit, Batch May 2026"/></div>
+    <div class="fg"><label>Return Value (₹) *</label><input type="number" id="stxn-return-value" placeholder="0"/></div>
+    <div class="fg"><label>Return Status</label>
+      <select id="stxn-return-status">
+        <option value="pending">Pending — not yet returned physically</option>
+        <option value="dispatched">Dispatched — sent to supplier</option>
+        <option value="acknowledged">Acknowledged — supplier confirmed receipt</option>
+      </select></div>
+    <div class="fg"><label>Note</label><input id="stxn-return-note" placeholder="e.g. Defective fabric, wrong colour"/></div>
+    <div style="background:var(--goldp);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--brown);">
+      ℹ️ Return value will auto-reduce outstanding (treated as credit from supplier).
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="saveStxnReturn()">Save Return</button>
+      <button class="btn btn-o" onclick="closeStxnModal('stxn-return-modal')" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+  </div>
+</div>
   <div class="modal">
     <button class="modal-close" onclick="closeShareModal()">✕</button>
     <div class="modal-title">📤 Share</div>
@@ -1153,7 +1245,7 @@ function getStateCode(state){return STATE_CODES[state]||'';}
 // SAFE STORAGE — never crash on bad data
 // ═══════════════════════════════════════════
 const SCRIPT_URL='https://script.google.com/macros/s/AKfycbwpfwN3NXnsxyOnYUyiMvEYCLJJaqzFqzuIWMSJ2XLucP6LEHZ4nLhGuuew2HtDmEIgbQ/exec';
-const SHEETS={invoices:'Invoices',inventory:'Inventory',purchases:'Purchases',settings:'Settings',tracking:'Tracking',suppliers:'Suppliers',bills:'Bills'};
+const SHEETS={invoices:'Invoices',inventory:'Inventory',purchases:'Purchases',settings:'Settings',tracking:'Tracking',suppliers:'Suppliers',bills:'Bills',supplierTxns:'SupplierTxns'};
 
 function lsGet(key,def){try{const v=localStorage.getItem(key);return v?JSON.parse(v):def;}catch(e){return def;}}
 function lsSet(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch(e){console.warn('localStorage full:',e);}}
@@ -1166,6 +1258,7 @@ let invoices  = lsGet('vc_inv',[]);
 let inventory = lsGet('vc_stk',[]);
 let suppliers = lsGet('vc_sup',[]);
 let bills     = lsGet('vc_bills',[]);
+let supplierTxns = lsGet('vc_stxn',[]);
 let purchases = lsGet('vc_pur',[]);
 let trackingData = lsGet('vc_tracking',{});  // keyed by tracking number
 let invCtr = parseInt(localStorage.getItem('vc_ctr')||'0')||0;
@@ -1184,6 +1277,7 @@ function save(){
 function saveStk(){lsSet('vc_stk',inventory);}
 function saveSup(){lsSet('vc_sup',suppliers);}
 function saveBills(){lsSet('vc_bills',bills);}
+function saveSupTxns(){lsSet('vc_stxn',supplierTxns);}
 function savePur(){lsSet('vc_pur',purchases);}
 function saveTracking(){lsSet('vc_tracking',trackingData);}
 
@@ -1448,7 +1542,12 @@ async function syncAll(){
     });
     bills=Object.values(billm);
 
-    // SETTINGS — local wins (don't overwrite what user set on this device)
+    // SUPPLIER TXNS — merge (remote adds new, local wins for same id)
+    let remStxn=[];
+    try{remStxn=await gsRead(SHEETS.supplierTxns);}catch(e){console.warn('SupplierTxns sync failed:',e.message);}
+    const stxnm={};supplierTxns.forEach(t=>{stxnm[String(t.id)]=t;});
+    remStxn.forEach(r=>{if(r.id&&!stxnm[String(r.id)])stxnm[String(r.id)]=r;});
+    supplierTxns=Object.values(stxnm);
     if(remSet.length>0){
       const rs=remSet[0];
       S={
@@ -1525,6 +1624,7 @@ async function syncAll(){
     purchases.forEach(p=>gsWrite(SHEETS.purchases,p));
     suppliers.forEach(s=>gsWrite(SHEETS.suppliers,s));
     bills.forEach(b=>gsWrite(SHEETS.bills,{...b,payments:JSON.stringify(b.payments||[])}));
+    supplierTxns.forEach(t=>gsWrite(SHEETS.supplierTxns,t));
     if(S.gstin)gsWrite(SHEETS.settings,{id:'settings',...S});
     // Push tracking — one row per article (no URL length limit)
     Object.entries(trackingData).forEach(([key,td])=>{
@@ -7041,6 +7141,29 @@ function printInvPriceList() {
 // SUPPLIERS & BILLS — DATA FUNCTIONS
 // ═══════════════════════════════════════════
 
+// ── HELPERS ──
+function supNetOutstanding(supId) {
+  const s = suppliers.find(x => String(x.id) === String(supId));
+  if (!s) return 0;
+  const openingOwed    = parseFloat(s.openingOwed)    || 0;
+  const openingTheyOwe = parseFloat(s.openingTheyOwe) || 0;
+  const supBills = bills.filter(b => String(b.supId) === String(supId));
+  let billed = 0, billPaid = 0;
+  supBills.forEach(b => {
+    billed += parseFloat(b.amount) || 0;
+    (b.payments||[]).forEach(p => { billPaid += parseFloat(p.amount)||0; });
+  });
+  const stxns = supplierTxns.filter(t => String(t.supplierId) === String(supId));
+  let txnPay = 0, txnCredit = 0, txnReturn = 0;
+  stxns.forEach(t => {
+    const a = parseFloat(t.amount) || 0;
+    if (t.type === 'payment') txnPay += a;
+    else if (t.type === 'credit') txnCredit += a;
+    else if (t.type === 'return') txnReturn += a;
+  });
+  return (openingOwed - openingTheyOwe) + billed - billPaid - txnPay - txnCredit - txnReturn;
+}
+
 // ── SUPPLIERS ──
 let _editingSupId = null;
 
@@ -7048,7 +7171,7 @@ function openAddSupplier() {
   _editingSupId = null;
   document.getElementById('sup-modal-title').textContent = '🏭 Add Supplier';
   document.getElementById('sup-modal-id').value = '';
-  ['sup-name','sup-phone','sup-gstin','sup-address','sup-notes'].forEach(id => {
+  ['sup-name','sup-phone','sup-gstin','sup-address','sup-notes','sup-opening-owed','sup-opening-theyowe'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('sup-modal').classList.add('open');
@@ -7065,6 +7188,8 @@ function openEditSupplier(id) {
   document.getElementById('sup-gstin').value = s.gstin || '';
   document.getElementById('sup-address').value = s.address || '';
   document.getElementById('sup-notes').value = s.notes || '';
+  document.getElementById('sup-opening-owed').value = s.openingOwed || '';
+  document.getElementById('sup-opening-theyowe').value = s.openingTheyOwe || '';
   document.getElementById('sup-modal').classList.add('open');
 }
 
@@ -7073,23 +7198,20 @@ function closeSupModal() { document.getElementById('sup-modal').classList.remove
 function saveSupplier() {
   const name = (document.getElementById('sup-name').value || '').trim();
   if (!name) { toast('⚠️ Supplier name required'); return; }
+  const fields = {
+    name,
+    phone: document.getElementById('sup-phone').value,
+    gstin: (document.getElementById('sup-gstin').value || '').toUpperCase(),
+    address: document.getElementById('sup-address').value,
+    notes: document.getElementById('sup-notes').value,
+    openingOwed: parseFloat(document.getElementById('sup-opening-owed').value) || 0,
+    openingTheyOwe: parseFloat(document.getElementById('sup-opening-theyowe').value) || 0,
+  };
   if (_editingSupId) {
     const s = suppliers.find(x => String(x.id) === _editingSupId);
-    if (s) {
-      s.name = name; s.phone = document.getElementById('sup-phone').value;
-      s.gstin = (document.getElementById('sup-gstin').value || '').toUpperCase();
-      s.address = document.getElementById('sup-address').value;
-      s.notes = document.getElementById('sup-notes').value;
-      saveSup(); gsWrite(SHEETS.suppliers, s);
-    }
+    if (s) { Object.assign(s, fields); saveSup(); gsWrite(SHEETS.suppliers, s); }
   } else {
-    const s = {
-      id: Date.now(), name,
-      phone: document.getElementById('sup-phone').value,
-      gstin: (document.getElementById('sup-gstin').value || '').toUpperCase(),
-      address: document.getElementById('sup-address').value,
-      notes: document.getElementById('sup-notes').value,
-    };
+    const s = { id: Date.now(), ...fields };
     suppliers.push(s); saveSup(); gsWrite(SHEETS.suppliers, s);
   }
   closeSupModal();
@@ -7157,7 +7279,6 @@ function saveBill() {
   if (!amount) { toast('⚠️ Enter bill amount'); return; }
   const date = document.getElementById('bill-date').value;
   if (!date) { toast('⚠️ Enter bill date'); return; }
-
   if (_editingBillId) {
     const b = bills.find(x => String(x.id) === _editingBillId);
     if (b) {
@@ -7196,7 +7317,7 @@ function deleteBill(id) {
   toast('🗑 Bill deleted');
 }
 
-// ── PAYMENTS ──
+// ── BILL-LINKED PAYMENTS ──
 let _payingBillId = null;
 
 function openPayModal(billId) {
@@ -7272,6 +7393,145 @@ function deletePayment(billId, payId) {
   toast('🗑 Payment deleted');
 }
 
+// ── SUPPLIER STANDALONE TXNS (payment / credit / return) ──
+let _stxnSupId = null;
+
+function closeStxnModal(modalId) {
+  document.getElementById(modalId).classList.remove('open');
+  _stxnSupId = null;
+}
+
+function openStxnPayModal(supId) {
+  const s = suppliers.find(x => String(x.id) === String(supId));
+  if (!s) return;
+  _stxnSupId = String(supId);
+  document.getElementById('stxn-pay-sub').textContent = s.name;
+  document.getElementById('stxn-pay-supid').value = supId;
+  document.getElementById('stxn-pay-date').value = today();
+  document.getElementById('stxn-pay-amount').value = '';
+  document.getElementById('stxn-pay-mode').value = 'UPI';
+  document.getElementById('stxn-pay-ref').value = '';
+  document.getElementById('stxn-pay-note').value = '';
+  document.getElementById('stxn-pay-modal').classList.add('open');
+}
+
+function saveStxnPayment() {
+  const supId = document.getElementById('stxn-pay-supid').value;
+  const amt = parseFloat(document.getElementById('stxn-pay-amount').value) || 0;
+  if (!amt) { toast('⚠️ Enter payment amount'); return; }
+  const date = document.getElementById('stxn-pay-date').value;
+  if (!date) { toast('⚠️ Enter payment date'); return; }
+  const t = {
+    id: Date.now(), supplierId: supId, type: 'payment',
+    date, amount: amt,
+    mode: document.getElementById('stxn-pay-mode').value,
+    ref: document.getElementById('stxn-pay-ref').value,
+    note: document.getElementById('stxn-pay-note').value,
+  };
+  supplierTxns.push(t); saveSupTxns(); gsWrite(SHEETS.supplierTxns, t);
+  closeStxnModal('stxn-pay-modal');
+  renderSuppliersPage2();
+  toast('✅ Payment of ₹' + amt.toLocaleString('en-IN') + ' recorded');
+}
+
+function openStxnCreditModal(supId) {
+  const s = suppliers.find(x => String(x.id) === String(supId));
+  if (!s) return;
+  _stxnSupId = String(supId);
+  document.getElementById('stxn-credit-sub').textContent = s.name;
+  document.getElementById('stxn-credit-supid').value = supId;
+  document.getElementById('stxn-credit-date').value = today();
+  document.getElementById('stxn-credit-amount').value = '';
+  document.getElementById('stxn-credit-mode').value = 'Credit Note';
+  document.getElementById('stxn-credit-note').value = '';
+  document.getElementById('stxn-credit-modal').classList.add('open');
+}
+
+function saveStxnCredit() {
+  const supId = document.getElementById('stxn-credit-supid').value;
+  const amt = parseFloat(document.getElementById('stxn-credit-amount').value) || 0;
+  if (!amt) { toast('⚠️ Enter credit amount'); return; }
+  const date = document.getElementById('stxn-credit-date').value;
+  if (!date) { toast('⚠️ Enter date'); return; }
+  const t = {
+    id: Date.now(), supplierId: supId, type: 'credit',
+    date, amount: amt,
+    mode: document.getElementById('stxn-credit-mode').value,
+    note: document.getElementById('stxn-credit-note').value,
+  };
+  supplierTxns.push(t); saveSupTxns(); gsWrite(SHEETS.supplierTxns, t);
+  closeStxnModal('stxn-credit-modal');
+  renderSuppliersPage2();
+  toast('✅ Credit of ₹' + amt.toLocaleString('en-IN') + ' recorded');
+}
+
+function openStxnReturnModal(supId) {
+  const s = suppliers.find(x => String(x.id) === String(supId));
+  if (!s) return;
+  _stxnSupId = String(supId);
+  document.getElementById('stxn-return-sub').textContent = s.name;
+  document.getElementById('stxn-return-supid').value = supId;
+  document.getElementById('stxn-return-date').value = today();
+  document.getElementById('stxn-return-prodno').value = '';
+  document.getElementById('stxn-return-desc').value = '';
+  document.getElementById('stxn-return-qty').value = '1';
+  document.getElementById('stxn-return-value').value = '';
+  document.getElementById('stxn-return-status').value = 'pending';
+  document.getElementById('stxn-return-note').value = '';
+  document.getElementById('stxn-return-modal').classList.add('open');
+}
+
+function lookupReturnProduct() {
+  const n = parseInt(document.getElementById('stxn-return-prodno').value);
+  if (!n) return;
+  const p = inventory.find(x => parseInt(x.prodNo) === n);
+  if (p) {
+    document.getElementById('stxn-return-desc').value = p.name || '';
+    if (p.cost && !document.getElementById('stxn-return-value').value)
+      document.getElementById('stxn-return-value').value = p.cost;
+  }
+}
+
+function saveStxnReturn() {
+  const supId = document.getElementById('stxn-return-supid').value;
+  const desc = (document.getElementById('stxn-return-desc').value || '').trim();
+  if (!desc) { toast('⚠️ Enter product description'); return; }
+  const val = parseFloat(document.getElementById('stxn-return-value').value) || 0;
+  if (!val) { toast('⚠️ Enter return value'); return; }
+  const date = document.getElementById('stxn-return-date').value;
+  if (!date) { toast('⚠️ Enter date'); return; }
+  const t = {
+    id: Date.now(), supplierId: supId, type: 'return',
+    date, amount: val,
+    prodNo: document.getElementById('stxn-return-prodno').value || '',
+    prodDesc: desc,
+    qty: parseInt(document.getElementById('stxn-return-qty').value) || 1,
+    returnStatus: document.getElementById('stxn-return-status').value,
+    note: document.getElementById('stxn-return-note').value,
+  };
+  supplierTxns.push(t); saveSupTxns(); gsWrite(SHEETS.supplierTxns, t);
+  closeStxnModal('stxn-return-modal');
+  renderSuppliersPage2();
+  toast('✅ Return recorded — ₹' + val.toLocaleString('en-IN') + ' credited');
+}
+
+function deleteStxn(id) {
+  const t = supplierTxns.find(x => String(x.id) === String(id));
+  if (!t) return;
+  if (!confirm('Delete this record?')) return;
+  supplierTxns = supplierTxns.filter(x => String(x.id) !== String(id));
+  saveSupTxns(); gsDelete(SHEETS.supplierTxns, id);
+  renderSuppliersPage2();
+  toast('🗑 Record deleted');
+}
+
+// ── SUPPLIER TAB STATE ──
+const _supTab = {}; // supId -> 'bills'|'txns'|'ledger'
+function setSupTab(supId, tab) {
+  _supTab[supId] = tab;
+  renderSuppliersPage2();
+}
+
 // ── SUPPLIERS PAGE BUILD ──
 function buildSuppliersPage() {
   return '<div id="sup-page-content">' + _buildSuppliersPageHTML() + '</div>';
@@ -7283,136 +7543,247 @@ function renderSuppliersPage2() {
 }
 
 function _buildSuppliersPageHTML() {
-  const f = n => '₹' + parseFloat(n).toLocaleString('en-IN', {minimumFractionDigits: 2});
+  const f  = n => '₹' + parseFloat(n||0).toLocaleString('en-IN', {minimumFractionDigits:2});
   const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const typeLabel = t => t==='payment'?'💸 Payment':t==='credit'?'🏷️ Credit':'↩️ Return';
+  const returnStatusBadge = s => {
+    if(s==='acknowledged') return '<span style="font-size:10px;font-weight:700;color:#fff;background:#27ae60;padding:1px 6px;border-radius:6px;">Acknowledged</span>';
+    if(s==='dispatched')   return '<span style="font-size:10px;font-weight:700;color:#fff;background:#2980b9;padding:1px 6px;border-radius:6px;">Dispatched</span>';
+    return '<span style="font-size:10px;font-weight:700;color:#fff;background:#e67e22;padding:1px 6px;border-radius:6px;">Pending</span>';
+  };
 
-  // Overall payables summary
-  let totalBilled = 0, totalPaid = 0;
-  bills.forEach(b => {
-    totalBilled += parseFloat(b.amount) || 0;
-    (b.payments || []).forEach(p => { totalPaid += parseFloat(p.amount) || 0; });
-  });
-  const totalPending = totalBilled - totalPaid;
+  // ── Overall summary ──
+  let totalOutstanding = 0;
+  suppliers.forEach(s => { totalOutstanding += supNetOutstanding(s.id); });
+  const totalBillPaid = (() => {
+    let p = 0;
+    bills.forEach(b => { (b.payments||[]).forEach(pay => { p += parseFloat(pay.amount)||0; }); });
+    supplierTxns.forEach(t => { if(t.type==='payment') p += parseFloat(t.amount)||0; });
+    return p;
+  })();
 
   let html = '';
 
   // Summary cards
   html += '<div class="stat-grid cols3" style="margin-bottom:14px;">'
     + '<div class="stat-card"><div class="stat-val">' + suppliers.length + '</div><div class="stat-lbl">Suppliers</div></div>'
-    + '<div class="stat-card"><div class="stat-val" style="color:#c0392b;">' + f(totalPending) + '</div><div class="stat-lbl">Total Pending</div></div>'
-    + '<div class="stat-card"><div class="stat-val" style="color:#27ae60;">' + f(totalPaid) + '</div><div class="stat-lbl">Total Paid</div></div>'
+    + '<div class="stat-card"><div class="stat-val" style="color:' + (totalOutstanding>0?'#c0392b':'#27ae60') + ';">' + f(Math.abs(totalOutstanding)) + '</div><div class="stat-lbl">' + (totalOutstanding>0?'You Owe':'They Owe') + '</div></div>'
+    + '<div class="stat-card"><div class="stat-val" style="color:#27ae60;">' + f(totalBillPaid) + '</div><div class="stat-lbl">Total Paid</div></div>'
     + '</div>';
 
-  // Add supplier button
   html += '<button class="btn btn-p" style="margin-bottom:14px;" onclick="openAddSupplier()">➕ Add Supplier</button>';
 
   if (!suppliers.length) {
-    html += '<div class="card"><div style="text-align:center;color:#aaa;padding:24px;">No suppliers added yet. Add your first supplier above.</div></div>';
+    html += '<div class="card"><div style="text-align:center;color:#aaa;padding:24px;">No suppliers added yet.</div></div>';
     return html;
   }
 
-  // Per-supplier sections
   suppliers.forEach(s => {
-    const supBills = bills.filter(b => String(b.supId) === String(s.id));
-    let supBilled = 0, supPaid = 0;
-    supBills.forEach(b => {
-      supBilled += parseFloat(b.amount) || 0;
-      (b.payments || []).forEach(p => { supPaid += parseFloat(p.amount) || 0; });
-    });
-    const supPending = supBilled - supPaid;
+    const sid = String(s.id);
+    const net = supNetOutstanding(sid);
+    const tab = _supTab[sid] || 'bills';
+    const supBills = bills.filter(b => String(b.supId) === sid);
+    const stxns = supplierTxns.filter(t => String(t.supplierId) === sid);
+
+    const netColor = net > 0.01 ? '#c0392b' : net < -0.01 ? '#27ae60' : '#888';
+    const netLabel = net > 0.01 ? 'You owe' : net < -0.01 ? 'They owe' : 'Settled';
+    const netBg    = net > 0.01 ? '#fde8e8' : net < -0.01 ? '#f0fff4' : '#f5f5f5';
 
     html += '<div class="card" style="margin-bottom:14px;">';
 
-    // Supplier header
-    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">'
-      + '<div>'
+    // ── Supplier header ──
+    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">'
+      + '<div style="flex:1;">'
         + '<div style="font-family:\'Playfair Display\',serif;font-size:16px;font-weight:700;color:var(--brown);">' + esc(s.name) + '</div>'
-        + (s.phone ? '<div style="font-size:12px;color:#888;">📞 ' + esc(s.phone) + '</div>' : '')
-        + (s.gstin ? '<div style="font-size:12px;color:#888;">GSTIN: ' + esc(s.gstin) + '</div>' : '')
+        + (s.phone   ? '<div style="font-size:12px;color:#888;">📞 ' + esc(s.phone) + '</div>' : '')
+        + (s.gstin   ? '<div style="font-size:12px;color:#888;">GSTIN: ' + esc(s.gstin) + '</div>' : '')
         + (s.address ? '<div style="font-size:12px;color:#888;">' + esc(s.address) + '</div>' : '')
       + '</div>'
-      + '<div style="display:flex;gap:6px;">'
-        + '<button class="btn btn-o btn-sm" onclick="openEditSupplier(\'' + s.id + '\')">✏️ Edit</button>'
-        + '<button class="btn btn-o btn-sm" style="color:#c0392b;" onclick="deleteSupplier(\'' + s.id + '\')">🗑</button>'
+      + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">'
+        + '<div style="background:' + netBg + ';border-radius:8px;padding:6px 10px;text-align:right;">'
+          + '<div style="font-size:11px;color:#888;">' + netLabel + '</div>'
+          + '<div style="font-size:16px;font-weight:700;color:' + netColor + ';">' + f(Math.abs(net)) + '</div>'
+        + '</div>'
+        + '<div style="display:flex;gap:6px;">'
+          + '<button class="btn btn-o btn-sm" onclick="openEditSupplier(\'' + sid + '\')">✏️</button>'
+          + '<button class="btn btn-o btn-sm" style="color:#c0392b;" onclick="deleteSupplier(\'' + sid + '\')">🗑</button>'
+        + '</div>'
       + '</div>'
     + '</div>';
 
-    // Supplier summary
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">'
-      + '<div style="background:var(--cream);border-radius:8px;padding:8px;text-align:center;"><div style="font-size:13px;font-weight:700;">' + f(supBilled) + '</div><div style="font-size:10px;color:#888;text-transform:uppercase;">Total Billed</div></div>'
-      + '<div style="background:var(--cream);border-radius:8px;padding:8px;text-align:center;"><div style="font-size:13px;font-weight:700;color:#27ae60;">' + f(supPaid) + '</div><div style="font-size:10px;color:#888;text-transform:uppercase;">Paid</div></div>'
-      + '<div style="background:' + (supPending > 0 ? '#fde8e8' : '#f0fff4') + ';border-radius:8px;padding:8px;text-align:center;"><div style="font-size:13px;font-weight:700;color:' + (supPending > 0 ? '#c0392b' : '#27ae60') + ';">' + f(supPending) + '</div><div style="font-size:10px;color:#888;text-transform:uppercase;">Pending</div></div>'
+    // ── Action buttons ──
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">'
+      + '<button class="btn btn-o btn-sm" onclick="openAddBill(\'' + sid + '\')">🧾 + Bill</button>'
+      + '<button class="btn btn-g btn-sm" onclick="openStxnPayModal(\'' + sid + '\')">💸 + Payment</button>'
+      + '<button class="btn btn-o btn-sm" onclick="openStxnCreditModal(\'' + sid + '\')">🏷️ + Credit</button>'
+      + '<button class="btn btn-o btn-sm" onclick="openStxnReturnModal(\'' + sid + '\')">↩️ + Return</button>'
     + '</div>';
 
-    // Add bill button
-    html += '<button class="btn btn-o btn-sm" style="margin-bottom:10px;" onclick="openAddBill(\'' + s.id + '\')">➕ Add Bill</button>';
+    // ── Tabs ──
+    const tabBtn = (id, label) =>
+      '<button onclick="setSupTab(\'' + sid + '\',\'' + id + '\')" style="padding:7px 14px;border-radius:20px;border:none;font-size:12px;font-weight:600;cursor:pointer;'
+      + (tab===id ? 'background:var(--brown);color:#fff;' : 'background:var(--cream);color:var(--ink);')
+      + '">' + label + '</button>';
+    html += '<div style="display:flex;gap:6px;margin-bottom:12px;">'
+      + tabBtn('bills','🧾 Bills (' + supBills.length + ')')
+      + tabBtn('txns', '💳 Txns (' + stxns.length + ')')
+      + tabBtn('ledger','📒 Ledger')
+    + '</div>';
 
-    // Bills list
-    if (!supBills.length) {
-      html += '<div style="color:#aaa;font-size:13px;text-align:center;padding:10px;">No bills for this supplier yet.</div>';
-    } else {
-      const sorted = [...supBills].sort((a,b) => (b.date||'') > (a.date||'') ? 1 : -1);
-      sorted.forEach(b => {
-        const bPaid = (b.payments || []).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
-        const bPending = (parseFloat(b.amount) || 0) - bPaid;
-        const isPaid = bPending <= 0.01;
-        const isPartial = bPaid > 0 && !isPaid;
-        const statusColor = isPaid ? '#27ae60' : isPartial ? '#e67e22' : '#c0392b';
-        const statusText = isPaid ? 'Paid' : isPartial ? 'Part Paid' : 'Unpaid';
-        const isOverdue = b.dueDate && b.dueDate < today() && !isPaid;
+    // ══ BILLS TAB ══
+    if (tab === 'bills') {
+      if (!supBills.length) {
+        html += '<div style="color:#aaa;font-size:13px;text-align:center;padding:10px;">No bills yet.</div>';
+      } else {
+        const sorted = [...supBills].sort((a,b)=>(b.date||'')>(a.date||'')?1:-1);
+        sorted.forEach(b => {
+          const bPaid = (b.payments||[]).reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
+          const bPending = (parseFloat(b.amount)||0) - bPaid;
+          const isPaid = bPending <= 0.01;
+          const isPartial = bPaid > 0 && !isPaid;
+          const statusColor = isPaid ? '#27ae60' : isPartial ? '#e67e22' : '#c0392b';
+          const statusText  = isPaid ? 'Paid' : isPartial ? 'Part Paid' : 'Unpaid';
+          const isOverdue   = b.dueDate && b.dueDate < today() && !isPaid;
 
-        html += '<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:' + (isOverdue ? '#fff8f8' : 'var(--warm)') + ';' + (isOverdue ? 'border-color:#e74c3c;' : '') + '">';
+          html += '<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:' + (isOverdue?'#fff8f8':'var(--warm)') + ';' + (isOverdue?'border-color:#e74c3c;':'') + '">';
+          html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">'
+            + '<div>'
+              + '<div style="font-size:14px;font-weight:700;color:var(--brown);">' + esc(b.billNo||('Bill #'+b.id)) + '</div>'
+              + '<div style="font-size:12px;color:#888;">' + fmtDate(b.date) + (b.dueDate?' · Due: '+fmtDate(b.dueDate):'') + (isOverdue?' <span style="color:#c0392b;font-weight:700;">OVERDUE</span>':'') + '</div>'
+              + (b.desc?'<div style="font-size:12px;color:#555;">'+esc(b.desc)+'</div>':'')
+            + '</div>'
+            + '<div style="text-align:right;">'
+              + '<div style="font-size:14px;font-weight:700;">' + f(b.amount) + '</div>'
+              + '<span style="font-size:11px;font-weight:700;color:#fff;background:'+statusColor+';padding:2px 8px;border-radius:8px;">'+statusText+'</span>'
+            + '</div>'
+          + '</div>';
+          html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px;font-size:12px;">'
+            + '<div style="background:var(--cream);border-radius:6px;padding:6px;"><div style="color:#888;font-size:10px;text-transform:uppercase;">Bill Amt</div><div style="font-weight:700;">'+f(b.amount)+'</div></div>'
+            + '<div style="background:var(--cream);border-radius:6px;padding:6px;"><div style="color:#888;font-size:10px;text-transform:uppercase;">Paid</div><div style="font-weight:700;color:#27ae60;">'+f(bPaid)+'</div></div>'
+            + '<div style="background:'+(bPending>0?'#fde8e8':'#f0fff4')+';border-radius:6px;padding:6px;"><div style="color:#888;font-size:10px;text-transform:uppercase;">Pending</div><div style="font-weight:700;color:'+(bPending>0?'#c0392b':'#27ae60')+';">'+f(Math.max(0,bPending))+'</div></div>'
+          + '</div>';
+          if (b.payments && b.payments.length) {
+            html += '<div style="margin-bottom:8px;"><div style="font-size:11px;font-weight:600;color:var(--brown);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px;">Bill Payments</div>';
+            b.payments.forEach(p => {
+              html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;">'
+                + '<div><span style="font-weight:600;color:#27ae60;">'+f(p.amount)+'</span> · '+fmtDate(p.date)+' · '+esc(p.mode||'')+(p.ref?' · <span style="color:#888;font-style:italic;">'+esc(p.ref)+'</span>':'')+(p.notes?'<br/><span style="color:#aaa;font-size:11px;">'+esc(p.notes)+'</span>':'')+'</div>'
+                + '<button onclick="deletePayment(\''+b.id+'\',\''+p.id+'\')" style="border:none;background:none;color:#c0392b;font-size:12px;cursor:pointer;padding:2px 6px;">🗑</button>'
+              + '</div>';
+            });
+            html += '</div>';
+          }
+          html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+          if (!isPaid) html += '<button class="btn btn-g btn-sm" style="min-height:38px;" onclick="openPayModal(\''+b.id+'\')">💸 Pay Bill</button>';
+          html += '<button class="btn btn-o btn-sm" style="min-height:38px;" onclick="openEditBill(\''+b.id+'\')">✏️ Edit</button>';
+          html += '<button class="btn btn-o btn-sm" style="min-height:38px;color:#c0392b;" onclick="deleteBill(\''+b.id+'\')">🗑</button>';
+          html += '</div></div>';
+        });
+      }
+    }
 
-        // Bill header row
-        html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">'
-          + '<div>'
-            + '<div style="font-size:14px;font-weight:700;color:var(--brown);">' + esc(b.billNo || ('Bill #' + b.id)) + '</div>'
-            + '<div style="font-size:12px;color:#888;">' + fmtDate(b.date) + (b.dueDate ? ' · Due: ' + fmtDate(b.dueDate) : '') + (isOverdue ? ' <span style="color:#c0392b;font-weight:700;">OVERDUE</span>' : '') + '</div>'
-            + (b.desc ? '<div style="font-size:12px;color:#555;">' + esc(b.desc) + '</div>' : '')
-          + '</div>'
-          + '<div style="text-align:right;">'
-            + '<div style="font-size:14px;font-weight:700;">' + f(b.amount) + '</div>'
-            + '<span style="font-size:11px;font-weight:700;color:#fff;background:' + statusColor + ';padding:2px 8px;border-radius:8px;">' + statusText + '</span>'
-          + '</div>'
-        + '</div>';
-
-        // Financial detail
-        html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px;font-size:12px;">'
-          + '<div style="background:var(--cream);border-radius:6px;padding:6px;"><div style="color:#888;font-size:10px;text-transform:uppercase;">Bill Amount</div><div style="font-weight:700;">' + f(b.amount) + '</div></div>'
-          + '<div style="background:var(--cream);border-radius:6px;padding:6px;"><div style="color:#888;font-size:10px;text-transform:uppercase;">Paid</div><div style="font-weight:700;color:#27ae60;">' + f(bPaid) + '</div></div>'
-          + '<div style="background:' + (bPending > 0 ? '#fde8e8' : '#f0fff4') + ';border-radius:6px;padding:6px;"><div style="color:#888;font-size:10px;text-transform:uppercase;">Pending</div><div style="font-weight:700;color:' + (bPending > 0 ? '#c0392b' : '#27ae60') + ';">' + f(Math.max(0, bPending)) + '</div></div>'
-        + '</div>';
-
-        // Payments history
-        if (b.payments && b.payments.length) {
-          html += '<div style="margin-bottom:8px;">'
-            + '<div style="font-size:11px;font-weight:600;color:var(--brown);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px;">Payment History</div>';
-          b.payments.forEach(p => {
-            html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;">'
-              + '<div>'
-                + '<span style="font-weight:600;color:#27ae60;">' + f(p.amount) + '</span>'
-                + ' · ' + fmtDate(p.date)
-                + ' · ' + esc(p.mode || '')
-                + (p.ref ? ' · <span style="color:#888;font-style:italic;">' + esc(p.ref) + '</span>' : '')
-                + (p.notes ? '<br/><span style="color:#aaa;font-size:11px;">' + esc(p.notes) + '</span>' : '')
-              + '</div>'
-              + '<button onclick="deletePayment(\'' + b.id + '\',\'' + p.id + '\')" style="border:none;background:none;color:#c0392b;font-size:12px;cursor:pointer;padding:2px 6px;">🗑</button>'
-            + '</div>';
-          });
+    // ══ TXNS TAB ══
+    if (tab === 'txns') {
+      if (!stxns.length) {
+        html += '<div style="color:#aaa;font-size:13px;text-align:center;padding:10px;">No standalone payments, credits or returns yet.</div>';
+      } else {
+        const sorted = [...stxns].sort((a,b)=>(b.date||'')>(a.date||'')?1:-1);
+        sorted.forEach(t => {
+          const isReturn = t.type === 'return';
+          const bg = t.type==='payment' ? '#f0fff4' : t.type==='credit' ? '#f0f4ff' : '#fff8f0';
+          html += '<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:'+bg+'">';
+          html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;">'
+            + '<div>'
+              + '<div style="font-size:13px;font-weight:700;">'+typeLabel(t.type)+'</div>'
+              + '<div style="font-size:12px;color:#888;">'+fmtDate(t.date)+(t.mode?' · '+esc(t.mode):'')+(t.ref?' · <span style="font-style:italic;">'+esc(t.ref)+'</span>':'')+'</div>'
+              + (isReturn ? '<div style="font-size:12px;color:#555;">'+(t.prodNo?'#'+t.prodNo+' · ':'')+esc(t.prodDesc||'')+' × '+(t.qty||1)+' '+returnStatusBadge(t.returnStatus)+'</div>' : '')
+              + (t.note ? '<div style="font-size:12px;color:#888;margin-top:2px;">'+esc(t.note)+'</div>' : '')
+            + '</div>'
+            + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">'
+              + '<div style="font-size:14px;font-weight:700;color:'+( t.type==='payment'?'#27ae60':'#2980b9' )+';">'+f(t.amount)+'</div>'
+              + '<button onclick="deleteStxn(\''+t.id+'\')" style="border:none;background:none;color:#c0392b;font-size:12px;cursor:pointer;padding:2px 6px;">🗑</button>'
+            + '</div>'
+          + '</div>';
           html += '</div>';
-        }
+        });
+      }
+    }
 
-        // Action buttons
-        html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
-        if (!isPaid) {
-          html += '<button class="btn btn-g btn-sm" style="min-height:38px;" onclick="openPayModal(\'' + b.id + '\')">💸 Record Payment</button>';
-        }
-        html += '<button class="btn btn-o btn-sm" style="min-height:38px;" onclick="openEditBill(\'' + b.id + '\')">✏️ Edit Bill</button>';
-        html += '<button class="btn btn-o btn-sm" style="min-height:38px;color:#c0392b;" onclick="deleteBill(\'' + b.id + '\')">🗑 Delete</button>';
-        html += '</div>';
+    // ══ LEDGER TAB ══
+    if (tab === 'ledger') {
+      // Build unified chronological ledger entries
+      const openingOwed    = parseFloat(s.openingOwed)    || 0;
+      const openingTheyOwe = parseFloat(s.openingTheyOwe) || 0;
+      const netOpening     = openingOwed - openingTheyOwe;
 
-        html += '</div>'; // end bill card
+      const entries = [];
+
+      // Bills → debit
+      supBills.forEach(b => {
+        entries.push({ date: b.date||'', type:'bill', label: esc(b.billNo||'Bill #'+b.id), detail: esc(b.desc||''), debit: parseFloat(b.amount)||0, credit:0 });
+        // Bill payments → credit
+        (b.payments||[]).forEach(p => {
+          entries.push({ date: p.date||'', type:'billpay', label:'Bill Payment', detail: esc(p.mode||'')+(p.ref?' · '+esc(p.ref):''), debit:0, credit: parseFloat(p.amount)||0 });
+        });
       });
+
+      // Standalone txns
+      stxns.forEach(t => {
+        const lbl = t.type==='payment'?'Payment':t.type==='credit'?'Credit':'Return';
+        const detail = t.type==='return'
+          ? ((t.prodNo?'#'+t.prodNo+' · ':'')+esc(t.prodDesc||'')+' ×'+(t.qty||1))
+          : (esc(t.mode||'')+(t.ref?' · '+esc(t.ref):''));
+        entries.push({ date: t.date||'', type:t.type, label: lbl, detail, debit:0, credit: parseFloat(t.amount)||0, note: esc(t.note||'') });
+      });
+
+      entries.sort((a,b) => (a.date||'') > (b.date||'') ? 1 : -1);
+
+      let balance = netOpening;
+      let rows = '';
+
+      // Opening row
+      if (openingOwed || openingTheyOwe) {
+        const ob_dr = openingOwed, ob_cr = openingTheyOwe;
+        rows += '<tr style="background:var(--goldp);">'
+          + '<td style="padding:6px 8px;font-size:12px;color:#888;">—</td>'
+          + '<td style="padding:6px 8px;font-size:12px;font-weight:600;">Opening Balance</td>'
+          + '<td style="padding:6px 8px;font-size:12px;color:#888;">' + (ob_dr?'Owed \u20b9'+ob_dr.toLocaleString('en-IN'):'') + (ob_cr?(ob_dr?' / ':'')+' They owed \u20b9'+ob_cr.toLocaleString('en-IN'):'') + '</td>'
+          + '<td style="padding:6px 8px;font-size:12px;text-align:right;">' + (ob_dr?f(ob_dr):'—') + '</td>'
+          + '<td style="padding:6px 8px;font-size:12px;text-align:right;">' + (ob_cr?f(ob_cr):'—') + '</td>'
+          + '<td style="padding:6px 8px;font-size:12px;text-align:right;font-weight:700;color:'+(balance>0.01?'#c0392b':balance<-0.01?'#27ae60':'#888')+';">' + f(balance) + '</td>'
+        + '</tr>';
+      }
+
+      entries.forEach(e => {
+        balance += e.debit - e.credit;
+        const typeIco = e.type==='bill'?'🧾':e.type==='billpay'?'💸':e.type==='payment'?'💸':e.type==='credit'?'🏷️':'↩️';
+        rows += '<tr>'
+          + '<td style="padding:6px 8px;font-size:11px;color:#888;white-space:nowrap;">' + fmtDate(e.date) + '</td>'
+          + '<td style="padding:6px 8px;font-size:12px;font-weight:600;">' + typeIco + ' ' + e.label + '</td>'
+          + '<td style="padding:6px 8px;font-size:11px;color:#888;">' + e.detail + (e.note?'<br/>'+e.note:'') + '</td>'
+          + '<td style="padding:6px 8px;font-size:12px;text-align:right;">' + (e.debit ?f(e.debit) :'—') + '</td>'
+          + '<td style="padding:6px 8px;font-size:12px;text-align:right;color:#27ae60;">' + (e.credit?f(e.credit):'—') + '</td>'
+          + '<td style="padding:6px 8px;font-size:12px;text-align:right;font-weight:700;color:'+(balance>0.01?'#c0392b':balance<-0.01?'#27ae60':'#888')+';">' + f(balance) + '</td>'
+        + '</tr>';
+      });
+
+      html += '<div style="overflow-x:auto;">'
+        + '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+        + '<thead><tr style="background:var(--brown);color:#fff;">'
+          + '<th style="padding:8px;text-align:left;">Date</th>'
+          + '<th style="padding:8px;text-align:left;">Type</th>'
+          + '<th style="padding:8px;text-align:left;">Details</th>'
+          + '<th style="padding:8px;text-align:right;">Debit</th>'
+          + '<th style="padding:8px;text-align:right;">Credit</th>'
+          + '<th style="padding:8px;text-align:right;">Balance</th>'
+        + '</tr></thead>'
+        + '<tbody>' + (rows || '<tr><td colspan="6" style="padding:16px;text-align:center;color:#aaa;">No transactions yet.</td></tr>') + '</tbody>'
+        + '</table></div>';
+
+      // Final outstanding
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;background:'+netBg+';border-radius:8px;padding:10px 14px;margin-top:10px;">'
+        + '<span style="font-weight:700;font-size:13px;">Net Outstanding</span>'
+        + '<span style="font-size:16px;font-weight:700;color:'+netColor+';">' + (net < -0.01 ? 'They owe you ' : '') + f(Math.abs(net)) + '</span>'
+      + '</div>';
     }
 
     html += '</div>'; // end supplier card
