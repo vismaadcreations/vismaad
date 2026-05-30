@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v10.3
+APP: Vismaad Creations v10.4
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 29-May-2026 — Outreach sync fix: MessageLog sheet now read back during syncAll so sent/followup/festival messages and review-never flags sync across all devices. skipReview (7-day skip) stays device-local (short-lived); review-never and all sent-message records now persist cross-device.
+LAST_CHANGE: 30-May-2026 — Delivery review message now opens with "We noticed that your order has been delivered" (with early-delivery note inline if applicable) instead of jumping straight to the photo request.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
@@ -5059,11 +5059,12 @@ function getFestivalMessage(festKey,custName,approx,inv){
           });
           if(deliveredDate){
             const diff=Math.round((promised-deliveredDate)/(864e5));
-            if(diff>0)daysEarlyLine='Your order was delivered '+diff+' day'+(diff>1?'s':'')+' ahead of schedule.\n\n';
+            if(diff>0)daysEarlyLine=' — '+diff+' day'+(diff>1?'s':'')+' ahead of schedule!';
           }
         }
       }catch(e){}
-      return 'Hi '+custName+',\n\n'+daysEarlyLine+'A quick photo or video wearing it would be wonderful. We would love to feature it on our page.\n\nVismaad Creations';
+      const deliveryLine='We noticed that your order has been delivered'+daysEarlyLine+'.';
+      return 'Hi '+custName+',\n\n'+deliveryLine+' A quick photo or video wearing it would be wonderful. We would love to feature it on our page.\n\nVismaad Creations';
     },
   };
   return msgs[festKey]||`Hi ${custName},\n\nWishing you and your family a joyful celebration.\n\nVismaad Creations`;
