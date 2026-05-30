@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v12.0
+APP: Vismaad Creations v12.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 30-May-2026 — (1) Supplier ledger: opening balances (I owe them / they owe me), standalone payments, credits, returns with product linkage, full chronological ledger per supplier, net outstanding badge; (2) Supplier card redesigned with Bills/Txns/Ledger tabs; (3) supplierTxns array (vc_stxn) synced to SupplierTxns Google Sheet; (4) All entries retrospective (free date field).
+LAST_CHANGE: 31-May-2026 — (1) Fix sync crash: parseInventoryRow now safely parses linkedProducts from JSON string (was causing "map is not a function" error and zeroing inventory stats); (2) Fix share modal rendering on inventory page (missing modal-bg wrapper restored).
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -1133,6 +1133,7 @@ body.gst-mode .gst-only{display:block;}
     </div>
   </div>
 </div>
+<div class="modal-bg" id="share-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeShareModal()">✕</button>
     <div class="modal-title">📤 Share</div>
@@ -1462,9 +1463,12 @@ function flattenInvoice(inv){
 }
 function flattenProduct(p){return{...p};}
 function parseInventoryRow(r){
+  let lp=r.linkedProducts;
+  if(typeof lp==='string'){try{lp=lp?JSON.parse(lp):[];}catch{lp=[];}}
+  if(!Array.isArray(lp))lp=[];
   return{...r,prodNo:parseInt(r.prodNo)||0,qty:parseInt(r.qty)||0,
     qtyOriginal:parseInt(r.qtyOriginal)||0,qtySold:parseInt(r.qtySold)||0,
-    cost:parseFloat(r.cost)||0,sellPrice:parseFloat(r.sellPrice)||0};
+    cost:parseFloat(r.cost)||0,sellPrice:parseFloat(r.sellPrice)||0,linkedProducts:lp};
 }
 
 
