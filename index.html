@@ -3,11 +3,12 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v10.4
+APP: Vismaad Creations v11.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 30-May-2026 — Delivery review message now opens with "We noticed that your order has been delivered" (with early-delivery note inline if applicable) instead of jumping straight to the photo request.
+LAST_CHANGE: 30-May-2026 — (1) Inventory: edit all product details, print price list with shipping add-on, mark as sold (link to invoice or standalone); (2) Supplier directory + Bills register with payment tracking and outstanding ledger; (3) All new data synced via Google Sheets (Suppliers + Bills sheets).
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
+          suppliers(vc_sup), bills(vc_bills),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
           S(settings object: gstin/address/phone/email/gstEnabled),
@@ -597,10 +598,22 @@ body.gst-mode .gst-only{display:block;}
   <!-- Register -->
   <div class="card">
     <div class="card-title">📋 Register
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;gap:8px;align-items:center;">
         <select id="inv-status-filter" onchange="renderInventory()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--cream);font-size:12px;">
           <option value="">All</option><option value="instock">In Stock</option><option value="sold">Sold Out</option>
         </select>
+        <button class="btn btn-o btn-sm" onclick="toggleInvPrintMode()" id="inv-print-mode-btn" style="white-space:nowrap;">🖨️ Price List</button>
+      </div>
+    </div>
+    <!-- Print mode action bar (hidden until print mode active) -->
+    <div id="inv-print-bar" style="display:none;background:var(--goldp);border-radius:10px;padding:10px 12px;margin-bottom:12px;display:none;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <span id="inv-print-count" style="font-size:13px;font-weight:600;color:var(--brown);">0 selected</span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-o btn-sm" onclick="selectAllInvForPrint()">Select All</button>
+          <button class="btn btn-g btn-sm" onclick="openInvPrintDialog()">🖨️ Print Selected</button>
+          <button class="btn btn-o btn-sm" onclick="toggleInvPrintMode()">✕ Cancel</button>
+        </div>
       </div>
     </div>
     <div id="inv-list"></div>
@@ -691,6 +704,7 @@ body.gst-mode .gst-only{display:block;}
     <div class="card-title">⚡ Quick Actions</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
       <button class="btn btn-o btn-sm" onclick="showSubPage('purchases')">🛒 Purchases Register</button>
+      <button class="btn btn-o btn-sm" onclick="showSubPage('suppliers')">🏭 Suppliers & Bills</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('pl')">📈 P&L Report</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('labels')">📦 Shipping Labels</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('bulk')">📊 Bulk Import</button>
@@ -881,6 +895,151 @@ body.gst-mode .gst-only{display:block;}
     </div>
   </div>
 </div>
+
+<!-- ════ INVENTORY EDIT MODAL ════ -->
+<div class="modal-bg" id="inv-edit-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeInvEditModal()">✕</button>
+    <div class="modal-title">✏️ Edit Product</div>
+    <input type="hidden" id="iem-prodno"/>
+    <div class="row2">
+      <div class="fg"><label>Product No.</label><input id="iem-num" type="number" min="1"/></div>
+      <div class="fg"><label>Date Received</label><input id="iem-date" type="date"/></div>
+    </div>
+    <div class="fg"><label>Product Name *</label><input id="iem-name" placeholder="Product name"/></div>
+    <div class="fg"><label>Fabric Type</label><input id="iem-fabric" placeholder="e.g. Georgette, Silk"/></div>
+    <div class="row3">
+      <div class="fg"><label>Qty in Stock</label><input type="number" id="iem-qty" min="0"/></div>
+      <div class="fg"><label>Cost Price (incl. 5% GST)</label><input type="number" id="iem-cost" placeholder="0"/></div>
+      <div class="fg"><label>Sell Price (₹)</label><input type="number" id="iem-sell" placeholder="0"/></div>
+    </div>
+    <div class="fg"><label>Notes</label><input id="iem-notes" placeholder="Colour, design details"/></div>
+    <div style="background:var(--goldp);border-radius:8px;padding:10px 12px;margin-bottom:14px;">
+      <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:8px;">Mark as Sold</div>
+      <div style="font-size:12px;color:#888;margin-bottom:8px;">Link this product to an existing invoice, or mark sold without an invoice.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-o btn-sm" onclick="openMarkSoldLinkInvoice()">Link to Invoice</button>
+        <button class="btn btn-o btn-sm" onclick="markInvItemSoldStandalone()">Mark Sold (No Invoice)</button>
+      </div>
+      <div id="iem-sold-link" style="display:none;margin-top:8px;">
+        <div class="fg" style="margin-bottom:0;"><label>Link to Invoice</label>
+          <select id="iem-inv-select"><option value="">select invoice</option></select></div>
+        <button class="btn btn-p btn-sm" style="margin-top:8px;" onclick="confirmMarkSoldLinked()">Confirm Link & Mark Sold</button>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="saveInvEdit()">Save Changes</button>
+      <button class="btn btn-d btn-sm" onclick="deleteInvProduct()" style="width:auto;padding:13px 16px;">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ INVENTORY PRICE LIST PRINT DIALOG ════ -->
+<div class="modal-bg" id="inv-print-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="document.getElementById('inv-print-modal').classList.remove('open')">X</button>
+    <div class="modal-title">Print Price List</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px;" id="inv-print-modal-sub"></div>
+    <div class="fg">
+      <label>Shipping Cost to Add per Article (applied to all selected)</label>
+      <input type="number" id="ipm-ship" placeholder="e.g. 80" oninput="updateInvPrintPreview()"/>
+      <div style="font-size:12px;color:#888;margin-top:4px;" id="ipm-preview"></div>
+    </div>
+    <div class="fg">
+      <label>List Title (optional)</label>
+      <input id="ipm-title" placeholder="e.g. Latest Collection May 2026"/>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-g" onclick="printInvPriceList()">Print</button>
+      <button class="btn btn-o" onclick="document.getElementById('inv-print-modal').classList.remove('open')" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SUPPLIER ADD/EDIT MODAL ════ -->
+<div class="modal-bg" id="sup-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeSupModal()">X</button>
+    <div class="modal-title" id="sup-modal-title">Add Supplier</div>
+    <input type="hidden" id="sup-modal-id"/>
+    <div class="fg"><label>Supplier Name *</label><input id="sup-name" placeholder="e.g. Sharma Textiles"/></div>
+    <div class="row2">
+      <div class="fg"><label>Phone</label><input id="sup-phone" type="tel" placeholder="+91"/></div>
+      <div class="fg"><label>GSTIN</label><input id="sup-gstin" placeholder="03XXXXXXXXX" style="text-transform:uppercase"/></div>
+    </div>
+    <div class="fg"><label>Address</label><textarea id="sup-address" rows="2" placeholder="City, State"></textarea></div>
+    <div class="fg"><label>Notes</label><input id="sup-notes" placeholder="Any extra details"/></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="saveSupplier()">Save Supplier</button>
+      <button class="btn btn-o" onclick="closeSupModal()" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ BILL ADD/EDIT MODAL ════ -->
+<div class="modal-bg" id="bill-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeBillModal()">X</button>
+    <div class="modal-title" id="bill-modal-title">Add Bill</div>
+    <input type="hidden" id="bill-modal-id"/>
+    <div class="row2">
+      <div class="fg"><label>Supplier *</label>
+        <select id="bill-sup-sel"><option value="">select supplier</option></select></div>
+      <div class="fg"><label>Bill Date *</label><input type="date" id="bill-date"/></div>
+    </div>
+    <div class="row2">
+      <div class="fg"><label>Bill No.</label><input id="bill-no" placeholder="e.g. SUP-2026-001"/></div>
+      <div class="fg"><label>Due Date</label><input type="date" id="bill-due"/></div>
+    </div>
+    <div class="row2">
+      <div class="fg"><label>Bill Amount (Rs) *</label><input type="number" id="bill-amount" placeholder="0"/></div>
+      <div class="fg"><label>GST Rate</label>
+        <select id="bill-gst">
+          <option value="none">No GST</option>
+          <option value="5">5% GST</option>
+          <option value="12">12% GST</option>
+          <option value="18">18% GST</option>
+        </select></div>
+    </div>
+    <div class="fg"><label>Description</label><input id="bill-desc" placeholder="e.g. Suit purchase batch May 2026"/></div>
+    <div class="fg"><label>Notes</label><textarea id="bill-notes" rows="2" placeholder="Any extra details"></textarea></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="saveBill()">Save Bill</button>
+      <button class="btn btn-o" onclick="closeBillModal()" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ PAYMENT MODAL ════ -->
+<div class="modal-bg" id="pay-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closePayModal()">X</button>
+    <div class="modal-title">Record Payment</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px;" id="pay-modal-sub"></div>
+    <input type="hidden" id="pay-bill-id"/>
+    <div class="row2">
+      <div class="fg"><label>Payment Date *</label><input type="date" id="pay-date"/></div>
+      <div class="fg"><label>Amount Paid (Rs) *</label><input type="number" id="pay-amount" placeholder="0" oninput="updatePayPreview()"/></div>
+    </div>
+    <div class="fg"><label>Payment Mode</label>
+      <select id="pay-mode">
+        <option value="UPI">UPI / GPay / PhonePe</option>
+        <option value="Bank Transfer">Bank Transfer / NEFT</option>
+        <option value="Cash">Cash</option>
+        <option value="Cheque">Cheque</option>
+        <option value="Other">Other</option>
+      </select></div>
+    <div class="fg"><label>Reference / UTR No.</label><input id="pay-ref" placeholder="Transaction reference (optional)"/></div>
+    <div class="fg"><label>Notes</label><input id="pay-notes" placeholder="Optional notes"/></div>
+    <div id="pay-preview" style="background:var(--goldp);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--brown);margin-bottom:14px;display:none;"></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="savePayment()">Save Payment</button>
+      <button class="btn btn-o" onclick="closePayModal()" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+  </div>
+</div>
+
+
 <div class="modal-bg" id="share-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeShareModal()">✕</button>
@@ -994,7 +1153,7 @@ function getStateCode(state){return STATE_CODES[state]||'';}
 // SAFE STORAGE — never crash on bad data
 // ═══════════════════════════════════════════
 const SCRIPT_URL='https://script.google.com/macros/s/AKfycbwpfwN3NXnsxyOnYUyiMvEYCLJJaqzFqzuIWMSJ2XLucP6LEHZ4nLhGuuew2HtDmEIgbQ/exec';
-const SHEETS={invoices:'Invoices',inventory:'Inventory',purchases:'Purchases',settings:'Settings',tracking:'Tracking'};
+const SHEETS={invoices:'Invoices',inventory:'Inventory',purchases:'Purchases',settings:'Settings',tracking:'Tracking',suppliers:'Suppliers',bills:'Bills'};
 
 function lsGet(key,def){try{const v=localStorage.getItem(key);return v?JSON.parse(v):def;}catch(e){return def;}}
 function lsSet(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch(e){console.warn('localStorage full:',e);}}
@@ -1005,6 +1164,8 @@ function lsSet(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch
 let S      = lsGet('vc_s',{});
 let invoices  = lsGet('vc_inv',[]);
 let inventory = lsGet('vc_stk',[]);
+let suppliers = lsGet('vc_sup',[]);
+let bills     = lsGet('vc_bills',[]);
 let purchases = lsGet('vc_pur',[]);
 let trackingData = lsGet('vc_tracking',{});  // keyed by tracking number
 let invCtr = parseInt(localStorage.getItem('vc_ctr')||'0')||0;
@@ -1021,6 +1182,8 @@ function save(){
   localStorage.setItem('vc_ctr',invCtr);
 }
 function saveStk(){lsSet('vc_stk',inventory);}
+function saveSup(){lsSet('vc_sup',suppliers);}
+function saveBills(){lsSet('vc_bills',bills);}
 function savePur(){lsSet('vc_pur',purchases);}
 function saveTracking(){lsSet('vc_tracking',trackingData);}
 
@@ -1266,6 +1429,25 @@ async function syncAll(){
     remPur.forEach(r=>{if(r.id&&!pm[String(r.id)])pm[String(r.id)]=r;});
     purchases=Object.values(pm).sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
 
+    // SUPPLIERS — merge (remote adds new, local wins for same id)
+    let remSup=[];
+    try{remSup=await gsRead(SHEETS.suppliers);}catch(e){console.warn('Suppliers sync failed:',e.message);}
+    const supm={};suppliers.forEach(l=>{supm[String(l.id)]=l;});
+    remSup.forEach(r=>{if(r.id&&!supm[String(r.id)])supm[String(r.id)]=r;});
+    suppliers=Object.values(supm);
+
+    // BILLS — merge (remote adds new, local wins for same id)
+    let remBills=[];
+    try{remBills=await gsRead(SHEETS.bills);}catch(e){console.warn('Bills sync failed:',e.message);}
+    const billm={};bills.forEach(l=>{billm[String(l.id)]=l;});
+    remBills.forEach(r=>{if(r.id&&!billm[String(r.id)])billm[String(r.id)]=r;});
+    // Parse payments JSON from sheet string if needed
+    Object.values(billm).forEach(b=>{
+      if(typeof b.payments==='string'){try{b.payments=JSON.parse(b.payments);}catch{b.payments=[];}}
+      if(!Array.isArray(b.payments))b.payments=[];
+    });
+    bills=Object.values(billm);
+
     // SETTINGS — local wins (don't overwrite what user set on this device)
     if(remSet.length>0){
       const rs=remSet[0];
@@ -1335,12 +1517,14 @@ async function syncAll(){
       }
     }catch(e){console.warn('MessageLog sync failed:',e.message);}
 
-    save();saveStk();savePur();
+    save();saveStk();savePur();saveSup();saveBills();
 
     // Push small datasets back — inventory and purchases only
     // Invoices are already in sheet from when they were saved individually
     inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
     purchases.forEach(p=>gsWrite(SHEETS.purchases,p));
+    suppliers.forEach(s=>gsWrite(SHEETS.suppliers,s));
+    bills.forEach(b=>gsWrite(SHEETS.bills,{...b,payments:JSON.stringify(b.payments||[])}));
     if(S.gstin)gsWrite(SHEETS.settings,{id:'settings',...S});
     // Push tracking — one row per article (no URL length limit)
     Object.entries(trackingData).forEach(([key,td])=>{
@@ -1401,7 +1585,8 @@ function showSubPage(id){
     export:'⬇️ Export to Excel',
     bulkedit:'✏️ Bulk Invoice Editor',
     outreach:'📬 Outreach Centre',
-    tracking:'📡 Tracking Status'
+    tracking:'📡 Tracking Status',
+    suppliers:'🏭 Suppliers & Bills'
   };
   if(titleEl)titleEl.textContent=titles[id]||id;
   content.innerHTML=buildSubPage(id);
@@ -3359,7 +3544,9 @@ function renderInventory(){
     const s=parseInt(p.qty)||0,orig=parseInt(p.qtyOriginal)||s;
     const days=getAgeDays(p.dateAdded);const ac=ageColor(days);
     const badge=s===0?'<span class="badge b-red">Sold Out</span>':s<orig?'<span class="badge b-yellow">Partial</span>':'<span class="badge b-green">In Stock</span>';
-    return`<div class="list-row">
+    const isSelected=_invPrintSelected.has(parseInt(p.prodNo));
+    return`<div class="list-row" style="${_invPrintMode&&isSelected?'background:var(--goldp);border-radius:10px;':''}" onclick="${_invPrintMode?'toggleInvPrintSelect('+p.prodNo+')':''}">
+      ${_invPrintMode?`<div style="display:flex;align-items:center;padding-right:8px;"><input type="checkbox" ${isSelected?'checked':''} onchange="toggleInvPrintSelect(${p.prodNo})" onclick="event.stopPropagation()" style="width:20px;height:20px;cursor:pointer;accent-color:var(--brown);flex-shrink:0;"/></div>`:''}
       <div style="flex:1;">
         <div style="display:flex;align-items:center;gap:8px;""><span style="font-size:18px;font-weight:700;color:var(--brown);">#${p.prodNo}</span>${badge}
         ${s>0?`<span style="background:${ac.bg};color:${ac.fg};padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;">${ac.lbl}</span>`:''}</div>
@@ -3368,7 +3555,10 @@ function renderInventory(){
       </div>
       <div class="list-right">
         ${p.sellPrice?`<div class="list-amt">₹${parseFloat(p.sellPrice).toLocaleString('en-IN')}</div>`:''}
-        <button class="btn btn-o btn-sm" style="margin-top:6px;" onclick="adjustStock(${p.prodNo})">± Stock</button>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <button class="btn btn-o btn-sm" onclick="event.stopPropagation();adjustStock(${p.prodNo})">± Stock</button>
+          <button class="btn btn-o btn-sm" onclick="event.stopPropagation();openInvEdit(${p.prodNo})">✏️ Edit</button>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -3580,6 +3770,7 @@ function buildSubPage(id){
   if(id==='bulkedit')return buildBulkEditPage();
   if(id==='outreach')return'<div id="outreach-page-content"><div style="text-align:center;padding:30px;color:#aaa;">Loading outreach data...</div></div>';
   if(id==='tracking')return buildTrackingPage();
+  if(id==='suppliers')return buildSuppliersPage();
   return '<p>Coming soon</p>';
 }
 // ═══════════════════════════════════════════
@@ -3796,7 +3987,14 @@ function buildPurchasesPage(){
   <div class="card"><div class="card-title">➕ Add Purchase / Expense</div>
     <div style="font-size:12px;color:#888;margin-bottom:12px;">Enter suit purchases (5% GST) and India Post receipts (18% GST) here to track ITC.</div>
     <div class="row2"><div class="fg"><label>Date</label><input type="date" id="pp-date" value="${today()}"/></div>
-    <div class="fg"><label>Type / Supplier *</label><input id="pp-sup" placeholder="e.g. Suit Supplier / India Post"/></div></div>
+    <div class="fg"><label>Type / Supplier *</label>
+      <select id="pp-sup-sel" onchange="onPurSupChange()">
+        <option value="">— select or type below —</option>
+        ${suppliers.map(s=>`<option value="${s.name}">${s.name}</option>`).join('')}
+        <option value="__other__">Other / Type manually</option>
+      </select>
+      <input id="pp-sup" placeholder="Supplier name" style="margin-top:6px;${suppliers.length?'display:none;':''}"/>
+    </div></div>
     <div class="row2"><div class="fg"><label>Description</label><input id="pp-desc" placeholder="e.g. Suit Purchase / Parcel Booking"/></div>
     <div class="fg"><label>Qty (suits / parcels)</label><input type="number" id="pp-qty" placeholder="0" min="0"/></div></div>
     <div class="row3">
@@ -3826,8 +4024,17 @@ function calcPurGST(){
   if(!rate||rate==='none'){el.value='0.00';return;}
   el.value=parseFloat((amt*parseFloat(rate)/100/(1+parseFloat(rate)/100)).toFixed(2));
 }
+function onPurSupChange(){
+  const sel=document.getElementById('pp-sup-sel')?.value;
+  const inp=document.getElementById('pp-sup');
+  if(!inp)return;
+  if(!sel||sel==='__other__'){inp.style.display='block';inp.focus();}
+  else{inp.style.display='none';inp.value='';}
+}
 function savePurchaseEntry(){
-  const sup=(document.getElementById('pp-sup')?.value||'').trim();
+  const selVal=document.getElementById('pp-sup-sel')?.value||'';
+  const inpVal=(document.getElementById('pp-sup')?.value||'').trim();
+  const sup=(!selVal||selVal==='__other__')?inpVal:selVal;
   const amt=parseFloat(document.getElementById('pp-amt')?.value)||0;
   if(!sup||!amt){toast('⚠️ Supplier and amount required');return;}
   const entry={id:Date.now(),type:'purchase',date:document.getElementById('pp-date')?.value||today(),supplier:sup,
@@ -6603,6 +6810,620 @@ function clearTrackFilters(){_trackFilterStatus='all';_trackDateFilter='all';ren
   // Sub-page scroll — attach after it exists (it's always in DOM)
   attachPTR(document.getElementById('sub-page-scroll'),document.getElementById('ptr-sub-indicator'));
 })();
+
+
+// ═══════════════════════════════════════════
+// INVENTORY — EDIT PRODUCT
+// ═══════════════════════════════════════════
+let _editingProdNo = null;
+
+function openInvEdit(prodNo) {
+  const p = inventory.find(x => parseInt(x.prodNo) === prodNo);
+  if (!p) return;
+  _editingProdNo = prodNo;
+  document.getElementById('iem-prodno').value = prodNo;
+  document.getElementById('iem-num').value = p.prodNo;
+  document.getElementById('iem-date').value = p.dateAdded || '';
+  document.getElementById('iem-name').value = p.name || '';
+  document.getElementById('iem-fabric').value = p.fabric || '';
+  document.getElementById('iem-qty').value = p.qty !== undefined ? p.qty : '';
+  document.getElementById('iem-cost').value = p.cost || '';
+  document.getElementById('iem-sell').value = p.sellPrice || '';
+  document.getElementById('iem-notes').value = p.notes || '';
+  document.getElementById('iem-sold-link').style.display = 'none';
+  document.getElementById('inv-edit-modal').classList.add('open');
+}
+
+function closeInvEditModal() {
+  document.getElementById('inv-edit-modal').classList.remove('open');
+  _editingProdNo = null;
+}
+
+function saveInvEdit() {
+  const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
+  if (!p) return;
+  const newName = (document.getElementById('iem-name').value || '').trim();
+  if (!newName) { toast('⚠️ Product name required'); return; }
+  p.name = newName;
+  p.fabric = document.getElementById('iem-fabric').value || '';
+  p.cost = parseFloat(document.getElementById('iem-cost').value) || 0;
+  p.sellPrice = parseFloat(document.getElementById('iem-sell').value) || 0;
+  p.notes = document.getElementById('iem-notes').value || '';
+  p.dateAdded = document.getElementById('iem-date').value || p.dateAdded;
+  const newQty = parseInt(document.getElementById('iem-qty').value);
+  if (!isNaN(newQty) && newQty >= 0) {
+    p.qty = newQty;
+    p.qtyOriginal = Math.max(parseInt(p.qtyOriginal) || 0, p.qty + (parseInt(p.qtySold) || 0));
+  }
+  saveStk();
+  gsWrite(SHEETS.inventory, flattenProduct(p));
+  closeInvEditModal();
+  renderInventory(); renderAgingGrid(); updateInventoryStats();
+  toast('✅ Product #' + _editingProdNo + ' updated');
+}
+
+function deleteInvProduct() {
+  const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
+  if (!p) return;
+  if (!confirm('Delete product #' + p.prodNo + ' "' + p.name + '"?\nThis cannot be undone.')) return;
+  inventory = inventory.filter(x => parseInt(x.prodNo) !== _editingProdNo);
+  saveStk();
+  gsDelete(SHEETS.inventory, _editingProdNo);
+  closeInvEditModal();
+  renderInventory(); renderAgingGrid(); updateInventoryStats();
+  toast('🗑 Product deleted');
+}
+
+function openMarkSoldLinkInvoice() {
+  const sel = document.getElementById('iem-inv-select');
+  sel.innerHTML = '<option value="">— select invoice —</option>' +
+    [...invoices].sort((a,b) => (b.invDate||'') > (a.invDate||'') ? 1 : -1)
+      .map(i => '<option value="' + i.id + '">' + (i.invNo||i.id) + ' · ' + (i.custName||'') + ' · ' + fmtDate(i.invDate) + '</option>')
+      .join('');
+  document.getElementById('iem-sold-link').style.display = 'block';
+}
+
+function markInvItemSoldStandalone() {
+  const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
+  if (!p) return;
+  if (!confirm('Mark product #' + p.prodNo + ' "' + p.name + '" as sold (no invoice link)?')) return;
+  p.qty = Math.max(0, (parseInt(p.qty) || 0) - 1);
+  p.qtySold = (parseInt(p.qtySold) || 0) + 1;
+  saveStk(); gsWrite(SHEETS.inventory, flattenProduct(p));
+  closeInvEditModal();
+  renderInventory(); renderAgingGrid(); updateInventoryStats();
+  toast('✅ Marked as sold (1 unit)');
+}
+
+function confirmMarkSoldLinked() {
+  const invId = document.getElementById('iem-inv-select').value;
+  if (!invId) { toast('⚠️ Select an invoice'); return; }
+  const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
+  const inv = invoices.find(i => String(i.id) === String(invId));
+  if (!p || !inv) return;
+  if (!confirm('Link #' + p.prodNo + ' "' + p.name + '" to invoice ' + (inv.invNo||inv.id) + ' and deduct 1 from stock?')) return;
+  p.qty = Math.max(0, (parseInt(p.qty) || 0) - 1);
+  p.qtySold = (parseInt(p.qtySold) || 0) + 1;
+  if (!p.linkedInvoices) p.linkedInvoices = [];
+  p.linkedInvoices.push(String(inv.id));
+  saveStk(); gsWrite(SHEETS.inventory, flattenProduct(p));
+  closeInvEditModal();
+  renderInventory(); renderAgingGrid(); updateInventoryStats();
+  toast('✅ Linked to ' + (inv.invNo||inv.id) + ' and stock deducted');
+}
+
+// ═══════════════════════════════════════════
+// INVENTORY — PRICE LIST PRINT
+// ═══════════════════════════════════════════
+let _invPrintMode = false;
+let _invPrintSelected = new Set();
+
+function toggleInvPrintMode() {
+  _invPrintMode = !_invPrintMode;
+  _invPrintSelected.clear();
+  const bar = document.getElementById('inv-print-bar');
+  const btn = document.getElementById('inv-print-mode-btn');
+  if (bar) bar.style.display = _invPrintMode ? 'block' : 'none';
+  if (btn) btn.textContent = _invPrintMode ? '✕ Cancel' : '🖨️ Price List';
+  renderInventory();
+}
+
+function toggleInvPrintSelect(prodNo) {
+  if (_invPrintSelected.has(prodNo)) _invPrintSelected.delete(prodNo);
+  else _invPrintSelected.add(prodNo);
+  const el = document.getElementById('inv-print-count');
+  if (el) el.textContent = _invPrintSelected.size + ' selected';
+}
+
+function selectAllInvForPrint() {
+  const sf = document.getElementById('inv-status-filter')?.value || '';
+  inventory.filter(p => {
+    const s = parseInt(p.qty) || 0;
+    if (sf === 'instock' && s === 0) return false;
+    if (sf === 'sold' && s > 0) return false;
+    return true;
+  }).forEach(p => _invPrintSelected.add(parseInt(p.prodNo)));
+  const el = document.getElementById('inv-print-count');
+  if (el) el.textContent = _invPrintSelected.size + ' selected';
+  renderInventory();
+}
+
+function openInvPrintDialog() {
+  if (!_invPrintSelected.size) { toast('⚠️ Select at least one article'); return; }
+  const sub = document.getElementById('inv-print-modal-sub');
+  if (sub) sub.textContent = _invPrintSelected.size + ' article(s) selected for printing';
+  document.getElementById('ipm-ship').value = '';
+  document.getElementById('ipm-title').value = '';
+  document.getElementById('ipm-preview').textContent = '';
+  document.getElementById('inv-print-modal').classList.add('open');
+}
+
+function updateInvPrintPreview() {
+  const ship = parseFloat(document.getElementById('ipm-ship')?.value) || 0;
+  const el = document.getElementById('ipm-preview');
+  if (!el) return;
+  if (ship > 0) el.textContent = '₹' + ship.toFixed(2) + ' shipping will be added to each article\'s sell price';
+  else el.textContent = 'No shipping added — sell price shown as-is';
+}
+
+function printInvPriceList() {
+  const ship = parseFloat(document.getElementById('ipm-ship')?.value) || 0;
+  const listTitle = (document.getElementById('ipm-title')?.value || '').trim() || 'Price List';
+  const selected = inventory.filter(p => _invPrintSelected.has(parseInt(p.prodNo)));
+  if (!selected.length) { toast('⚠️ No articles selected'); return; }
+  document.getElementById('inv-print-modal').classList.remove('open');
+
+  const f = n => '₹' + parseFloat(n).toLocaleString('en-IN', {minimumFractionDigits: 2});
+  const dateStr = new Date().toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+
+  const rows = selected.map((p, i) => {
+    const sell = parseFloat(p.sellPrice) || 0;
+    const sellWithShip = sell + ship;
+    const inStock = (parseInt(p.qty) || 0) > 0;
+    return '<tr style="' + (i % 2 === 0 ? 'background:#fff;' : 'background:#fdf8f2;') + '">'
+      + '<td style="padding:8px 10px;font-weight:700;color:#5c3d1e;">#' + p.prodNo + '</td>'
+      + '<td style="padding:8px 10px;">' + (p.name || '') + (p.fabric ? '<br/><span style="font-size:10pt;color:#888;">' + p.fabric + '</span>' : '') + '</td>'
+      + '<td style="padding:8px 10px;text-align:center;">'
+        + (inStock ? '<span style="background:#e8f5e9;color:#27ae60;padding:2px 8px;border-radius:8px;font-size:10pt;font-weight:700;">In Stock</span>'
+                  : '<span style="background:#fde8e8;color:#c0392b;padding:2px 8px;border-radius:8px;font-size:10pt;font-weight:700;">Sold Out</span>')
+        + '</td>'
+      + '<td style="padding:8px 10px;text-align:right;">' + (p.cost ? f(p.cost) : '—') + '</td>'
+      + '<td style="padding:8px 10px;text-align:right;font-weight:700;">' + (sell ? f(sell) : '—') + '</td>'
+      + (ship > 0 ? '<td style="padding:8px 10px;text-align:right;font-weight:700;color:#5c3d1e;">' + (sell ? f(sellWithShip) : '—') + '</td>' : '')
+      + '</tr>';
+  }).join('');
+
+  const logoImg = logoB64 ? '<img src="' + logoB64 + '" style="height:40px;object-fit:contain;"/>' : '';
+
+  const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
+    + '<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;600&display=swap" rel="stylesheet"/>'
+    + '<style>'
+    + '*{box-sizing:border-box;margin:0;padding:0;}'
+    + '@page{margin:12mm 14mm;}'
+    + 'body{font-family:"DM Sans",Arial,sans-serif;font-size:11pt;color:#1a1208;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+    + 'table{width:100%;border-collapse:collapse;}'
+    + 'th{background:#5c3d1e;color:#fff;padding:8px 10px;font-size:10pt;text-align:left;}'
+    + 'tr{border-bottom:1px solid #e2d4bc;}'
+    + '</style>'
+    + '<script>window.onload=function(){setTimeout(function(){window.print();},800);};<\/script>'
+    + '</head><body>'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">'
+      + '<div>' + logoImg + '<div style="font-family:\'Playfair Display\',serif;font-size:22pt;font-weight:700;color:#5c3d1e;">Vismaad Creations</div>'
+      + '<div style="font-size:10pt;color:#888;">' + (S.address || '') + (S.phone ? ' · ' + S.phone : '') + '</div></div>'
+      + '<div style="text-align:right;">'
+        + '<div style="font-size:16pt;font-weight:700;color:#5c3d1e;">' + listTitle + '</div>'
+        + '<div style="font-size:10pt;color:#888;">Date: ' + dateStr + '</div>'
+        + (ship > 0 ? '<div style="font-size:10pt;color:#c9933a;margin-top:3px;">Shipping included: ₹' + ship.toFixed(2) + ' per article</div>' : '')
+      + '</div>'
+    + '</div>'
+    + '<table>'
+    + '<thead><tr>'
+      + '<th style="width:70px;">Art. No.</th>'
+      + '<th>Name / Fabric</th>'
+      + '<th style="width:90px;text-align:center;">Status</th>'
+      + '<th style="width:100px;text-align:right;">Cost Price</th>'
+      + '<th style="width:110px;text-align:right;">Sell Price</th>'
+      + (ship > 0 ? '<th style="width:130px;text-align:right;">With Shipping</th>' : '')
+    + '</tr></thead>'
+    + '<tbody>' + rows + '</tbody>'
+    + '</table>'
+    + '<div style="margin-top:12px;font-size:9pt;color:#aaa;text-align:center;">Vismaad Creations · ' + listTitle + ' · Printed ' + dateStr + '</div>'
+    + '</body></html>';
+
+  const blob = new Blob([html], {type: 'text/html'});
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, '_blank');
+  if (!w) { toast('⚠️ Popup blocked — allow popups in browser settings', 5000); URL.revokeObjectURL(url); }
+  else { setTimeout(() => URL.revokeObjectURL(url), 30000); }
+}
+
+// ═══════════════════════════════════════════
+// SUPPLIERS & BILLS — DATA FUNCTIONS
+// ═══════════════════════════════════════════
+
+// ── SUPPLIERS ──
+let _editingSupId = null;
+
+function openAddSupplier() {
+  _editingSupId = null;
+  document.getElementById('sup-modal-title').textContent = '🏭 Add Supplier';
+  document.getElementById('sup-modal-id').value = '';
+  ['sup-name','sup-phone','sup-gstin','sup-address','sup-notes'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('sup-modal').classList.add('open');
+}
+
+function openEditSupplier(id) {
+  const s = suppliers.find(x => String(x.id) === String(id));
+  if (!s) return;
+  _editingSupId = String(id);
+  document.getElementById('sup-modal-title').textContent = '✏️ Edit Supplier';
+  document.getElementById('sup-modal-id').value = s.id;
+  document.getElementById('sup-name').value = s.name || '';
+  document.getElementById('sup-phone').value = s.phone || '';
+  document.getElementById('sup-gstin').value = s.gstin || '';
+  document.getElementById('sup-address').value = s.address || '';
+  document.getElementById('sup-notes').value = s.notes || '';
+  document.getElementById('sup-modal').classList.add('open');
+}
+
+function closeSupModal() { document.getElementById('sup-modal').classList.remove('open'); _editingSupId = null; }
+
+function saveSupplier() {
+  const name = (document.getElementById('sup-name').value || '').trim();
+  if (!name) { toast('⚠️ Supplier name required'); return; }
+  if (_editingSupId) {
+    const s = suppliers.find(x => String(x.id) === _editingSupId);
+    if (s) {
+      s.name = name; s.phone = document.getElementById('sup-phone').value;
+      s.gstin = (document.getElementById('sup-gstin').value || '').toUpperCase();
+      s.address = document.getElementById('sup-address').value;
+      s.notes = document.getElementById('sup-notes').value;
+      saveSup(); gsWrite(SHEETS.suppliers, s);
+    }
+  } else {
+    const s = {
+      id: Date.now(), name,
+      phone: document.getElementById('sup-phone').value,
+      gstin: (document.getElementById('sup-gstin').value || '').toUpperCase(),
+      address: document.getElementById('sup-address').value,
+      notes: document.getElementById('sup-notes').value,
+    };
+    suppliers.push(s); saveSup(); gsWrite(SHEETS.suppliers, s);
+  }
+  closeSupModal();
+  renderSuppliersPage2();
+  toast('✅ Supplier saved');
+}
+
+function deleteSupplier(id) {
+  const s = suppliers.find(x => String(x.id) === String(id));
+  if (!s) return;
+  const hasBills = bills.some(b => String(b.supId) === String(id));
+  if (hasBills) { toast('⚠️ Cannot delete — supplier has bills. Delete the bills first.'); return; }
+  if (!confirm('Delete supplier "' + s.name + '"?')) return;
+  suppliers = suppliers.filter(x => String(x.id) !== String(id));
+  saveSup(); gsDelete(SHEETS.suppliers, id);
+  renderSuppliersPage2();
+  toast('🗑 Supplier deleted');
+}
+
+// ── BILLS ──
+let _editingBillId = null;
+
+function openAddBill(supId) {
+  _editingBillId = null;
+  document.getElementById('bill-modal-title').textContent = '🧾 Add Bill';
+  document.getElementById('bill-modal-id').value = '';
+  const supSel = document.getElementById('bill-sup-sel');
+  supSel.innerHTML = '<option value="">— select supplier —</option>'
+    + suppliers.map(s => '<option value="' + s.id + '" ' + (supId && String(s.id) === String(supId) ? 'selected' : '') + '>' + s.name + '</option>').join('');
+  document.getElementById('bill-date').value = today();
+  document.getElementById('bill-due').value = '';
+  document.getElementById('bill-no').value = '';
+  document.getElementById('bill-amount').value = '';
+  document.getElementById('bill-gst').value = 'none';
+  document.getElementById('bill-desc').value = '';
+  document.getElementById('bill-notes').value = '';
+  document.getElementById('bill-modal').classList.add('open');
+}
+
+function openEditBill(id) {
+  const b = bills.find(x => String(x.id) === String(id));
+  if (!b) return;
+  _editingBillId = String(id);
+  document.getElementById('bill-modal-title').textContent = '✏️ Edit Bill';
+  document.getElementById('bill-modal-id').value = b.id;
+  const supSel = document.getElementById('bill-sup-sel');
+  supSel.innerHTML = '<option value="">— select supplier —</option>'
+    + suppliers.map(s => '<option value="' + s.id + '" ' + (String(s.id) === String(b.supId) ? 'selected' : '') + '>' + s.name + '</option>').join('');
+  document.getElementById('bill-date').value = b.date || '';
+  document.getElementById('bill-due').value = b.dueDate || '';
+  document.getElementById('bill-no').value = b.billNo || '';
+  document.getElementById('bill-amount').value = b.amount || '';
+  document.getElementById('bill-gst').value = b.gstRate || 'none';
+  document.getElementById('bill-desc').value = b.desc || '';
+  document.getElementById('bill-notes').value = b.notes || '';
+  document.getElementById('bill-modal').classList.add('open');
+}
+
+function closeBillModal() { document.getElementById('bill-modal').classList.remove('open'); _editingBillId = null; }
+
+function saveBill() {
+  const supId = document.getElementById('bill-sup-sel').value;
+  if (!supId) { toast('⚠️ Select a supplier'); return; }
+  const amount = parseFloat(document.getElementById('bill-amount').value) || 0;
+  if (!amount) { toast('⚠️ Enter bill amount'); return; }
+  const date = document.getElementById('bill-date').value;
+  if (!date) { toast('⚠️ Enter bill date'); return; }
+
+  if (_editingBillId) {
+    const b = bills.find(x => String(x.id) === _editingBillId);
+    if (b) {
+      b.supId = supId; b.date = date;
+      b.dueDate = document.getElementById('bill-due').value;
+      b.billNo = document.getElementById('bill-no').value;
+      b.amount = amount; b.gstRate = document.getElementById('bill-gst').value;
+      b.desc = document.getElementById('bill-desc').value;
+      b.notes = document.getElementById('bill-notes').value;
+      saveBills(); gsWrite(SHEETS.bills, {...b, payments: JSON.stringify(b.payments || [])});
+    }
+  } else {
+    const b = {
+      id: Date.now(), supId, date,
+      dueDate: document.getElementById('bill-due').value,
+      billNo: document.getElementById('bill-no').value,
+      amount, gstRate: document.getElementById('bill-gst').value,
+      desc: document.getElementById('bill-desc').value,
+      notes: document.getElementById('bill-notes').value,
+      payments: []
+    };
+    bills.push(b); saveBills(); gsWrite(SHEETS.bills, {...b, payments: JSON.stringify(b.payments)});
+  }
+  closeBillModal();
+  renderSuppliersPage2();
+  toast('✅ Bill saved');
+}
+
+function deleteBill(id) {
+  const b = bills.find(x => String(x.id) === String(id));
+  if (!b) return;
+  if (!confirm('Delete this bill?')) return;
+  bills = bills.filter(x => String(x.id) !== String(id));
+  saveBills(); gsDelete(SHEETS.bills, id);
+  renderSuppliersPage2();
+  toast('🗑 Bill deleted');
+}
+
+// ── PAYMENTS ──
+let _payingBillId = null;
+
+function openPayModal(billId) {
+  const b = bills.find(x => String(x.id) === String(billId));
+  if (!b) return;
+  _payingBillId = String(billId);
+  const totalPaid = (b.payments || []).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  const pending = (parseFloat(b.amount) || 0) - totalPaid;
+  const sub = document.getElementById('pay-modal-sub');
+  if (sub) sub.textContent = 'Bill: ' + (b.billNo || String(b.id)) + ' · Total: ₹' + parseFloat(b.amount).toLocaleString('en-IN') + ' · Pending: ₹' + pending.toLocaleString('en-IN', {minimumFractionDigits: 2});
+  document.getElementById('pay-bill-id').value = billId;
+  document.getElementById('pay-date').value = today();
+  document.getElementById('pay-amount').value = pending > 0 ? pending.toFixed(2) : '';
+  document.getElementById('pay-mode').value = 'UPI';
+  document.getElementById('pay-ref').value = '';
+  document.getElementById('pay-notes').value = '';
+  document.getElementById('pay-preview').style.display = 'none';
+  document.getElementById('pay-modal').classList.add('open');
+}
+
+function closePayModal() { document.getElementById('pay-modal').classList.remove('open'); _payingBillId = null; }
+
+function updatePayPreview() {
+  const amt = parseFloat(document.getElementById('pay-amount')?.value) || 0;
+  const b = bills.find(x => String(x.id) === String(_payingBillId));
+  const el = document.getElementById('pay-preview');
+  if (!b || !el) return;
+  const totalPaid = (b.payments || []).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  const pending = (parseFloat(b.amount) || 0) - totalPaid;
+  const remaining = pending - amt;
+  if (amt > 0) {
+    el.style.display = 'block';
+    el.textContent = 'Paying ₹' + amt.toLocaleString('en-IN', {minimumFractionDigits: 2})
+      + ' · Remaining after this: ₹' + Math.max(0, remaining).toLocaleString('en-IN', {minimumFractionDigits: 2});
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function savePayment() {
+  const billId = document.getElementById('pay-bill-id').value;
+  const b = bills.find(x => String(x.id) === String(billId));
+  if (!b) return;
+  const amt = parseFloat(document.getElementById('pay-amount').value) || 0;
+  if (!amt) { toast('⚠️ Enter payment amount'); return; }
+  const date = document.getElementById('pay-date').value;
+  if (!date) { toast('⚠️ Enter payment date'); return; }
+  const totalPaid = (b.payments || []).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  const pending = (parseFloat(b.amount) || 0) - totalPaid;
+  if (amt > pending + 0.01) {
+    if (!confirm('Payment ₹' + amt + ' exceeds pending ₹' + pending.toFixed(2) + '. Continue?')) return;
+  }
+  if (!b.payments) b.payments = [];
+  b.payments.push({
+    id: Date.now(), date, amount: amt,
+    mode: document.getElementById('pay-mode').value,
+    ref: document.getElementById('pay-ref').value,
+    notes: document.getElementById('pay-notes').value,
+  });
+  saveBills(); gsWrite(SHEETS.bills, {...b, payments: JSON.stringify(b.payments)});
+  closePayModal();
+  renderSuppliersPage2();
+  toast('✅ Payment of ₹' + amt.toLocaleString('en-IN') + ' recorded');
+}
+
+function deletePayment(billId, payId) {
+  const b = bills.find(x => String(x.id) === String(billId));
+  if (!b) return;
+  if (!confirm('Delete this payment record?')) return;
+  b.payments = (b.payments || []).filter(p => String(p.id) !== String(payId));
+  saveBills(); gsWrite(SHEETS.bills, {...b, payments: JSON.stringify(b.payments)});
+  renderSuppliersPage2();
+  toast('🗑 Payment deleted');
+}
+
+// ── SUPPLIERS PAGE BUILD ──
+function buildSuppliersPage() {
+  return '<div id="sup-page-content">' + _buildSuppliersPageHTML() + '</div>';
+}
+
+function renderSuppliersPage2() {
+  const el = document.getElementById('sup-page-content');
+  if (el) el.innerHTML = _buildSuppliersPageHTML();
+}
+
+function _buildSuppliersPageHTML() {
+  const f = n => '₹' + parseFloat(n).toLocaleString('en-IN', {minimumFractionDigits: 2});
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // Overall payables summary
+  let totalBilled = 0, totalPaid = 0;
+  bills.forEach(b => {
+    totalBilled += parseFloat(b.amount) || 0;
+    (b.payments || []).forEach(p => { totalPaid += parseFloat(p.amount) || 0; });
+  });
+  const totalPending = totalBilled - totalPaid;
+
+  let html = '';
+
+  // Summary cards
+  html += '<div class="stat-grid cols3" style="margin-bottom:14px;">'
+    + '<div class="stat-card"><div class="stat-val">' + suppliers.length + '</div><div class="stat-lbl">Suppliers</div></div>'
+    + '<div class="stat-card"><div class="stat-val" style="color:#c0392b;">' + f(totalPending) + '</div><div class="stat-lbl">Total Pending</div></div>'
+    + '<div class="stat-card"><div class="stat-val" style="color:#27ae60;">' + f(totalPaid) + '</div><div class="stat-lbl">Total Paid</div></div>'
+    + '</div>';
+
+  // Add supplier button
+  html += '<button class="btn btn-p" style="margin-bottom:14px;" onclick="openAddSupplier()">➕ Add Supplier</button>';
+
+  if (!suppliers.length) {
+    html += '<div class="card"><div style="text-align:center;color:#aaa;padding:24px;">No suppliers added yet. Add your first supplier above.</div></div>';
+    return html;
+  }
+
+  // Per-supplier sections
+  suppliers.forEach(s => {
+    const supBills = bills.filter(b => String(b.supId) === String(s.id));
+    let supBilled = 0, supPaid = 0;
+    supBills.forEach(b => {
+      supBilled += parseFloat(b.amount) || 0;
+      (b.payments || []).forEach(p => { supPaid += parseFloat(p.amount) || 0; });
+    });
+    const supPending = supBilled - supPaid;
+
+    html += '<div class="card" style="margin-bottom:14px;">';
+
+    // Supplier header
+    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">'
+      + '<div>'
+        + '<div style="font-family:\'Playfair Display\',serif;font-size:16px;font-weight:700;color:var(--brown);">' + esc(s.name) + '</div>'
+        + (s.phone ? '<div style="font-size:12px;color:#888;">📞 ' + esc(s.phone) + '</div>' : '')
+        + (s.gstin ? '<div style="font-size:12px;color:#888;">GSTIN: ' + esc(s.gstin) + '</div>' : '')
+        + (s.address ? '<div style="font-size:12px;color:#888;">' + esc(s.address) + '</div>' : '')
+      + '</div>'
+      + '<div style="display:flex;gap:6px;">'
+        + '<button class="btn btn-o btn-sm" onclick="openEditSupplier(\'' + s.id + '\')">✏️ Edit</button>'
+        + '<button class="btn btn-o btn-sm" style="color:#c0392b;" onclick="deleteSupplier(\'' + s.id + '\')">🗑</button>'
+      + '</div>'
+    + '</div>';
+
+    // Supplier summary
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">'
+      + '<div style="background:var(--cream);border-radius:8px;padding:8px;text-align:center;"><div style="font-size:13px;font-weight:700;">' + f(supBilled) + '</div><div style="font-size:10px;color:#888;text-transform:uppercase;">Total Billed</div></div>'
+      + '<div style="background:var(--cream);border-radius:8px;padding:8px;text-align:center;"><div style="font-size:13px;font-weight:700;color:#27ae60;">' + f(supPaid) + '</div><div style="font-size:10px;color:#888;text-transform:uppercase;">Paid</div></div>'
+      + '<div style="background:' + (supPending > 0 ? '#fde8e8' : '#f0fff4') + ';border-radius:8px;padding:8px;text-align:center;"><div style="font-size:13px;font-weight:700;color:' + (supPending > 0 ? '#c0392b' : '#27ae60') + ';">' + f(supPending) + '</div><div style="font-size:10px;color:#888;text-transform:uppercase;">Pending</div></div>'
+    + '</div>';
+
+    // Add bill button
+    html += '<button class="btn btn-o btn-sm" style="margin-bottom:10px;" onclick="openAddBill(\'' + s.id + '\')">➕ Add Bill</button>';
+
+    // Bills list
+    if (!supBills.length) {
+      html += '<div style="color:#aaa;font-size:13px;text-align:center;padding:10px;">No bills for this supplier yet.</div>';
+    } else {
+      const sorted = [...supBills].sort((a,b) => (b.date||'') > (a.date||'') ? 1 : -1);
+      sorted.forEach(b => {
+        const bPaid = (b.payments || []).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+        const bPending = (parseFloat(b.amount) || 0) - bPaid;
+        const isPaid = bPending <= 0.01;
+        const isPartial = bPaid > 0 && !isPaid;
+        const statusColor = isPaid ? '#27ae60' : isPartial ? '#e67e22' : '#c0392b';
+        const statusText = isPaid ? 'Paid' : isPartial ? 'Part Paid' : 'Unpaid';
+        const isOverdue = b.dueDate && b.dueDate < today() && !isPaid;
+
+        html += '<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:' + (isOverdue ? '#fff8f8' : 'var(--warm)') + ';' + (isOverdue ? 'border-color:#e74c3c;' : '') + '">';
+
+        // Bill header row
+        html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">'
+          + '<div>'
+            + '<div style="font-size:14px;font-weight:700;color:var(--brown);">' + esc(b.billNo || ('Bill #' + b.id)) + '</div>'
+            + '<div style="font-size:12px;color:#888;">' + fmtDate(b.date) + (b.dueDate ? ' · Due: ' + fmtDate(b.dueDate) : '') + (isOverdue ? ' <span style="color:#c0392b;font-weight:700;">OVERDUE</span>' : '') + '</div>'
+            + (b.desc ? '<div style="font-size:12px;color:#555;">' + esc(b.desc) + '</div>' : '')
+          + '</div>'
+          + '<div style="text-align:right;">'
+            + '<div style="font-size:14px;font-weight:700;">' + f(b.amount) + '</div>'
+            + '<span style="font-size:11px;font-weight:700;color:#fff;background:' + statusColor + ';padding:2px 8px;border-radius:8px;">' + statusText + '</span>'
+          + '</div>'
+        + '</div>';
+
+        // Financial detail
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px;font-size:12px;">'
+          + '<div style="background:var(--cream);border-radius:6px;padding:6px;"><div style="color:#888;font-size:10px;text-transform:uppercase;">Bill Amount</div><div style="font-weight:700;">' + f(b.amount) + '</div></div>'
+          + '<div style="background:var(--cream);border-radius:6px;padding:6px;"><div style="color:#888;font-size:10px;text-transform:uppercase;">Paid</div><div style="font-weight:700;color:#27ae60;">' + f(bPaid) + '</div></div>'
+          + '<div style="background:' + (bPending > 0 ? '#fde8e8' : '#f0fff4') + ';border-radius:6px;padding:6px;"><div style="color:#888;font-size:10px;text-transform:uppercase;">Pending</div><div style="font-weight:700;color:' + (bPending > 0 ? '#c0392b' : '#27ae60') + ';">' + f(Math.max(0, bPending)) + '</div></div>'
+        + '</div>';
+
+        // Payments history
+        if (b.payments && b.payments.length) {
+          html += '<div style="margin-bottom:8px;">'
+            + '<div style="font-size:11px;font-weight:600;color:var(--brown);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px;">Payment History</div>';
+          b.payments.forEach(p => {
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;">'
+              + '<div>'
+                + '<span style="font-weight:600;color:#27ae60;">' + f(p.amount) + '</span>'
+                + ' · ' + fmtDate(p.date)
+                + ' · ' + esc(p.mode || '')
+                + (p.ref ? ' · <span style="color:#888;font-style:italic;">' + esc(p.ref) + '</span>' : '')
+                + (p.notes ? '<br/><span style="color:#aaa;font-size:11px;">' + esc(p.notes) + '</span>' : '')
+              + '</div>'
+              + '<button onclick="deletePayment(\'' + b.id + '\',\'' + p.id + '\')" style="border:none;background:none;color:#c0392b;font-size:12px;cursor:pointer;padding:2px 6px;">🗑</button>'
+            + '</div>';
+          });
+          html += '</div>';
+        }
+
+        // Action buttons
+        html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+        if (!isPaid) {
+          html += '<button class="btn btn-g btn-sm" style="min-height:38px;" onclick="openPayModal(\'' + b.id + '\')">💸 Record Payment</button>';
+        }
+        html += '<button class="btn btn-o btn-sm" style="min-height:38px;" onclick="openEditBill(\'' + b.id + '\')">✏️ Edit Bill</button>';
+        html += '<button class="btn btn-o btn-sm" style="min-height:38px;color:#c0392b;" onclick="deleteBill(\'' + b.id + '\')">🗑 Delete</button>';
+        html += '</div>';
+
+        html += '</div>'; // end bill card
+      });
+    }
+
+    html += '</div>'; // end supplier card
+  });
+
+  html += '<div style="height:env(safe-area-inset-bottom);"></div>';
+  return html;
+}
+
+// Hook showSubPage for suppliers to re-render after it's mounted
+
 
 init();
 </script>
