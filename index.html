@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v12.1
+APP: Vismaad Creations v12.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 31-May-2026 — (1) Fix sync crash: parseInventoryRow now safely parses linkedProducts from JSON string (was causing "map is not a function" error and zeroing inventory stats); (2) Fix share modal rendering on inventory page (missing modal-bg wrapper restored).
+LAST_CHANGE: 31-May-2026 — Fix root cause of linkedProducts sync crash: flattenForSheet now JSON-stringifies linkedProducts and linkedInvoices before writing to sheet (previously sent as raw JS array, stored by Sheets as "1,2,3" which JSON.parse failed on); parseInventoryRow also handles comma-string fallback.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -1441,6 +1441,8 @@ function flattenForSheet(data){
   delete flat.html;delete flat.logoB64;
   delete flat.bizAddress;delete flat.bizPhone;delete flat.bizEmail;delete flat.gstin;
   if(typeof flat.itemsArr==='object')flat.itemsArr=JSON.stringify(flat.itemsArr);
+  if(Array.isArray(flat.linkedProducts))flat.linkedProducts=JSON.stringify(flat.linkedProducts);
+  if(Array.isArray(flat.linkedInvoices))flat.linkedInvoices=JSON.stringify(flat.linkedInvoices);
   return flat;
 }
 function makePayload(flat){
@@ -1464,7 +1466,12 @@ function flattenInvoice(inv){
 function flattenProduct(p){return{...p};}
 function parseInventoryRow(r){
   let lp=r.linkedProducts;
-  if(typeof lp==='string'){try{lp=lp?JSON.parse(lp):[];}catch{lp=[];}}
+  if(typeof lp==='string'){
+    try{lp=lp.trim()?JSON.parse(lp):[];}catch{
+      // Google Sheets may have stored array as "1,2,3" — split and parse
+      lp=lp.split(',').map(n=>parseInt(n.trim())).filter(n=>!isNaN(n));
+    }
+  }
   if(!Array.isArray(lp))lp=[];
   return{...r,prodNo:parseInt(r.prodNo)||0,qty:parseInt(r.qty)||0,
     qtyOriginal:parseInt(r.qtyOriginal)||0,qtySold:parseInt(r.qtySold)||0,
