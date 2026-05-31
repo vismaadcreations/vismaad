@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v12.2
+APP: Vismaad Creations v12.3
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 31-May-2026 — Fix root cause of linkedProducts sync crash: flattenForSheet now JSON-stringifies linkedProducts and linkedInvoices before writing to sheet (previously sent as raw JS array, stored by Sheets as "1,2,3" which JSON.parse failed on); parseInventoryRow also handles comma-string fallback.
+LAST_CHANGE: 31-May-2026 — Cost price per item in sale form: editable field on each item row; auto-populated from inventory prod.cost when Product No. matched (overrideable); inv.costPrice now summed from item costPrices on save, feeding P&L correctly.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -1963,12 +1963,16 @@ function renderItems(){
             oninput="updateItem(${it.id},'unitPrice',this.value)" style="padding:11px 12px;"/>
         </div>
       </div>
+      <div class="fg" style="margin-bottom:0;margin-top:10px;"><label>Cost Price (₹ incl.GST) <span style="font-weight:400;color:#aaa;text-transform:none;letter-spacing:0;">— for P&amp;L</span></label>
+        <input type="number" id="icost-${it.id}" value="${it.costPrice||''}" placeholder="0 (optional)"
+          oninput="updateItem(${it.id},'costPrice',this.value)" style="padding:11px 12px;${it.costPrice?'background:#f0faf4;':''}"/>
+      </div>
     </div>`).join('');
   recalc();
 }
 function updateItem(id,f,v){
   const it=items.find(i=>i.id===id);if(!it)return;
-  if(f==='qty'||f==='unitPrice')it[f]=parseFloat(v)||0;
+  if(f==='qty'||f==='unitPrice'||f==='costPrice')it[f]=parseFloat(v)||0;
   else if(f==='prodNo')it[f]=v?parseInt(v)||'':'';
   else it[f]=v;
   const tot=document.getElementById('itot-'+id);
@@ -1982,6 +1986,7 @@ function lookupProduct(rowId,val){
   if(prod){
     it.desc=prod.name;
     if(!it.unitPrice&&prod.sellPrice){it.unitPrice=prod.sellPrice;const pr=document.getElementById('iprice-'+rowId);if(pr)pr.value=prod.sellPrice;}
+    if(prod.cost){it.costPrice=prod.cost;const cr=document.getElementById('icost-'+rowId);if(cr){cr.value=prod.cost;cr.style.background='#f0faf4';}}
     const d=document.getElementById('idesc-'+rowId);if(d){d.value=prod.name;d.style.background='#f0faf4';}
     const tot=document.getElementById('itot-'+rowId);if(tot)tot.textContent='₹'+((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN');
     recalc();toast('✅ #'+num+': '+prod.name);
@@ -2113,6 +2118,7 @@ function generateInvoice(){
 
   const{grandIncl,gstAmt,taxableExcl,suitsTotal}=calcTotals(items,ship,disc);
   const validItems=items.filter(i=>i.unitPrice>0);
+  const itemsCostTotal=parseFloat(validItems.reduce((s,i)=>s+(parseFloat(i.costPrice)||0),0).toFixed(2));
 
   const saved={
     id:Date.now(),
@@ -2126,6 +2132,7 @@ function generateInvoice(){
     itemsArr:validItems,
     gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,
     isShipped:false,status:'Pending',
+    costPrice:itemsCostTotal,
     religion:getAutoReligion(custName,custPhone,custWhatsapp),
   };
   invoices.push(saved);save();
