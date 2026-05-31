@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v12.3
+APP: Vismaad Creations v12.4
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 31-May-2026 — Cost price per item in sale form: editable field on each item row; auto-populated from inventory prod.cost when Product No. matched (overrideable); inv.costPrice now summed from item costPrices on save, feeding P&L correctly.
+LAST_CHANGE: 31-May-2026 — Inventory sync: updatedAt-wins merge (newer device wins per item, conflict toast shown); modal-bg pointer-events:none fix so Edit modal Save/Delete buttons are mouse-clickable on desktop.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -148,9 +148,9 @@ tbody tr:last-child td{border-bottom:none;}
 .toast.show{transform:translateY(0);opacity:1;}
 
 /* ── MODAL ── */
-.modal-bg{display:none;position:fixed;inset:0;background:rgba(26,18,8,.55);z-index:200;align-items:flex-end;justify-content:center;}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(26,18,8,.55);z-index:200;align-items:flex-end;justify-content:center;pointer-events:none;}
 .modal-bg.open{display:flex;}
-.modal{background:var(--warm);border-radius:20px 20px 0 0;padding:20px 16px;padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px);width:100%;max-height:92vh;overflow-y:auto;}
+.modal{background:var(--warm);border-radius:20px 20px 0 0;padding:20px 16px;padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px);width:100%;max-height:92vh;overflow-y:auto;pointer-events:auto;}
 .modal-title{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;color:var(--brown);margin-bottom:16px;}
 .modal-close{float:right;background:var(--border);border:none;border-radius:50%;width:36px;height:36px;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;}
 
@@ -1524,10 +1524,35 @@ async function syncAll(){
       invoices=Object.values(localMap).sort((a,b)=>(a.invDate||'')<(b.invDate||'')?-1:1);
     }
 
-    // INVENTORY — local wins for same prodNo, remote adds new
+    // INVENTORY — newer updatedAt wins; remote-only items added; collect conflicts for toast
     const sm={};inventory.forEach(l=>{sm[String(l.prodNo)]=l;});
-    remStk.forEach(r=>{if(r.prodNo&&!sm[String(r.prodNo)])sm[String(r.prodNo)]=parseInventoryRow(r);});
+    const invConflicts=[];
+    remStk.forEach(r=>{
+      if(!r.prodNo)return;
+      const key=String(r.prodNo);
+      const parsed=parseInventoryRow(r);
+      if(!sm[key]){
+        sm[key]=parsed; // new item from remote
+      } else {
+        const local=sm[key];
+        const remTime=parsed.updatedAt?new Date(parsed.updatedAt).getTime():0;
+        const locTime=local.updatedAt?new Date(local.updatedAt).getTime():0;
+        if(remTime>locTime){
+          // Remote is newer — remote wins; preserve local-only posting dates if remote lacks them
+          const keep={dateReel:local.dateReel,dateStory1:local.dateStory1,dateStory2:local.dateStory2};
+          sm[key]={...parsed,...keep};
+          invConflicts.push(parsed.prodNo);
+        }
+        // else local is newer or equal — keep local (already in sm)
+      }
+    });
     inventory=Object.values(sm).sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
+    if(invConflicts.length){
+      const msg=invConflicts.length===1
+        ?'📱 Inventory #'+invConflicts[0]+' updated from another device'
+        :'📱 '+invConflicts.length+' inventory items updated from another device';
+      setTimeout(()=>toast(msg,4000),1200);
+    }
 
     // PURCHASES — merge
     const pm={};purchases.forEach(l=>{pm[String(l.id)]=l;});
@@ -2143,6 +2168,7 @@ function generateInvoice(){
     const prod=inventory.find(p=>parseInt(p.prodNo)===num);if(!prod)return;
     prod.qtySold=(prod.qtySold||0)+(it.qty||1);
     prod.qty=Math.max(0,(prod.qty||0)-(it.qty||1));
+    prod.updatedAt=new Date().toISOString();
   });
   saveStk();
   gsWrite(SHEETS.invoices,flattenInvoice(saved));
@@ -3553,6 +3579,7 @@ function saveProduct(){
     dateStory2:'',      // set later when second story posted
     linkedProducts:_pendingLinks||[],  // approved links
     notes:document.getElementById('ip-notes')?.value||'',
+    updatedAt:new Date().toISOString(),
   };
   // Update linked products bidirectionally
   (prod.linkedProducts||[]).forEach(linkedNo=>{
@@ -3580,6 +3607,7 @@ function adjustStock(prodNo){
   if(v===null)return;
   p.qty=Math.max(0,parseInt(v)||0);
   p.qtyOriginal=Math.max(parseInt(p.qtyOriginal)||0,p.qty+(parseInt(p.qtySold)||0));
+  p.updatedAt=new Date().toISOString();
   saveStk();gsWrite(SHEETS.inventory,flattenProduct(p));
   renderInventory();renderAgingGrid();updateInventoryStats();toast('📦 Stock updated for #'+prodNo);
 }
@@ -6973,6 +7001,7 @@ function saveInvEdit() {
     p.qty = newQty;
     p.qtyOriginal = Math.max(parseInt(p.qtyOriginal) || 0, p.qty + (parseInt(p.qtySold) || 0));
   }
+  p.updatedAt = new Date().toISOString();
   saveStk();
   gsWrite(SHEETS.inventory, flattenProduct(p));
   closeInvEditModal();
@@ -7007,6 +7036,7 @@ function markInvItemSoldStandalone() {
   if (!confirm('Mark product #' + p.prodNo + ' "' + p.name + '" as sold (no invoice link)?')) return;
   p.qty = Math.max(0, (parseInt(p.qty) || 0) - 1);
   p.qtySold = (parseInt(p.qtySold) || 0) + 1;
+  p.updatedAt = new Date().toISOString();
   saveStk(); gsWrite(SHEETS.inventory, flattenProduct(p));
   closeInvEditModal();
   renderInventory(); renderAgingGrid(); updateInventoryStats();
@@ -7024,6 +7054,7 @@ function confirmMarkSoldLinked() {
   p.qtySold = (parseInt(p.qtySold) || 0) + 1;
   if (!p.linkedInvoices) p.linkedInvoices = [];
   p.linkedInvoices.push(String(inv.id));
+  p.updatedAt = new Date().toISOString();
   saveStk(); gsWrite(SHEETS.inventory, flattenProduct(p));
   closeInvEditModal();
   renderInventory(); renderAgingGrid(); updateInventoryStats();
