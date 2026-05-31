@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v12.4
+APP: Vismaad Creations v12.5
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 31-May-2026 — Inventory sync: updatedAt-wins merge (newer device wins per item, conflict toast shown); modal-bg pointer-events:none fix so Edit modal Save/Delete buttons are mouse-clickable on desktop.
+LAST_CHANGE: 31-May-2026 — Retrospective date picker for Reel / Story 1 / Story 2 posting: "Mark Posted" buttons now open a date-picker modal defaulting to today, allowing any past date. Inventory Edit modal gains editable date fields for all three posting dates.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -896,6 +896,24 @@ body.gst-mode .gst-only{display:block;}
   </div>
 </div>
 
+<!-- ════ MARK POSTED DATE PICKER MODAL ════ -->
+<div class="modal-bg" id="mark-posted-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeMarkPostedModal()">✕</button>
+    <div class="modal-title" id="mp-title">🎬 Mark Reel Posted</div>
+    <div style="font-size:13px;color:#888;margin-bottom:16px;" id="mp-subtitle"></div>
+    <div class="fg">
+      <label>Date Posted</label>
+      <input type="date" id="mp-date"/>
+    </div>
+    <div style="font-size:12px;color:#888;margin-bottom:16px;">You can enter a past date if this was posted earlier.</div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="confirmMarkPosted()">✅ Confirm</button>
+      <button class="btn btn-o" onclick="closeMarkPostedModal()" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ════ INVENTORY EDIT MODAL ════ -->
 <div class="modal-bg" id="inv-edit-modal">
   <div class="modal">
@@ -914,6 +932,15 @@ body.gst-mode .gst-only{display:block;}
       <div class="fg"><label>Sell Price (₹)</label><input type="number" id="iem-sell" placeholder="0"/></div>
     </div>
     <div class="fg"><label>Notes</label><input id="iem-notes" placeholder="Colour, design details"/></div>
+    <div style="background:#f0f7ff;border:1px solid #c8dff5;border-radius:8px;padding:10px 12px;margin-bottom:14px;">
+      <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:8px;">📱 Posting Dates</div>
+      <div style="font-size:12px;color:#888;margin-bottom:10px;">Set or correct the dates reels/stories were posted. Leave blank if not yet posted.</div>
+      <div class="row3">
+        <div class="fg" style="margin-bottom:0;"><label>🎬 Reel</label><input type="date" id="iem-date-reel"/></div>
+        <div class="fg" style="margin-bottom:0;"><label>📱 Story 1</label><input type="date" id="iem-date-story1"/></div>
+        <div class="fg" style="margin-bottom:0;"><label>📱 Story 2</label><input type="date" id="iem-date-story2"/></div>
+      </div>
+    </div>
     <div style="background:var(--goldp);border-radius:8px;padding:10px 12px;margin-bottom:14px;">
       <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:8px;">Mark as Sold</div>
       <div style="font-size:12px;color:#888;margin-bottom:8px;">Link this product to an existing invoice, or mark sold without an invoice.</div>
@@ -6266,14 +6293,38 @@ function getStageColor(stage){
   }[stage]||'#888';
 }
 
-// Mark reel/story posted
+// Mark reel/story posted — opens date picker modal
+let _mpProdNo=null,_mpField=null;
 function markPosted(prodNo,field){
   const p=inventory.find(x=>parseInt(x.prodNo)===prodNo);if(!p)return;
+  _mpProdNo=prodNo;_mpField=field;
+  const icons={dateReel:'🎬 Mark Reel Posted',dateStory1:'📱 Mark Story 1 Posted',dateStory2:'📱 Mark Story 2 Posted'};
+  const titleEl=document.getElementById('mp-title');
+  const subEl=document.getElementById('mp-subtitle');
+  const dateEl=document.getElementById('mp-date');
+  if(titleEl)titleEl.textContent=icons[field]||'Mark Posted';
+  if(subEl)subEl.textContent='#'+prodNo+' — '+p.name;
+  if(dateEl)dateEl.value=today();
+  document.getElementById('mark-posted-modal').classList.add('open');
+}
+function closeMarkPostedModal(){
+  document.getElementById('mark-posted-modal').classList.remove('open');
+  _mpProdNo=null;_mpField=null;
+}
+function confirmMarkPosted(){
+  if(!_mpProdNo||!_mpField)return;
+  const p=inventory.find(x=>parseInt(x.prodNo)===_mpProdNo);if(!p)return;
+  const dateEl=document.getElementById('mp-date');
+  const chosen=dateEl?dateEl.value:'';
+  if(!chosen){toast('⚠️ Please select a date');return;}
   const labels={dateReel:'Reel',dateStory1:'Story 1',dateStory2:'Story 2'};
-  p[field]=today();
+  const isToday=chosen===today();
+  p[_mpField]=chosen;
+  p.updatedAt=new Date().toISOString();
   saveStk();gsWrite(SHEETS.inventory,flattenProduct(p));
   renderAgingGrid();renderPostingQueue();
-  toast('✅ '+labels[field]+' marked as posted for #'+prodNo+' today');
+  closeMarkPostedModal();
+  toast('✅ '+labels[_mpField]+' marked as posted'+(isToday?' today':' on '+fmtDate(chosen))+' for #'+_mpProdNo);
 }
 
 // Check if product is overdue to post (based on consignment date + count + 7 days buffer)
@@ -6976,6 +7027,9 @@ function openInvEdit(prodNo) {
   document.getElementById('iem-cost').value = p.cost || '';
   document.getElementById('iem-sell').value = p.sellPrice || '';
   document.getElementById('iem-notes').value = p.notes || '';
+  document.getElementById('iem-date-reel').value = p.dateReel || '';
+  document.getElementById('iem-date-story1').value = p.dateStory1 || '';
+  document.getElementById('iem-date-story2').value = p.dateStory2 || '';
   document.getElementById('iem-sold-link').style.display = 'none';
   document.getElementById('inv-edit-modal').classList.add('open');
 }
@@ -6996,6 +7050,13 @@ function saveInvEdit() {
   p.sellPrice = parseFloat(document.getElementById('iem-sell').value) || 0;
   p.notes = document.getElementById('iem-notes').value || '';
   p.dateAdded = document.getElementById('iem-date').value || p.dateAdded;
+  // Posting dates — save value or preserve existing if field left blank
+  const dReel=document.getElementById('iem-date-reel').value;
+  const dS1=document.getElementById('iem-date-story1').value;
+  const dS2=document.getElementById('iem-date-story2').value;
+  p.dateReel=dReel||p.dateReel||'';
+  p.dateStory1=dS1||p.dateStory1||'';
+  p.dateStory2=dS2||p.dateStory2||'';
   const newQty = parseInt(document.getElementById('iem-qty').value);
   if (!isNaN(newQty) && newQty >= 0) {
     p.qty = newQty;
@@ -7005,7 +7066,7 @@ function saveInvEdit() {
   saveStk();
   gsWrite(SHEETS.inventory, flattenProduct(p));
   closeInvEditModal();
-  renderInventory(); renderAgingGrid(); updateInventoryStats();
+  renderInventory(); renderAgingGrid(); updateInventoryStats(); renderPostingQueue();
   toast('✅ Product #' + _editingProdNo + ' updated');
 }
 
