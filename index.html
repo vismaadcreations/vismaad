@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v12.7
+APP: Vismaad Creations v12.8
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 01-Jun-2026 — Audit fixes: confirmed writes for all critical saves (invoice edit, supplier, bill, payment, stxn, credit note); invoice isShipped now uses newer-timestamp-wins on sync; suppliers/bills/txns use updatedAt newer-wins merge; settings sync prefers newer value; CreditNotes synced back on all devices; makePayload limit raised to 7500 chars with warning toast; discount row colspan fixed for non-GST mode; followupsDue days formula unified; credit notes deducted from P&L grossRev and GST export; bare localStorage calls replaced with lsGet/lsSet; Date.now() IDs get random suffix; confirm() dialogs replaced with in-app modal; sub-page scrolls to top on open; shipping label pre-fills from invoice context.
+LAST_CHANGE: 01-Jun-2026 — v12.8: openInvoiceFromDash uses requestAnimationFrame instead of double setTimeout; CN counter is now per-FY; modal desktop padding fixed; tracking page breakpoint changed to 768px; gsWriteConfirmed retries once on timeout; duplicate invNo flagged with warning badge instead of silent drop; getFestivalMessage always returns string; popup queues rebuilt fresh on each open; festival fallback dates improved (Diwali/Holi shift by year, Eid float error fixed); sharingInv race condition fixed with invoice-id capture.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -187,7 +187,7 @@ tbody tr:last-child td{border-bottom:none;}
   .bnav{max-width:100%;}
   .hdr{padding:0 28px;}
   .hdr-name{font-size:20px;}
-  .modal{border-radius:14px;max-width:560px;margin:auto;padding:28px;}
+  .modal{border-radius:14px;max-width:560px;margin:auto;padding:28px;padding-bottom:28px;}
   .modal-bg{align-items:center;}
 }
 
@@ -1462,7 +1462,8 @@ function gsWrite(sheet,data){
 }
 
 // Confirmed write via JSONP — waits for acknowledgement, returns promise
-function gsWriteConfirmed(sheet,data){
+function gsWriteConfirmed(sheet,data,_retry){
+  // Tries once; on timeout retries once more before resolving false
   return new Promise(function(resolve){
     const flat=flattenForSheet(data);
     const payload=makePayload(flat);
@@ -1470,12 +1471,25 @@ function gsWriteConfirmed(sheet,data){
     const url=SCRIPT_URL+'?action=write&sheet='+encodeURIComponent(sheet)+'&data='+encodeURIComponent(payload)+'&callback='+cb;
     const s=document.createElement('script');
     const timer=setTimeout(function(){
-      delete window[cb];try{document.head.removeChild(s);}catch{}resolve(false);
+      delete window[cb];try{document.head.removeChild(s);}catch{}
+      if(!_retry){
+        // First timeout — wait 2s then try once more
+        setTimeout(function(){
+          gsWriteConfirmed(sheet,data,true).then(resolve);
+        },2000);
+      }else{
+        resolve(false); // second attempt also timed out
+      }
     },12000);
     window[cb]=function(){
       clearTimeout(timer);delete window[cb];try{document.head.removeChild(s);}catch{}resolve(true);
     };
-    s.onerror=function(){clearTimeout(timer);delete window[cb];resolve(false);};
+    s.onerror=function(){
+      clearTimeout(timer);delete window[cb];
+      if(!_retry){
+        setTimeout(function(){gsWriteConfirmed(sheet,data,true).then(resolve);},2000);
+      }else{resolve(false);}
+    };
     s.src=url;
     document.head.appendChild(s);
   });
@@ -2559,9 +2573,16 @@ function toggleSalesReligionFilter(r){
 function renderSales(){
   const q=(document.getElementById('sales-search')?.value||'').toLowerCase();
   const sf=document.getElementById('sales-filter')?.value||'';
-  const seen={};
-  invoices.forEach(inv=>{const k=inv.invNo||String(inv.id);if(!seen[k]||inv.id>seen[k].id)seen[k]=inv;});
-  const deduped=Object.values(seen);
+  // Detect duplicate invNo — keep newest (highest id), flag duplicates for display
+  const seen={};const dupNos=new Set();
+  invoices.forEach(inv=>{
+    const k=inv.invNo||String(inv.id);
+    if(!seen[k]){seen[k]=inv;}
+    else{dupNos.add(k);if(inv.id>seen[k].id)seen[k]=inv;}
+  });
+  const deduped=Object.values(seen).map(inv=>{
+    return dupNos.has(inv.invNo||String(inv.id))?{...inv,_dupWarning:true}:inv;
+  });
   salesFiltered=applySortToList(deduped.filter(inv=>{
     // Use unified status for filter (tracking wins over manual)
     const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
@@ -2626,8 +2647,9 @@ function renderSales(){
         <input type="checkbox" class="sale-cb" data-idx="${idx}" onchange="updateSelCount()" style="width:18px;height:18px;margin-top:3px;flex-shrink:0;"/>
         <div style="flex:1;">
           <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-            <div><div style="font-weight:700;font-size:15px;color:var(--brown);">${esc(inv.invNo)||'—'}</div>
-            <div style="font-size:12px;color:#888;">${fmtDate(inv.invDate)} · ${esc(inv.custState)||'—'}</div></div>
+            <div>
+              <div style="font-weight:700;font-size:15px;color:var(--brown);">${esc(inv.invNo)||'—'}${inv._dupWarning?'<span style="margin-left:5px;font-size:10px;font-weight:700;color:#fff;background:#e67e22;padding:1px 6px;border-radius:6px;">⚠️ DUPLICATE NO.</span>':''}</div>
+              <div style="font-size:12px;color:#888;">${fmtDate(inv.invDate)} · ${esc(inv.custState)||'—'}</div></div>
             <div style="text-align:right;"><div style="font-weight:700;font-size:16px;color:var(--brown);">₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}</div>${badge}</div>
           </div>
           <div style="font-size:14px;font-weight:500;">${esc(inv.custName)||'—'}</div>
@@ -2844,10 +2866,12 @@ function closeEditModal(){document.getElementById('edit-modal').classList.remove
 // SHARE / WHATSAPP
 // ═══════════════════════════════════════════
 let sharingInv=null;
+let _sharingInvId=null; // stable capture — resolves race on fast double-tap
 
 function openShareModal(inv){
   if(!inv)return;
   sharingInv=inv;
+  _sharingInvId=String(inv.id);
   const gst=inv.isGST===true||inv.isGST==='true';
   document.getElementById('share-modal-subtitle').textContent=
     (gst?'Tax Invoice — ':'Bill of Supply — ')+(inv.invNo||'—')+'  ·  '+(inv.custName||'—')+'  ·  '+fmtDate(inv.invDate);
@@ -2884,9 +2908,12 @@ function openShareModal(inv){
 function closeShareModal(){
   document.getElementById('share-modal').classList.remove('open');
   sharingInv=null;
+  _sharingInvId=null;
 }
 
 function getSharePhone(){
+  // Re-resolve invoice from stable id in case global was clobbered by a second tap
+  if(_sharingInvId)sharingInv=invoices.find(i=>String(i.id)===_sharingInvId)||sharingInv;
   if(!sharingInv)return null;
   // Prefer WhatsApp number, fall back to shipping phone, then prompt
   let ph=sharingInv.custWhatsapp||sharingInv.custPhone||document.getElementById('share-phone-input')?.value||'';
@@ -3465,8 +3492,11 @@ document.addEventListener('change',function(e){
 });
 
 function getCNCounter(){
-  if(creditNotes.length===0)return 1;
-  const nums=creditNotes.map(cn=>{const m=(cn.cnNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
+  // Counter resets per financial year — CN-001 restarts each FY
+  const currentFY=getFY(today());
+  const thisYearCNs=creditNotes.filter(cn=>cn.fy===currentFY);
+  if(thisYearCNs.length===0)return 1;
+  const nums=thisYearCNs.map(cn=>{const m=(cn.cnNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
   return Math.max(...nums)+1;
 }
 
@@ -3621,26 +3651,19 @@ function clearAllInvoices(){
 // DASHBOARD
 // ═══════════════════════════════════════════
 function openInvoiceFromDash(id){
-  // Navigate to Sales tab and find the invoice
+  // Navigate to Sales tab — showPage calls renderSales synchronously
   showPage('sales',document.getElementById('bnav-sales'));
-  // Wait for sales to render then find and open the invoice
-  setTimeout(()=>{
+  // Use rAF so the DOM has painted before we try to open the modal
+  requestAnimationFrame(()=>{
+    // Clear any active filters so the invoice is definitely in salesFiltered
+    const searchEl=document.getElementById('sales-search');
+    const filterEl=document.getElementById('sales-filter');
+    if(searchEl&&searchEl.value){searchEl.value='';renderSales();}
+    if(filterEl&&filterEl.value){filterEl.value='';renderSales();}
     const idx=salesFiltered.findIndex(i=>String(i.id)===String(id));
-    if(idx>=0){
-      editInvoiceByIdx(idx);
-    }else{
-      // Not in current filter — reset filter and try again
-      const searchEl=document.getElementById('sales-search');
-      const filterEl=document.getElementById('sales-filter');
-      if(searchEl)searchEl.value='';
-      if(filterEl)filterEl.value='';
-      renderSales();
-      setTimeout(()=>{
-        const idx2=salesFiltered.findIndex(i=>String(i.id)===String(id));
-        if(idx2>=0)editInvoiceByIdx(idx2);
-      },100);
-    }
-  },150);
+    if(idx>=0){editInvoiceByIdx(idx);}
+    else{toast('⚠️ Invoice not found — tap Sync to reload');}
+  });
 }
 function renderDashboard(){
   const ords=document.getElementById('ds-orders');if(ords)ords.textContent=invoices.length;
@@ -5577,33 +5600,36 @@ function getFestivalMessage(festKey,custName,approx,inv){
     ganesh_chaturthi:`Hi ${custName},\n\nGanesh Chaturthi is 20 days away. New designs are up on our page — there is still time to order:\ninstagram.com/vismaad_creations\n\nHappy Ganesh Chaturthi to you and your family.\n\nVismaad Creations`,
     navratri:`Hi ${custName},\n\nNavratri is 20 days away. New designs are up on our page — there is still time to order:\ninstagram.com/vismaad_creations\n\nWarm wishes for the festive season.\n\nVismaad Creations`,
     followup:`Hi ${custName},\n\nWe have added new designs to our collection. Would love for you to take a look:\ninstagram.com/vismaad_creations\n\nVismaad Creations`,
-    delivery_review:(productName,inv)=>{
-      let daysEarlyLine='';
-      try{
-        const dispRaw=inv&&inv.dispatchDate;
-        if(dispRaw){
-          const promised=new Date(dispRaw+'T00:00:00');
-          promised.setDate(promised.getDate()+10);
-          const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
-          let deliveredDate=null;
-          trackNos.forEach(t=>{
-            const td=trackingData&&trackingData[t];
-            if(td&&td.deliveredOn){
-              const d=new Date(td.deliveredOn+'T00:00:00');
-              if(!deliveredDate||d<deliveredDate)deliveredDate=d;
-            }
-          });
-          if(deliveredDate){
-            const diff=Math.round((promised-deliveredDate)/(864e5));
-            if(diff>0)daysEarlyLine=' — '+diff+' day'+(diff>1?'s':'')+' ahead of schedule!';
-          }
-        }
-      }catch(e){}
-      const deliveryLine='We noticed that your order has been delivered'+daysEarlyLine+'.';
-      return 'Hi '+custName+',\n\n'+deliveryLine+' We hope you are happy with your purchase! Do let us know if you have any questions or need any assistance.\n\nVismaad Creations';
-    },
   };
-  return msgs[festKey]||`Hi ${custName},\n\nWishing you and your family a joyful celebration.\n\nVismaad Creations`;
+  // delivery_review needs inv context — always returns a plain string
+  if(festKey==='delivery_review'){
+    let daysEarlyLine='';
+    try{
+      const dispRaw=inv&&inv.dispatchDate;
+      if(dispRaw){
+        const promised=new Date(dispRaw+'T00:00:00');
+        promised.setDate(promised.getDate()+10);
+        const trackNos=(inv&&inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
+        let deliveredDate=null;
+        trackNos.forEach(t=>{
+          const td=trackingData&&trackingData[t];
+          if(td&&td.deliveredOn){
+            const d=new Date(td.deliveredOn+'T00:00:00');
+            if(!deliveredDate||d<deliveredDate)deliveredDate=d;
+          }
+        });
+        if(deliveredDate){
+          const diff=Math.round((promised-deliveredDate)/(864e5));
+          if(diff>0)daysEarlyLine=' — '+diff+' day'+(diff>1?'s':'')+' ahead of schedule!';
+        }
+      }
+    }catch(e){}
+    const deliveryLine='We noticed that your order has been delivered'+daysEarlyLine+'.';
+    return 'Hi '+custName+',\n\n'+deliveryLine+' We hope you are happy with your purchase! Do let us know if you have any questions or need any assistance.\n\nVismaad Creations';
+  }
+  const msg=msgs[festKey];
+  if(typeof msg==='function')return msg(custName,inv); // safety fallback
+  return msg||('Hi '+custName+',\n\nWishing you and your family a joyful celebration.\n\nVismaad Creations');
 }
 
 // ── CUSTOMER DEDUPLICATION ──
@@ -5777,7 +5803,7 @@ function checkReviewPopup(){
     const items=expandItems(inv.itemsArr).filter(i=>i.desc&&i.desc.trim());
     const productName=items.map(i=>i.desc).join(', ')||'suit';
     const msgKey='delivery_review_'+n;
-    return{inv,phone,productName,msgKey};
+    return{invId:String(inv.id),inv,phone,productName,msgKey};
   });
   _reviewPopupIdx=0;
   showReviewPopup();
@@ -5790,10 +5816,12 @@ function showReviewPopup(){
     lsSet('vc_review_popup_seen',getDeliveredInvNos());
     return;
   }
-  const {inv,phone,productName,msgKey}=_reviewPopupQueue[_reviewPopupIdx];
+  // Re-lookup invoice fresh in case sync updated data while popup was open
+  const entry=_reviewPopupQueue[_reviewPopupIdx];
+  const inv=invoices.find(i=>String(i.id)===String(entry.invId))||entry.inv;
+  const {phone,productName,msgKey}=entry;
   const num=phone.length===10?'91'+phone:phone;
-  const msgs=getFestivalMessage('delivery_review',inv.custName||'',undefined,inv);
-  const msgText=typeof msgs==='function'?msgs(productName,inv):msgs;
+  const msgText=getFestivalMessage('delivery_review',inv.custName||'',undefined,inv);
   const yr=new Date().getFullYear();
   const content=document.getElementById('review-popup-content');
   if(content)content.innerHTML=`
@@ -5890,15 +5918,28 @@ function buildFestivalCache(yr,apiHolidays){
         const d=new Date(base);d.setDate(d.getDate()+shiftDays);
         return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
       }
+      // Diwali/Holi shift ~1 day earlier roughly every 3 years (lunar drift)
+      // Using 2026 anchors: Diwali 20-Oct-2026, Holi 14-Mar-2026
+      // Eid shifts ~10-11 days earlier each year (Islamic lunar calendar)
+      // Use integer day arithmetic from known anchors to avoid float accumulation
+      function shiftDateDays(baseISO,totalDays){
+        const d=new Date(baseISO+'T00:00:00');
+        d.setDate(d.getDate()+totalDays);
+        return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      }
+      // Eid: use precise day shift per year (10 days 21 hrs ≈ 10.875 days/yr)
+      // Diwali/Holi: approx 1 day earlier every 3 years from 2026 anchor
+      const eidShiftDays=Math.round(yearDiff*-10.875);
+      const hinduShiftDays=Math.round(yearDiff/3)*-1;
       const fallbacks={
-        diwali:yr===2026?`${yr}-10-20`:`${yr}-10-20`,
-        holi:yr===2026?`${yr}-03-14`:`${yr}-03-14`,
-        eid_al_fitr:shiftDate(eidFitrBase,Math.round(yearDiff*-10.875)),
-        eid_al_adha:shiftDate(eidAdhaBase,Math.round(yearDiff*-10.875)),
-        guru_nanak_jayanti:`${yr}-11-05`,
-        onam:`${yr}-09-05`,
-        ganesh_chaturthi:`${yr}-08-27`,
-        navratri:`${yr}-10-02`,
+        diwali:shiftDateDays('2026-10-20', hinduShiftDays),
+        holi:shiftDateDays('2026-03-14', hinduShiftDays),
+        eid_al_fitr:shiftDateDays('2026-03-31', eidShiftDays),
+        eid_al_adha:shiftDateDays('2026-06-07', eidShiftDays),
+        guru_nanak_jayanti:shiftDateDays('2026-11-05', hinduShiftDays),
+        onam:shiftDateDays('2026-09-05', hinduShiftDays),
+        ganesh_chaturthi:shiftDateDays('2026-08-27', hinduShiftDays),
+        navratri:shiftDateDays('2026-10-02', hinduShiftDays),
       };
       if(fallbacks[key]){
         festivals.push({
@@ -6020,11 +6061,11 @@ let _followupQueue=[];
 let _followupIdx=0;
 
 async function checkFollowupPopup(){
+  // Show at most once per calendar day per device (prevents re-firing on every page reload)
+  // Cross-device dedup is handled by msgLog (synced via sheet) via hasSentFollowupSinceLastOrder
   const lastShown=lsGet('vc_followup_shown_date','')||'';
   if(lastShown===today())return;
   const customers=getUniqueCustomers();
-  const yr=new Date().getFullYear();
-  const todayStr=today();
   _followupQueue=customers.filter(c=>{
     if(isOptedOut(c.phone))return false;
     if(hasSentFollowupSinceLastOrder(c.phone,c.lastOrder))return false;
@@ -6032,7 +6073,11 @@ async function checkFollowupPopup(){
     const days=daysSince(c.lastOrder);
     return days>=45;
   });
-  if(_followupQueue.length===0)return;
+  if(_followupQueue.length===0){
+    // No actionable customers — still mark shown so we don't re-check every page load today
+    lsSet('vc_followup_shown_date',today());
+    return;
+  }
   _followupIdx=0;
   showFollowupPopup();
 }
@@ -6045,7 +6090,10 @@ function showFollowupPopup(){
     document.getElementById('followup-popup')?.classList.remove('open');
     return;
   }
-  const c=_followupQueue[_followupIdx];
+  // Re-lookup customer fresh in case sync updated data while popup was open
+  const qEntry=_followupQueue[_followupIdx];
+  const freshCustomers=getUniqueCustomers();
+  const c=freshCustomers.find(x=>x.phone===qEntry.phone)||qEntry;
   const days=daysSince(c.lastOrder);
   const content=document.getElementById('followup-popup-content');
   if(content)content.innerHTML=`
@@ -6162,8 +6210,7 @@ async function renderOutreachPage(){
 
     deliveryReviews.forEach(({inv,phone,productName,msgKey,skipped})=>{
       const num=phone.length===10?'91'+phone:phone;
-      const msgs=getFestivalMessage('delivery_review',inv.custName||'',undefined,inv);
-      const msgText=typeof msgs==='function'?msgs(productName,inv):msgs;
+      const msgText=getFestivalMessage('delivery_review',inv.custName||'',undefined,inv);
       const skipLabel=skipped?'<span style="font-size:10px;background:#f0f0f0;color:#888;border-radius:8px;padding:1px 7px;margin-left:6px;">skipped</span>':'';
       html+=`<div class="list-row" style="align-items:flex-start;gap:8px;${skipped?'opacity:0.6;':''}">
         <div style="flex:1;min-width:0;">
@@ -6329,8 +6376,7 @@ function bulkSendReviews(){
     if(idx>=list.length){toast('✅ All review messages opened');renderOutreachPage();return;}
     const {inv,phone,productName,msgKey}=list[idx];
     const num=phone.length===10?'91'+phone:phone;
-    const msgs=getFestivalMessage('delivery_review',inv.custName||'',undefined,inv);
-    const msgText=typeof msgs==='function'?msgs(productName,inv):msgs;
+    const msgText=getFestivalMessage('delivery_review',inv.custName||'',undefined,inv);
     logMsg(phone,msgKey,yr,'');
     window.open('https://wa.me/'+num+'?text='+encodeURIComponent(msgText),'_blank');
     idx++;
@@ -7056,7 +7102,7 @@ function renderTrackingPage(){
   </div>`;
 
   const esc2=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const isMobile=window.innerWidth<600;
+  const isMobile=window.innerWidth<768;
 
   if(!filtered.length){
     area.innerHTML=statsHtml+filterBar+`<div style="color:#aaa;text-align:center;padding:24px;font-size:13px;">No shipments match the current filters.</div>`;
