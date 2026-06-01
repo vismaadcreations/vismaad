@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v12.6
+APP: Vismaad Creations v12.7
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 01-Jun-2026 — Shipping auto-calc now uses total qty×50 instead of item count×50, including on qty change. Followup opt-out renamed to "Opted Out", existing opt-outs purged once, year-based followup block replaced with "sent since last order" check. Delivery review message updated to notification style. Dashboard nudge texts updated.
+LAST_CHANGE: 01-Jun-2026 — Audit fixes: confirmed writes for all critical saves (invoice edit, supplier, bill, payment, stxn, credit note); invoice isShipped now uses newer-timestamp-wins on sync; suppliers/bills/txns use updatedAt newer-wins merge; settings sync prefers newer value; CreditNotes synced back on all devices; makePayload limit raised to 7500 chars with warning toast; discount row colspan fixed for non-GST mode; followupsDue days formula unified; credit notes deducted from P&L grossRev and GST export; bare localStorage calls replaced with lsGet/lsSet; Date.now() IDs get random suffix; confirm() dialogs replaced with in-app modal; sub-page scrolls to top on open; shipping label pre-fills from invoice context.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -1214,6 +1214,18 @@ body.gst-mode .gst-only{display:block;}
 
 </div><!-- end scroll-area -->
 
+<!-- ════ IN-APP CONFIRM MODAL ════ -->
+<div class="modal-bg" id="confirm-modal">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-title" id="confirm-modal-title">Confirm</div>
+    <div style="font-size:14px;color:#555;margin-bottom:20px;line-height:1.6;" id="confirm-modal-body"></div>
+    <div class="btn-row">
+      <button class="btn btn-p" id="confirm-modal-ok" style="flex:1;">OK</button>
+      <button class="btn btn-o" id="confirm-modal-cancel" onclick="closeConfirmModal()" style="width:auto;padding:13px 18px;">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- BOTTOM NAV -->
 <div class="bnav">
   <button class="bnav-btn active" id="bnav-dash" onclick="showPage('dash',this)">
@@ -1277,6 +1289,8 @@ const SHEETS={invoices:'Invoices',inventory:'Inventory',purchases:'Purchases',se
 
 function lsGet(key,def){try{const v=localStorage.getItem(key);return v?JSON.parse(v):def;}catch(e){return def;}}
 function lsSet(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch(e){console.warn('localStorage full:',e);}}
+// Safe unique ID — Date.now + 4-digit random suffix avoids same-millisecond collisions
+function uid(){return Date.now()*10000+Math.floor(Math.random()*9999);}
 
 // ═══════════════════════════════════════════
 // STATE
@@ -1289,10 +1303,10 @@ let bills     = lsGet('vc_bills',[]);
 let supplierTxns = lsGet('vc_stxn',[]);
 let purchases = lsGet('vc_pur',[]);
 let trackingData = lsGet('vc_tracking',{});  // keyed by tracking number
-let invCtr = parseInt(localStorage.getItem('vc_ctr')||'0')||0;
+let invCtr = parseInt(lsGet('vc_ctr','0'))||0;
 let items=[],itemId=0,selChannel='',currentInv=null,syncing=false;
-let logoB64=localStorage.getItem('vc_logo')||null;
-let qrB64 =localStorage.getItem('vc_qr')||null;
+let logoB64=lsGet('vc_logo',null);
+let qrB64 =lsGet('vc_qr',null);
 
 // ═══════════════════════════════════════════
 // PERSIST — strip html before saving
@@ -1300,7 +1314,7 @@ let qrB64 =localStorage.getItem('vc_qr')||null;
 function save(){
   const slim=invoices.map(inv=>{const s={...inv};delete s.html;return s;});
   lsSet('vc_inv',slim);
-  localStorage.setItem('vc_ctr',invCtr);
+  lsSet('vc_ctr',invCtr);
 }
 function saveStk(){lsSet('vc_stk',inventory);}
 function saveSup(){lsSet('vc_sup',suppliers);}
@@ -1329,6 +1343,22 @@ function hideLoading(){
   if(ov)ov.classList.remove('show');
 }
 function today(){return new Date().toISOString().split('T')[0];}
+// In-app confirm modal — replaces browser confirm() which is suppressed in PWA/iOS
+let _confirmOkCb=null,_confirmCancelCb=null;
+function showConfirmModal(title,body,onOk,onCancel){
+  document.getElementById('confirm-modal-title').textContent=title||'Confirm';
+  document.getElementById('confirm-modal-body').innerHTML=body||'';
+  _confirmOkCb=onOk||null;
+  _confirmCancelCb=onCancel||null;
+  const okBtn=document.getElementById('confirm-modal-ok');
+  if(okBtn){okBtn.onclick=function(){closeConfirmModal();if(_confirmOkCb)_confirmOkCb();};}
+  document.getElementById('confirm-modal').classList.add('open');
+}
+function closeConfirmModal(){
+  document.getElementById('confirm-modal').classList.remove('open');
+  _confirmOkCb=null;
+  if(_confirmCancelCb){_confirmCancelCb();_confirmCancelCb=null;}
+}
 function fmtDate(d){
   if(!d)return'';
   try{
@@ -1474,10 +1504,12 @@ function flattenForSheet(data){
 }
 function makePayload(flat){
   const json=JSON.stringify(flat);
-  if(json.length<=3000)return json;
-  // Too large — send without itemsArr but keep all other fields
+  if(json.length<=7500)return json;
+  // Too large — send without itemsArr but keep all other fields; warn user
   const slim={...flat};
   slim.itemsArr='[]';
+  console.warn('makePayload: payload too large ('+json.length+' chars), itemsArr stripped for invoice',flat.invNo||flat.id);
+  setTimeout(()=>toast('⚠️ Invoice '+(flat.invNo||flat.id||'')+' is large — line items not synced to sheet, totals preserved',6000),100);
   return JSON.stringify(slim);
 }
 
@@ -1509,7 +1541,7 @@ function parseInventoryRow(r){
 async function syncAll(){
   if(syncing)return;syncing=true;setSyncStatus('busy');
   try{
-    const cleared=localStorage.getItem('vc_inv_cleared')==='1';
+    const cleared=lsGet('vc_inv_cleared',null)==='1';
     // Read sheets sequentially — gives each sheet full timeout
     const remInv = cleared ? [] : await gsRead(SHEETS.invoices);
     const remStk = await gsRead(SHEETS.inventory);
@@ -1533,9 +1565,23 @@ async function syncAll(){
         if(!local){
           localMap[rid]=r;
         }else{
+          // isShipped: newer-timestamp-wins (like inventory).
+          // Fallback for invoices without invUpdatedAt: remote wins only if local is NOT shipped
+          // (so a manually-shipped invoice is never un-shipped by a stale sync).
+          const remTime=r.invUpdatedAt?new Date(r.invUpdatedAt).getTime():0;
+          const locTime=local.invUpdatedAt?new Date(local.invUpdatedAt).getTime():0;
           const remShipped=r.isShipped==='true'||r.isShipped===true||r.status==='Shipped';
-          local.isShipped=remShipped;
-          local.status=remShipped?'Shipped':'Pending';
+          const localShipped=local.isShipped===true||local.isShipped==='true'||local.status==='Shipped';
+          if(remTime>locTime){
+            // Remote is strictly newer — trust remote isShipped
+            local.isShipped=remShipped;
+            local.status=remShipped?'Shipped':'Pending';
+          } else if(!locTime&&!localShipped){
+            // No timestamps on either side — only overwrite if local isn't already shipped
+            local.isShipped=remShipped;
+            local.status=remShipped?'Shipped':'Pending';
+          }
+          // else: local timestamp is newer or local is already shipped — keep local
           if(r.tracking&&!local.tracking)local.tracking=r.tracking;
           if(r.channel&&!local.channel)local.channel=r.channel;
           if(r.costPrice&&!local.costPrice)local.costPrice=parseFloat(r.costPrice)||0;
@@ -1586,18 +1632,36 @@ async function syncAll(){
     remPur.forEach(r=>{if(r.id&&!pm[String(r.id)])pm[String(r.id)]=r;});
     purchases=Object.values(pm).sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
 
-    // SUPPLIERS — merge (remote adds new, local wins for same id)
+    // SUPPLIERS — newer updatedAt wins; remote-only items added
     let remSup=[];
     try{remSup=await gsRead(SHEETS.suppliers);}catch(e){console.warn('Suppliers sync failed:',e.message);}
     const supm={};suppliers.forEach(l=>{supm[String(l.id)]=l;});
-    remSup.forEach(r=>{if(r.id&&!supm[String(r.id)])supm[String(r.id)]=r;});
+    remSup.forEach(r=>{
+      if(!r.id)return;
+      const key=String(r.id);
+      if(!supm[key]){supm[key]=r;}
+      else{
+        const remTime=r.updatedAt?new Date(r.updatedAt).getTime():0;
+        const locTime=supm[key].updatedAt?new Date(supm[key].updatedAt).getTime():0;
+        if(remTime>locTime)supm[key]=r;
+      }
+    });
     suppliers=Object.values(supm);
 
-    // BILLS — merge (remote adds new, local wins for same id)
+    // BILLS — newer updatedAt wins; remote-only items added
     let remBills=[];
     try{remBills=await gsRead(SHEETS.bills);}catch(e){console.warn('Bills sync failed:',e.message);}
     const billm={};bills.forEach(l=>{billm[String(l.id)]=l;});
-    remBills.forEach(r=>{if(r.id&&!billm[String(r.id)])billm[String(r.id)]=r;});
+    remBills.forEach(r=>{
+      if(!r.id)return;
+      const key=String(r.id);
+      if(!billm[key]){billm[key]=r;}
+      else{
+        const remTime=r.updatedAt?new Date(r.updatedAt).getTime():0;
+        const locTime=billm[key].updatedAt?new Date(billm[key].updatedAt).getTime():0;
+        if(remTime>locTime)billm[key]=r;
+      }
+    });
     // Parse payments JSON from sheet string if needed
     Object.values(billm).forEach(b=>{
       if(typeof b.payments==='string'){try{b.payments=JSON.parse(b.payments);}catch{b.payments=[];}}
@@ -1605,20 +1669,42 @@ async function syncAll(){
     });
     bills=Object.values(billm);
 
-    // SUPPLIER TXNS — merge (remote adds new, local wins for same id)
+    // SUPPLIER TXNS — newer updatedAt wins; remote-only items added
     let remStxn=[];
     try{remStxn=await gsRead(SHEETS.supplierTxns);}catch(e){console.warn('SupplierTxns sync failed:',e.message);}
     const stxnm={};supplierTxns.forEach(t=>{stxnm[String(t.id)]=t;});
-    remStxn.forEach(r=>{if(r.id&&!stxnm[String(r.id)])stxnm[String(r.id)]=r;});
+    remStxn.forEach(r=>{
+      if(!r.id)return;
+      const key=String(r.id);
+      if(!stxnm[key]){stxnm[key]=r;}
+      else{
+        const remTime=r.updatedAt?new Date(r.updatedAt).getTime():0;
+        const locTime=stxnm[key].updatedAt?new Date(stxnm[key].updatedAt).getTime():0;
+        if(remTime>locTime)stxnm[key]=r;
+      }
+    });
     supplierTxns=Object.values(stxnm);
+    // CREDIT NOTES — merge (remote adds new, local wins for same id; CNs are immutable once issued)
+    try{
+      const remCN=await gsRead('CreditNotes');
+      const cnm={};creditNotes.forEach(c=>{cnm[String(c.id)]=c;});
+      remCN.forEach(r=>{if(r.id&&!cnm[String(r.id)])cnm[String(r.id)]=r;});
+      creditNotes=Object.values(cnm).sort((a,b)=>(a.cnDate||'')>(b.cnDate||'')?1:-1);
+      saveCNs();
+    }catch(e){console.warn('CreditNotes sync failed:',e.message);}
+
     if(remSet.length>0){
       const rs=remSet[0];
+      // Settings: prefer whichever side has a non-empty value; if both present, prefer remote
+      // (remote is the shared source of truth across devices)
       S={
-        gstin:S.gstin||rs.gstin||'',
-        address:S.address||rs.address||'',
-        phone:S.phone||rs.phone||'',
-        email:S.email||rs.email||'',
-        gstEnabled:S.gstEnabled!==undefined?S.gstEnabled:(rs.gstEnabled==='true'||rs.gstEnabled===true),
+        gstin:rs.gstin||S.gstin||'',
+        address:rs.address||S.address||'',
+        phone:rs.phone||S.phone||'',
+        email:rs.email||S.email||'',
+        gstEnabled:rs.gstEnabled!==undefined?(rs.gstEnabled==='true'||rs.gstEnabled===true):
+                   (S.gstEnabled!==undefined?S.gstEnabled:true),
+        calKey:rs.calKey||S.calKey||'',
       };
       lsSet('vc_s',S);
     }
@@ -1689,12 +1775,13 @@ async function syncAll(){
     bills.forEach(b=>gsWrite(SHEETS.bills,{...b,payments:JSON.stringify(b.payments||[])}));
     supplierTxns.forEach(t=>gsWrite(SHEETS.supplierTxns,t));
     if(S.gstin)gsWrite(SHEETS.settings,{id:'settings',...S});
+    creditNotes.forEach(cn=>gsWrite('CreditNotes',cn));
     // Push tracking — one row per article (no URL length limit)
     Object.entries(trackingData).forEach(([key,td])=>{
       gsWrite(SHEETS.tracking,{id:key,...td});
     });
 
-    localStorage.removeItem('vc_inv_cleared');
+    try{localStorage.removeItem('vc_inv_cleared');}catch(e){};
     setInvNumber();
     setSyncStatus('ok');
     const banner=document.getElementById('dash-sync-banner');
@@ -2192,7 +2279,7 @@ function generateInvoice(){
   const itemsCostTotal=parseFloat(validItems.reduce((s,i)=>s+(parseFloat(i.costPrice)||0),0).toFixed(2));
 
   const saved={
-    id:Date.now(),
+    id:uid(),
     invNo,invDate,fy:getFY(invDate),
     custName,custPhone,custWhatsapp,custGstin,custAddress,custPin,custState,isIntra,
     shipping:ship,shippingCost,discount:disc,tracking,dispatchDate,
@@ -2232,7 +2319,7 @@ function generateInvoice(){
   if(grandIncl>=50000){
     toast('⚠️ Order value ≥ ₹50,000 — E-way Bill required at ewaybillgst.gov.in before dispatch',7000);
   }
-  localStorage.setItem('vc_ctr',invCtr);
+  lsSet('vc_ctr',invCtr);
   toast('✅ Invoice '+invNo+' saved!');
   // Scroll to "+ New Invoice" button so it's easy to start another
   setTimeout(()=>{const nb=document.getElementById('new-invoice-btn');if(nb)nb.scrollIntoView({behavior:'smooth',block:'center'});},600);
@@ -2338,7 +2425,7 @@ function buildInvoiceHTML(data){
       +'<td style="padding:6px 8px;text-align:right;font-weight:600;">'+f(storedShipping)+'</td>'
       +'</tr>'
     :'';
-  const discColspan=gstMode?6:3;
+  const discColspan=gstMode?6:4;
   const discRow=storedDiscount>0?'<tr><td colspan="'+discColspan+'" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: Discount</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−'+f(storedDiscount)+'</td></tr>':'';
   const gstRows=data.isIntra
     ?'<tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">'+hsnLabel+'</td><td style="padding:3px 8px;">'+f(displayTaxable)+'</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">'+f(displayGST/2)+'</td></tr>'
@@ -2648,7 +2735,13 @@ function bulkPrint(){
 }
 function bulkDelete(){
   const sel=getSelectedInvoices();if(!sel.length){toast('⚠️ Select invoices first');return;}
-  if(!confirm('Delete '+sel.length+' record(s)?'))return;
+  showConfirmModal('🗑 Delete Records','Delete '+sel.length+' selected record(s)? This cannot be undone.',function(){
+    _doBulkDelete();
+  },null);return;}
+function _doBulkDelete(){
+  const cbs=document.querySelectorAll('.sale-cb:checked');
+  const sel=Array.from(cbs).map(cb=>salesFiltered[parseInt(cb.dataset.idx)]).filter(Boolean);
+  if(!sel.length)return;
   const ids=new Set(sel.map(i=>String(i.id)));
   ids.forEach(id=>{addDeletedId(id);gsDelete(SHEETS.invoices,id);});
   invoices=invoices.filter(i=>!ids.has(String(i.id)));
@@ -2687,7 +2780,8 @@ function addDeletedId(id){
 
 function deleteInvoiceByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
-  if(!confirm('Delete '+(inv.invNo||'this record')+'?\n\nNote: This removes it from your device and Google Sheet. Issue a Credit Note instead if you need a legal record of cancellation.'))return;
+  showConfirmModal('🗑 Delete Invoice','Delete '+(inv.invNo||'this record')+'?<br/><br/>This removes it from your device and Google Sheet. Issue a Credit Note for legal record of cancellation.',function(){_doDeleteInvoice(inv);},null);return;}
+function _doDeleteInvoice(inv){
   addDeletedId(inv.id);
   invoices=invoices.filter(i=>String(i.id)!==String(inv.id));
   save();
@@ -3289,24 +3383,30 @@ function saveInvoiceEdit(){
   const relSel=document.getElementById('edit-religion-select');
   if(relSel&&relSel.value)inv.religion=relSel.value;
 
+  // Stamp update time so sync can resolve conflicts with newer-wins logic
+  inv.invUpdatedAt=new Date().toISOString();
+
   delete inv.html;
   save();
-  gsWrite(SHEETS.invoices,flattenInvoice(inv));
   closeEditModal();
   renderSales();
 
-  // If tracking was newly added or changed, prompt to send tracking WhatsApp
+  // If tracking was newly added or changed, show in-app prompt
   if(newTracking&&newTracking!==oldTracking){
-    const ph=inv.custWhatsapp||inv.custPhone||'';
-    setTimeout(()=>{
-      if(confirm('Tracking number saved ✅\n\nSend tracking details to '+inv.custName+' on WhatsApp?')){
-        sharingInv=inv;
-        shareTrackingWhatsApp();
-      }
-    },300);
-  }else{
-    toast('✅ Updated!');
+    showConfirmModal(
+      '✅ Tracking saved',
+      'Send tracking details to '+esc(inv.custName)+' on WhatsApp?',
+      function(){sharingInv=inv;shareTrackingWhatsApp();},
+      null
+    );
   }
+
+  showLoading('Saving to sheet…');
+  gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(function(ok){
+    hideLoading();
+    if(ok){if(!newTracking||newTracking===oldTracking)toast('✅ Updated!');}
+    else toast('⚠️ Saved locally — sheet sync failed, will retry on next sync',5000);
+  });
 }
 
 // ═══════════════════════════════════════════
@@ -3388,7 +3488,7 @@ function saveCreditNote(){
   const gst=refInv.isGST===true||refInv.isGST==='true';
   const cnNo='CN-'+String(getCNCounter()).padStart(3,'0');
   const cn={
-    id:Date.now(),
+    id:uid(),
     cnNo,
     cnDate:today(),
     fy:getFY(today()),
@@ -3408,10 +3508,13 @@ function saveCreditNote(){
   };
   creditNotes.push(cn);
   saveCNs();
-  gsWrite('CreditNotes',cn);
   closeCNModal();
   renderSales();
-  toast('✅ Credit Note '+cnNo+' issued!');
+  showLoading('Saving…');
+  gsWriteConfirmed('CreditNotes',cn).then(function(ok){
+    hideLoading();
+    toast(ok?'✅ Credit Note '+cnNo+' issued!':'✅ Credit Note '+cnNo+' issued — sheet sync pending',ok?3000:5000);
+  });
 }
 
 function printCreditNote(cn){
@@ -3505,9 +3608,9 @@ function checkResetConfirm(){
 }
 function clearAllInvoices(){
   if(document.getElementById('reset-confirm-input')?.value.trim()!=='DELETE ALL'){toast('⚠️ Type DELETE ALL first');return;}
-  invoices=[];invCtr=0;save();localStorage.setItem('vc_ctr','0');
+  invoices=[];invCtr=0;save();lsSet('vc_ctr','0');
   // Set cleared flag so sync doesn't re-pull old invoices from sheet
-  localStorage.setItem('vc_inv_cleared','1');
+  lsSet('vc_inv_cleared','1');
   // DO NOT wipe Google Sheet — other devices still need their data
   // Sheet will be updated when invoices are re-added
   closeDangerZone();renderSales();renderDashboard();
@@ -3945,10 +4048,10 @@ function loadAssetThumbs(){
   const hdrTxt=document.getElementById('hdr-logo-text');
   if(logoB64&&hdrImg){hdrImg.src=logoB64;hdrImg.style.display='block';if(hdrTxt)hdrTxt.style.display='none';}
 }
-function handleLogoUpload(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{logoB64=ev.target.result;localStorage.setItem('vc_logo',logoB64);loadAssetThumbs();toast('✅ Logo uploaded!');};r.readAsDataURL(f);}
-function handleQRUpload(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{qrB64=ev.target.result;localStorage.setItem('vc_qr',qrB64);loadAssetThumbs();toast('✅ QR uploaded!');};r.readAsDataURL(f);}
-function handleSetupLogo(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{logoB64=ev.target.result;localStorage.setItem('vc_logo',logoB64);const t=document.getElementById('setup-logo-thumb');if(t)t.innerHTML='<img src="'+logoB64+'" style="width:100%;height:100%;object-fit:contain;border-radius:8px;"/>';toast('✅ Logo uploaded!');};r.readAsDataURL(f);}
-function handleSetupQR(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{qrB64=ev.target.result;localStorage.setItem('vc_qr',qrB64);const t=document.getElementById('setup-qr-thumb');if(t)t.innerHTML='<img src="'+qrB64+'" style="width:100%;height:100%;object-fit:contain;border-radius:8px;"/>';toast('✅ QR uploaded!');};r.readAsDataURL(f);}
+function handleLogoUpload(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{logoB64=ev.target.result;lsSet('vc_logo',logoB64);loadAssetThumbs();toast('✅ Logo uploaded!');};r.readAsDataURL(f);}
+function handleQRUpload(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{qrB64=ev.target.result;lsSet('vc_qr',qrB64);loadAssetThumbs();toast('✅ QR uploaded!');};r.readAsDataURL(f);}
+function handleSetupLogo(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{logoB64=ev.target.result;lsSet('vc_logo',logoB64);const t=document.getElementById('setup-logo-thumb');if(t)t.innerHTML='<img src="'+logoB64+'" style="width:100%;height:100%;object-fit:contain;border-radius:8px;"/>';toast('✅ Logo uploaded!');};r.readAsDataURL(f);}
+function handleSetupQR(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{qrB64=ev.target.result;lsSet('vc_qr',qrB64);const t=document.getElementById('setup-qr-thumb');if(t)t.innerHTML='<img src="'+qrB64+'" style="width:100%;height:100%;object-fit:contain;border-radius:8px;"/>';toast('✅ QR uploaded!');};r.readAsDataURL(f);}
 
 // ═══════════════════════════════════════════
 // SUB PAGES
@@ -4229,7 +4332,7 @@ function savePurchaseEntry(){
   const sup=(!selVal||selVal==='__other__')?inpVal:selVal;
   const amt=parseFloat(document.getElementById('pp-amt')?.value)||0;
   if(!sup||!amt){toast('⚠️ Supplier and amount required');return;}
-  const entry={id:Date.now(),type:'purchase',date:document.getElementById('pp-date')?.value||today(),supplier:sup,
+  const entry={id:uid(),type:'purchase',date:document.getElementById('pp-date')?.value||today(),supplier:sup,
     desc:document.getElementById('pp-desc')?.value||'Suit Purchase',qty:parseInt(document.getElementById('pp-qty')?.value)||0,
     amount:amt,gstRate:document.getElementById('pp-gst')?.value,gstAmt:parseFloat(document.getElementById('pp-itc')?.value)||0,
     supGstin:(document.getElementById('pp-gstin')?.value||'').toUpperCase(),billNo:document.getElementById('pp-billno')?.value||''};
@@ -4237,7 +4340,8 @@ function savePurchaseEntry(){
   toast('✅ Purchase saved!');showSubPage('purchases');
 }
 function deletePurchase(id){
-  if(!confirm('Delete this purchase?'))return;
+  showConfirmModal('🗑 Delete Purchase','Delete this purchase record?',function(){_doDeletePurchase(id);},null);return;}
+function _doDeletePurchase(id){
   purchases=purchases.filter(p=>p.id!==id);savePur();gsDelete(SHEETS.purchases,id);
   toast('🗑 Deleted');showSubPage('purchases');
 }
@@ -4271,8 +4375,22 @@ function renderPLContent(filtInv,filtPur){
   const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
   const pct=(a,b)=>b>0?parseFloat(((a/b)*100).toFixed(1)):0;
 
+  // ── CREDIT NOTES deducted from revenue ──
+  // Derive date range from the filtered invoices passed in
+  const _invDates=filtInv.map(i=>String(i.invDate||'').slice(0,10)).filter(Boolean).sort();
+  const _cnFrom=_invDates[0]||'';
+  const _cnTo=_invDates[_invDates.length-1]||'9999-99-99';
+  const filtCNs=creditNotes.filter(cn=>{
+    if(!cn.cnDate)return false;
+    const d=String(cn.cnDate).slice(0,10);
+    return _cnFrom?d>=_cnFrom&&d<=_cnTo:true;
+  });
+  const totalCreditAmt=parseFloat(filtCNs.reduce((s,cn)=>s+(parseFloat(cn.creditAmount)||0),0).toFixed(2));
+  const totalCreditGST=parseFloat(filtCNs.reduce((s,cn)=>s+(parseFloat(cn.gstReversed)||0),0).toFixed(2));
+
   // ── REVENUE ──
-  const grossRev      = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0).toFixed(2));
+  const grossRevRaw   = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0).toFixed(2));
+  const grossRev      = parseFloat((grossRevRaw - totalCreditAmt).toFixed(2));
   // Only calculate GST on Tax Invoices (isGST:true)
   const gstInvs       = filtInv.filter(i=>i.isGST===true||i.isGST==='true');
   const nonGstInvs    = filtInv.filter(i=>!(i.isGST===true||i.isGST==='true'));
@@ -4374,7 +4492,9 @@ function renderPLContent(filtInv,filtPur){
       <div class="card-title">📊 P&L Statement — ${filtInv.length} invoice(s)</div>
 
       ${head('💰 Revenue')}
-      ${row('Gross Sales collected from customers (incl. 5% GST)',grossRev)}
+      ${row('Gross Sales collected from customers (incl. 5% GST)',grossRevRaw)}
+      ${totalCreditAmt>0?subrow('Less: Credit Notes issued ('+filtCNs.length+')',totalCreditAmt,'#c0392b'):''}
+      ${totalCreditAmt>0?row('Net Revenue after Credit Notes',grossRev):''}
       ${subrow('GST on Suits collected (Output GST)',gstOnSuits,'#c0392b')}
       ${subrow('GST on Shipping collected (Output GST)',gstOnShip,'#c0392b')}
       ${subrow('Total Output GST collected',totalOutGST,'#c0392b')}
@@ -4685,11 +4805,28 @@ function _doExport(type,from,to,label){
       g.grossRev+=grand;
       g.taxable+=taxable;
       g.totalGST+=gst;
+      g.creditAmt=g.creditAmt||0;
+      g.creditGST=g.creditGST||0;
 
       // isIntra can be boolean true/false or string "true"/"false" after sheet sync
       const intra=inv.isIntra===true||inv.isIntra==='true'||inv.custState==='Punjab';
       if(intra){g.cgst+=gst/2;g.sgst+=gst/2;}
       else{g.igst+=gst;}
+    });
+
+    // Deduct credit notes from the month they were issued
+    creditNotes.forEach(cn=>{
+      if(!cn.cnDate)return;
+      const isoMon=cn.cnDate?String(cn.cnDate).slice(0,7):'Unknown';
+      if(!byMonth[isoMon])return; // only deduct if within the filtered period
+      const g=byMonth[isoMon];
+      const cAmt=parseFloat(cn.creditAmount)||0;
+      const cGST=(cn.isGST===true||cn.isGST==='true')?parseFloat(cn.gstReversed||0):0;
+      g.grossRev-=cAmt;g.taxable-=(cAmt-cGST);g.totalGST-=cGST;
+      g.creditAmt+=cAmt;g.creditGST+=cGST;
+      const intra=cn.custState==='Punjab';
+      if(intra){g.cgst-=cGST/2;g.sgst-=cGST/2;}
+      else{g.igst-=cGST;}
     });
 
     // Readable month label: Mar-2026
@@ -5101,7 +5238,7 @@ async function bulkSaveOnly(){
     });
 
     // Save locally immediately
-    save();localStorage.setItem('vc_ctr',invCtr);
+    save();lsSet('vc_ctr',invCtr);
 
     const total=toWrite.length;
     if(total===0){
@@ -5529,10 +5666,10 @@ function isOptedOut(phone){
 }
 // One-time purge of all followup_opt_out entries (runs once ever via localStorage marker)
 function purgeOptOutsOnce(){
-  if(localStorage.getItem('vc_optout_purged_v1'))return;
+  if(lsGet('vc_optout_purged_v1',null))return;
   msgLog=msgLog.filter(l=>l.type!=='followup_opt_out');
   saveMsgLog();
-  localStorage.setItem('vc_optout_purged_v1','1');
+  lsSet('vc_optout_purged_v1','1');
 }
 
 // ── DELIVERY REVIEW HELPERS ──
@@ -5800,6 +5937,17 @@ function daysUntil(dateStr){
     return Math.round((d-now)/(864e5));
   }catch{return 999;}
 }
+// Shared helper — days since a YYYY-MM-DD date string (used for followup logic everywhere)
+function daysSince(dateStr){
+  if(!dateStr)return -1;
+  try{
+    const parts=dateStr.split('-');
+    const d=new Date(parseInt(parts[0]),parseInt(parts[1])-1,parseInt(parts[2]));
+    const now=new Date();now.setHours(0,0,0,0);
+    d.setHours(0,0,0,0);
+    return Math.round((now-d)/(864e5));
+  }catch{return -1;}
+}
 
 // ── DASHBOARD OUTREACH WIDGET ──
 async function renderOutreachWidget(){
@@ -5813,7 +5961,7 @@ async function renderOutreachWidget(){
     if(isOptedOut(c.phone))return false;
     if(hasSentFollowupSinceLastOrder(c.phone,c.lastOrder))return false;
     if(!c.lastOrder)return false;
-    const days=Math.round((new Date(todayStr+'T12:00:00')-new Date(c.lastOrder+'T12:00:00'))/(864e5));
+    const days=daysSince(c.lastOrder);
     return days>=45;
   });
 
@@ -5872,7 +6020,7 @@ let _followupQueue=[];
 let _followupIdx=0;
 
 async function checkFollowupPopup(){
-  const lastShown=localStorage.getItem('vc_followup_shown_date')||'';
+  const lastShown=lsGet('vc_followup_shown_date','')||'';
   if(lastShown===today())return;
   const customers=getUniqueCustomers();
   const yr=new Date().getFullYear();
@@ -5881,7 +6029,7 @@ async function checkFollowupPopup(){
     if(isOptedOut(c.phone))return false;
     if(hasSentFollowupSinceLastOrder(c.phone,c.lastOrder))return false;
     if(!c.lastOrder)return false;
-    const days=Math.round((new Date(todayStr+'T12:00:00')-new Date(c.lastOrder+'T12:00:00'))/(864e5));
+    const days=daysSince(c.lastOrder);
     return days>=45;
   });
   if(_followupQueue.length===0)return;
@@ -5893,12 +6041,12 @@ async function checkFollowupPopup(){
 function showFollowupPopup(){
   if(_followupIdx>=_followupQueue.length){
     // All customers processed — mark today so we don't re-show this session
-    localStorage.setItem('vc_followup_shown_date',today());
+    lsSet('vc_followup_shown_date',today());
     document.getElementById('followup-popup')?.classList.remove('open');
     return;
   }
   const c=_followupQueue[_followupIdx];
-  const days=Math.round((new Date(today()+'T12:00:00')-new Date(c.lastOrder+'T12:00:00'))/(864e5));
+  const days=daysSince(c.lastOrder);
   const content=document.getElementById('followup-popup-content');
   if(content)content.innerHTML=`
     <div style="font-size:15px;font-weight:700;margin-bottom:6px;">${c.name}</div>
@@ -5963,7 +6111,7 @@ async function renderOutreachPage(){
     if(isOptedOut(c.phone))return false;
     if(hasSentFollowupSinceLastOrder(c.phone,c.lastOrder))return false;
     if(!c.lastOrder)return false;
-    const days=Math.round((new Date(todayStr)-new Date(c.lastOrder+'T00:00:00'))/(864e5));
+    const days=daysSince(c.lastOrder);
     return days>=45;
   });
 
@@ -6188,8 +6336,12 @@ function bulkSendReviews(){
     idx++;
     if(idx<list.length){
       setTimeout(()=>{
-        if(confirm('Opened for '+inv.custName+'. Open next? ('+(list.length-idx)+' remaining)'))openNext();
-        else{toast('Stopped. '+(list.length-idx)+' remaining.');renderOutreachPage();}
+        showConfirmModal(
+          '📦 Review sent',
+          'Opened for '+esc(inv.custName)+'. Open next? ('+(list.length-idx)+' remaining)',
+          openNext,
+          function(){toast('Stopped. '+(list.length-idx)+' remaining.');renderOutreachPage();}
+        );
       },600);
     }else{setTimeout(()=>{toast('✅ All review messages opened');renderOutreachPage();},600);}
   }
@@ -6214,13 +6366,12 @@ function sendNextInQueue(){
   // Small delay between opens so browser doesn't block them
   if(_sendAllQueue.length>0){
     setTimeout(()=>{
-      if(confirm(`Sent to ${next.name}. Open next? (${_sendAllQueue.length} remaining)`)){
-        sendNextInQueue();
-      }else{
-        toast('Stopped. '+_sendAllQueue.length+' remaining in Outreach Centre.');
-        _sendAllQueue=[];
-        renderOutreachPage();
-      }
+      showConfirmModal(
+        '💬 Message sent',
+        'Sent to '+esc(next.name)+'. Open next? ('+_sendAllQueue.length+' remaining)',
+        sendNextInQueue,
+        function(){toast('Stopped. '+_sendAllQueue.length+' remaining in Outreach Centre.');_sendAllQueue=[];renderOutreachPage();}
+      );
     },800);
   }else{
     setTimeout(()=>renderOutreachPage(),600);
@@ -6750,7 +6901,7 @@ function buildTrackingPage(){
       <button class="btn btn-g" style="flex:1;" onclick="document.getElementById('tracking-import').click()">📤 Import Results</button>
     </div>
     <input type="file" id="tracking-import" accept=".xlsx,.xls" style="display:none;" onchange="handleTrackingImport(event)"/>
-    ${total?'<button class="btn btn-d btn-sm" style="width:100%;margin-bottom:4px;" onclick="if(confirm(\'Clear all '+total+' stored tracking records?\'))clearTrackingData()">🗑 Clear All Tracking Data</button>':''}
+    ${total?'<button class="btn btn-d btn-sm" style="width:100%;margin-bottom:4px;" onclick="showConfirmModal(\'🗑 Clear Tracking\',\'Clear all '+total+' stored tracking records? This cannot be undone.\',clearTrackingData,null)">🗑 Clear All Tracking Data</button>':''}
   </div>
   <div id="tracking-table-area"></div>`;
 }
@@ -7103,7 +7254,10 @@ function saveInvEdit() {
 function deleteInvProduct() {
   const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
   if (!p) return;
-  if (!confirm('Delete product #' + p.prodNo + ' "' + p.name + '"?\nThis cannot be undone.')) return;
+  showConfirmModal('🗑 Delete Product','Delete product #'+p.prodNo+' &ldquo;'+esc(p.name)+'&rdquo;? This cannot be undone.',function(){_doDeleteProduct(p.prodNo);},null);return;}
+function _doDeleteProduct(prodNoArg){
+  const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(prodNoArg));
+  if(!p)return;
   inventory = inventory.filter(x => parseInt(x.prodNo) !== _editingProdNo);
   saveStk();
   gsDelete(SHEETS.inventory, _editingProdNo);
@@ -7124,7 +7278,10 @@ function openMarkSoldLinkInvoice() {
 function markInvItemSoldStandalone() {
   const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
   if (!p) return;
-  if (!confirm('Mark product #' + p.prodNo + ' "' + p.name + '" as sold (no invoice link)?')) return;
+  showConfirmModal('✅ Mark Sold','Mark product #'+p.prodNo+' &ldquo;'+esc(p.name)+'&rdquo; as sold (no invoice link)?',function(){_doMarkSoldStandalone(p.prodNo);},null);return;}
+function _doMarkSoldStandalone(prodNoArg){
+  const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(prodNoArg));
+  if(!p)return;
   p.qty = Math.max(0, (parseInt(p.qty) || 0) - 1);
   p.qtySold = (parseInt(p.qtySold) || 0) + 1;
   p.updatedAt = new Date().toISOString();
@@ -7140,7 +7297,11 @@ function confirmMarkSoldLinked() {
   const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
   const inv = invoices.find(i => String(i.id) === String(invId));
   if (!p || !inv) return;
-  if (!confirm('Link #' + p.prodNo + ' "' + p.name + '" to invoice ' + (inv.invNo||inv.id) + ' and deduct 1 from stock?')) return;
+  showConfirmModal('🔗 Link to Invoice','Link #'+p.prodNo+' &ldquo;'+esc(p.name)+'&rdquo; to invoice '+(inv.invNo||inv.id)+' and deduct 1 from stock?',function(){_doLinkToInvoice(p.prodNo,inv.id);},null);return;}
+function _doLinkToInvoice(prodNoArg,invId){
+  const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(prodNoArg));
+  const inv=invoices.find(i=>String(i.id)===String(invId));
+  if(!p||!inv)return;
   p.qty = Math.max(0, (parseInt(p.qty) || 0) - 1);
   p.qtySold = (parseInt(p.qtySold) || 0) + 1;
   if (!p.linkedInvoices) p.linkedInvoices = [];
@@ -7347,12 +7508,25 @@ function saveSupplier() {
     openingOwed: parseFloat(document.getElementById('sup-opening-owed').value) || 0,
     openingTheyOwe: parseFloat(document.getElementById('sup-opening-theyowe').value) || 0,
   };
+  fields.updatedAt = new Date().toISOString();
   if (_editingSupId) {
     const s = suppliers.find(x => String(x.id) === _editingSupId);
-    if (s) { Object.assign(s, fields); saveSup(); gsWrite(SHEETS.suppliers, s); }
+    if (s) {
+      Object.assign(s, fields); saveSup();
+      showLoading('Saving…');
+      gsWriteConfirmed(SHEETS.suppliers, s).then(function(ok){
+        hideLoading();
+        if(!ok) toast('⚠️ Saved locally — sheet sync failed',5000);
+      });
+    }
   } else {
-    const s = { id: Date.now(), ...fields };
-    suppliers.push(s); saveSup(); gsWrite(SHEETS.suppliers, s);
+    const s = { id: uid(), ...fields };
+    suppliers.push(s); saveSup();
+    showLoading('Saving…');
+    gsWriteConfirmed(SHEETS.suppliers, s).then(function(ok){
+      hideLoading();
+      if(!ok) toast('⚠️ Saved locally — sheet sync failed',5000);
+    });
   }
   closeSupModal();
   renderSuppliersPage2();
@@ -7364,9 +7538,12 @@ function deleteSupplier(id) {
   if (!s) return;
   const hasBills = bills.some(b => String(b.supId) === String(id));
   if (hasBills) { toast('⚠️ Cannot delete — supplier has bills. Delete the bills first.'); return; }
-  if (!confirm('Delete supplier "' + s.name + '"?')) return;
-  suppliers = suppliers.filter(x => String(x.id) !== String(id));
-  saveSup(); gsDelete(SHEETS.suppliers, id);
+  showConfirmModal('🗑 Delete Supplier','Delete supplier &ldquo;'+esc(s.name)+'&rdquo;?',function(){_doDeleteSupplier(s.id);},null);return;}
+function _doDeleteSupplier(supId){
+  const s=suppliers.find(x=>String(x.id)===String(supId));
+  if(!s)return;
+  suppliers = suppliers.filter(x => String(x.id) !== String(supId));
+  saveSup(); gsDelete(SHEETS.suppliers, supId);
   renderSuppliersPage2();
   toast('🗑 Supplier deleted');
 }
@@ -7419,6 +7596,7 @@ function saveBill() {
   if (!amount) { toast('⚠️ Enter bill amount'); return; }
   const date = document.getElementById('bill-date').value;
   if (!date) { toast('⚠️ Enter bill date'); return; }
+  const nowISO = new Date().toISOString();
   if (_editingBillId) {
     const b = bills.find(x => String(x.id) === _editingBillId);
     if (b) {
@@ -7428,19 +7606,31 @@ function saveBill() {
       b.amount = amount; b.gstRate = document.getElementById('bill-gst').value;
       b.desc = document.getElementById('bill-desc').value;
       b.notes = document.getElementById('bill-notes').value;
-      saveBills(); gsWrite(SHEETS.bills, {...b, payments: JSON.stringify(b.payments || [])});
+      b.updatedAt = nowISO;
+      saveBills();
+      showLoading('Saving…');
+      gsWriteConfirmed(SHEETS.bills, {...b, payments: JSON.stringify(b.payments || [])}).then(function(ok){
+        hideLoading();
+        if(!ok) toast('⚠️ Saved locally — sheet sync failed',5000);
+      });
     }
   } else {
     const b = {
-      id: Date.now(), supId, date,
+      id: uid(), supId, date,
       dueDate: document.getElementById('bill-due').value,
       billNo: document.getElementById('bill-no').value,
       amount, gstRate: document.getElementById('bill-gst').value,
       desc: document.getElementById('bill-desc').value,
       notes: document.getElementById('bill-notes').value,
-      payments: []
+      payments: [],
+      updatedAt: nowISO
     };
-    bills.push(b); saveBills(); gsWrite(SHEETS.bills, {...b, payments: JSON.stringify(b.payments)});
+    bills.push(b); saveBills();
+    showLoading('Saving…');
+    gsWriteConfirmed(SHEETS.bills, {...b, payments: JSON.stringify(b.payments)}).then(function(ok){
+      hideLoading();
+      if(!ok) toast('⚠️ Saved locally — sheet sync failed',5000);
+    });
   }
   closeBillModal();
   renderSuppliersPage2();
@@ -7450,7 +7640,10 @@ function saveBill() {
 function deleteBill(id) {
   const b = bills.find(x => String(x.id) === String(id));
   if (!b) return;
-  if (!confirm('Delete this bill?')) return;
+  showConfirmModal('🗑 Delete Bill','Delete this bill? This cannot be undone.',function(){_doDeleteBill(id);},null);return;}
+function _doDeleteBill(id){
+  const b=bills.find(x=>String(x.id)===String(id));
+  if(!b)return;
   bills = bills.filter(x => String(x.id) !== String(id));
   saveBills(); gsDelete(SHEETS.bills, id);
   renderSuppliersPage2();
@@ -7508,27 +7701,48 @@ function savePayment() {
   const totalPaid = (b.payments || []).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
   const pending = (parseFloat(b.amount) || 0) - totalPaid;
   if (amt > pending + 0.01) {
-    if (!confirm('Payment ₹' + amt + ' exceeds pending ₹' + pending.toFixed(2) + '. Continue?')) return;
+    showConfirmModal('⚠️ Overpayment','Payment ₹'+amt+' exceeds pending ₹'+pending.toFixed(2)+'. Continue?',function(){_doSavePaymentConfirmed();},null);
+    return;
   }
-  if (!b.payments) b.payments = [];
+  _doSavePaymentConfirmed();
+}
+function _doSavePaymentConfirmed(){
+  const billId=document.getElementById('pay-bill-id').value;
+  const b=bills.find(x=>String(x.id)===String(billId));
+  if(!b)return;
+  const amt=parseFloat(document.getElementById('pay-amount').value)||0;
+  const date=document.getElementById('pay-date').value;
+  if(!b.payments)b.payments=[];
   b.payments.push({
-    id: Date.now(), date, amount: amt,
-    mode: document.getElementById('pay-mode').value,
-    ref: document.getElementById('pay-ref').value,
-    notes: document.getElementById('pay-notes').value,
+    id:uid(),date,amount:amt,
+    mode:document.getElementById('pay-mode').value,
+    ref:document.getElementById('pay-ref').value,
+    notes:document.getElementById('pay-notes').value,
   });
-  saveBills(); gsWrite(SHEETS.bills, {...b, payments: JSON.stringify(b.payments)});
-  closePayModal();
-  renderSuppliersPage2();
-  toast('✅ Payment of ₹' + amt.toLocaleString('en-IN') + ' recorded');
+  b.updatedAt=new Date().toISOString();
+  saveBills();
+  showLoading('Saving…');
+  gsWriteConfirmed(SHEETS.bills,{...b,payments:JSON.stringify(b.payments)}).then(function(ok){
+    hideLoading();
+    if(!ok)toast('⚠️ Saved locally — sheet sync failed',5000);
+  });
+  closePayModal();renderSuppliersPage2();
+  toast('✅ Payment of ₹'+amt.toLocaleString('en-IN')+' recorded');
 }
 
 function deletePayment(billId, payId) {
   const b = bills.find(x => String(x.id) === String(billId));
   if (!b) return;
-  if (!confirm('Delete this payment record?')) return;
+  showConfirmModal('🗑 Delete Payment','Delete this payment record?',function(){_doDeletePayment(billId,payId);},null);return;}
+function _doDeletePayment(billId,payId){
+  const b=bills.find(x=>String(x.id)===String(billId));
+  if(!b)return;
   b.payments = (b.payments || []).filter(p => String(p.id) !== String(payId));
-  saveBills(); gsWrite(SHEETS.bills, {...b, payments: JSON.stringify(b.payments)});
+  b.updatedAt = new Date().toISOString();
+  saveBills();
+  gsWriteConfirmed(SHEETS.bills, {...b, payments: JSON.stringify(b.payments)}).then(function(ok){
+    if(!ok) toast('⚠️ Saved locally — sheet sync failed',5000);
+  });
   renderSuppliersPage2();
   toast('🗑 Payment deleted');
 }
@@ -7562,13 +7776,19 @@ function saveStxnPayment() {
   const date = document.getElementById('stxn-pay-date').value;
   if (!date) { toast('⚠️ Enter payment date'); return; }
   const t = {
-    id: Date.now(), supplierId: supId, type: 'payment',
+    id: uid(), supplierId: supId, type: 'payment',
     date, amount: amt,
     mode: document.getElementById('stxn-pay-mode').value,
     ref: document.getElementById('stxn-pay-ref').value,
     note: document.getElementById('stxn-pay-note').value,
   };
-  supplierTxns.push(t); saveSupTxns(); gsWrite(SHEETS.supplierTxns, t);
+  t.updatedAt = new Date().toISOString();
+  supplierTxns.push(t); saveSupTxns();
+  showLoading('Saving…');
+  gsWriteConfirmed(SHEETS.supplierTxns, t).then(function(ok){
+    hideLoading();
+    if(!ok) toast('⚠️ Saved locally — sheet sync failed',5000);
+  });
   closeStxnModal('stxn-pay-modal');
   renderSuppliersPage2();
   toast('✅ Payment of ₹' + amt.toLocaleString('en-IN') + ' recorded');
@@ -7594,12 +7814,18 @@ function saveStxnCredit() {
   const date = document.getElementById('stxn-credit-date').value;
   if (!date) { toast('⚠️ Enter date'); return; }
   const t = {
-    id: Date.now(), supplierId: supId, type: 'credit',
+    id: uid(), supplierId: supId, type: 'credit',
     date, amount: amt,
     mode: document.getElementById('stxn-credit-mode').value,
     note: document.getElementById('stxn-credit-note').value,
   };
-  supplierTxns.push(t); saveSupTxns(); gsWrite(SHEETS.supplierTxns, t);
+  t.updatedAt = new Date().toISOString();
+  supplierTxns.push(t); saveSupTxns();
+  showLoading('Saving…');
+  gsWriteConfirmed(SHEETS.supplierTxns, t).then(function(ok){
+    hideLoading();
+    if(!ok) toast('⚠️ Saved locally — sheet sync failed',5000);
+  });
   closeStxnModal('stxn-credit-modal');
   renderSuppliersPage2();
   toast('✅ Credit of ₹' + amt.toLocaleString('en-IN') + ' recorded');
@@ -7641,7 +7867,7 @@ function saveStxnReturn() {
   const date = document.getElementById('stxn-return-date').value;
   if (!date) { toast('⚠️ Enter date'); return; }
   const t = {
-    id: Date.now(), supplierId: supId, type: 'return',
+    id: uid(), supplierId: supId, type: 'return',
     date, amount: val,
     prodNo: document.getElementById('stxn-return-prodno').value || '',
     prodDesc: desc,
@@ -7649,7 +7875,13 @@ function saveStxnReturn() {
     returnStatus: document.getElementById('stxn-return-status').value,
     note: document.getElementById('stxn-return-note').value,
   };
-  supplierTxns.push(t); saveSupTxns(); gsWrite(SHEETS.supplierTxns, t);
+  t.updatedAt = new Date().toISOString();
+  supplierTxns.push(t); saveSupTxns();
+  showLoading('Saving…');
+  gsWriteConfirmed(SHEETS.supplierTxns, t).then(function(ok){
+    hideLoading();
+    if(!ok) toast('⚠️ Saved locally — sheet sync failed',5000);
+  });
   closeStxnModal('stxn-return-modal');
   renderSuppliersPage2();
   toast('✅ Return recorded — ₹' + val.toLocaleString('en-IN') + ' credited');
@@ -7658,7 +7890,10 @@ function saveStxnReturn() {
 function deleteStxn(id) {
   const t = supplierTxns.find(x => String(x.id) === String(id));
   if (!t) return;
-  if (!confirm('Delete this record?')) return;
+  showConfirmModal('🗑 Delete Record','Delete this transaction record?',function(){_doDeleteStxn(id);},null);return;}
+function _doDeleteStxn(id){
+  const t=supplierTxns.find(x=>String(x.id)===String(id));
+  if(!t)return;
   supplierTxns = supplierTxns.filter(x => String(x.id) !== String(id));
   saveSupTxns(); gsDelete(SHEETS.supplierTxns, id);
   renderSuppliersPage2();
