@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v12.8
+APP: Vismaad Creations v12.9
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 01-Jun-2026 — v12.8: openInvoiceFromDash uses requestAnimationFrame instead of double setTimeout; CN counter is now per-FY; modal desktop padding fixed; tracking page breakpoint changed to 768px; gsWriteConfirmed retries once on timeout; duplicate invNo flagged with warning badge instead of silent drop; getFestivalMessage always returns string; popup queues rebuilt fresh on each open; festival fallback dates improved (Diwali/Holi shift by year, Eid float error fixed); sharingInv race condition fixed with invoice-id capture.
+LAST_CHANGE: 01-Jun-2026 — v12.9: Invoice item rows now support product name search (partial match via datalist) in addition to product number autofill; selecting from name dropdown fills description, price, and cost just like number lookup.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -2107,6 +2107,12 @@ function renderItems(){
           <input type="number" value="${it.qty}" min="1" oninput="updateItem(${it.id},'qty',this.value)" style="padding:11px 12px;"/>
         </div>
       </div>
+      <div class="fg" style="margin-bottom:10px;">
+        <label>Search by Name <span style="font-weight:400;color:#aaa;">(type to filter)</span></label>
+        <input id="iname-${it.id}" list="iname-list-${it.id}" placeholder="e.g. Banarasi, Pink Suit…"
+          oninput="lookupProductByName(${it.id},this.value)" autocomplete="off" style="padding:11px 12px;"/>
+        <datalist id="iname-list-${it.id}">${buildProdNameOptions()}</datalist>
+      </div>
       <div class="fg" style="margin-bottom:10px;"><label>Description</label>
         <input id="idesc-${it.id}" value="${it.desc}" placeholder="Unstitched Suit"
           oninput="updateItem(${it.id},'desc',this.value)" style="padding:11px 12px;"/>
@@ -2161,8 +2167,35 @@ function lookupProduct(rowId,val){
     if(prod.cost){it.costPrice=prod.cost;const cr=document.getElementById('icost-'+rowId);if(cr){cr.value=prod.cost;cr.style.background='#f0faf4';}}
     const d=document.getElementById('idesc-'+rowId);if(d){d.value=prod.name;d.style.background='#f0faf4';}
     const tot=document.getElementById('itot-'+rowId);if(tot)tot.textContent='₹'+((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN');
+    // Clear name search field to avoid stale text
+    const nf=document.getElementById('iname-'+rowId);if(nf)nf.value='';
     recalc();toast('✅ #'+num+': '+prod.name);
   }
+}
+function buildProdNameOptions(){
+  return inventory.filter(p=>p.qty>0).sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo))
+    .map(p=>`<option value="#${p.prodNo} — ${p.name}">`).join('');
+}
+function lookupProductByName(rowId,val){
+  if(!val)return;
+  // Match option format: "#N — Name"
+  const m=val.match(/^#(\d+)\s*—/);
+  if(!m)return;
+  const num=parseInt(m[1]);
+  const prod=inventory.find(p=>parseInt(p.prodNo)===num);
+  if(!prod)return;
+  const it=items.find(i=>i.id===rowId);if(!it)return;
+  it.prodNo=num;it.desc=prod.name;
+  // Fill product number input
+  const pnInput=document.querySelector('#irow-'+rowId+' input[type="number"]');
+  if(pnInput)pnInput.value=num;
+  if(!it.unitPrice&&prod.sellPrice){it.unitPrice=prod.sellPrice;const pr=document.getElementById('iprice-'+rowId);if(pr)pr.value=prod.sellPrice;}
+  if(prod.cost){it.costPrice=prod.cost;const cr=document.getElementById('icost-'+rowId);if(cr){cr.value=prod.cost;cr.style.background='#f0faf4';}}
+  const d=document.getElementById('idesc-'+rowId);if(d){d.value=prod.name;d.style.background='#f0faf4';}
+  const tot=document.getElementById('itot-'+rowId);if(tot)tot.textContent='₹'+((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN');
+  // Clear name field after selection so it doesn't show the full option string
+  setTimeout(()=>{const nf=document.getElementById('iname-'+rowId);if(nf)nf.value='';},200);
+  recalc();toast('✅ #'+num+': '+prod.name);
 }
 
 // ═══════════════════════════════════════════
