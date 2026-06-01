@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v12.5
+APP: Vismaad Creations v12.6
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 31-May-2026 — Retrospective date picker for Reel / Story 1 / Story 2 posting: "Mark Posted" buttons now open a date-picker modal defaulting to today, allowing any past date. Inventory Edit modal gains editable date fields for all three posting dates.
+LAST_CHANGE: 01-Jun-2026 — Shipping auto-calc now uses total qty×50 instead of item count×50, including on qty change. Followup opt-out renamed to "Opted Out", existing opt-outs purged once, year-based followup block replaced with "sent since last order" check. Delivery review message updated to notification style. Dashboard nudge texts updated.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -393,7 +393,7 @@ body.gst-mode .gst-only{display:block;}
     <div style="display:flex;flex-direction:column;gap:10px;">
       <button class="btn btn-g" style="min-height:48px;" onclick="sendFollowup()">💬 Send Message on WhatsApp</button>
       <button class="btn btn-o" style="min-height:44px;" onclick="skipFollowup()">Skip for Now</button>
-      <button class="btn btn-o" style="min-height:44px;color:#c0392b;" onclick="optOutFollowup()">Do Not Remind Again for This Customer</button>
+      <button class="btn btn-o" style="min-height:44px;color:#c0392b;" onclick="optOutFollowup()">Opted Out — Do Not Send Again</button>
     </div>
     <div id="followup-popup-counter" style="text-align:center;font-size:12px;color:#aaa;margin-top:10px;"></div>
   </div>
@@ -403,7 +403,7 @@ body.gst-mode .gst-only{display:block;}
 <div class="modal-bg" id="review-popup" style="z-index:99991;">
   <div class="modal">
     <div class="modal-title">📦 New Delivery — Request Review?</div>
-    <div style="font-size:12px;color:#888;margin-bottom:14px;">These parcels were just marked Delivered. Ask customers for a photo, video, or written review.</div>
+    <div style="font-size:12px;color:#888;margin-bottom:14px;">These parcels were just marked Delivered. You can send them a delivery notification.</div>
     <div id="review-popup-content" style="margin-bottom:4px;"></div>
     <div id="review-popup-counter" style="text-align:center;font-size:12px;color:#aaa;margin-top:10px;"></div>
     <button class="btn btn-o" style="min-height:40px;width:100%;margin-top:12px;font-size:13px;" onclick="closeReviewPopup()">Later — Remind Next Time</button>
@@ -1807,6 +1807,7 @@ function init(){
     setTimeout(()=>syncAll(),1000);
     // Outreach — check follow-up popup after sync settles
     setTimeout(()=>{
+      purgeOptOutsOnce();
       renderOutreachWidget();
       renderPostingQueue();
       checkFollowupPopup();
@@ -1943,10 +1944,11 @@ function onInvDateChange(){
 // ═══════════════════════════════════════════
 // INVOICE ITEMS
 // ═══════════════════════════════════════════
+function totalQty(){return items.reduce((s,i)=>s+(i.qty||1),0);}
 function addItem(){
   itemId++;
   items.push({id:itemId,prodNo:'',desc:'Unstitched Suit',hsn:'540754',qty:1,unitPrice:0});
-  // Auto-set shipping: ₹50 per suit, only if channel is not Offline and dispatch is not walkin
+  // Auto-set shipping: ₹50 per qty unit, only if channel is not Offline and dispatch is not walkin
   const channel=document.getElementById('sale-channel')?.value||'';
   const dispatch=document.getElementById('dispatch-method')?.value||'';
   const isOffline=channel==='Offline'||dispatch==='walkin'||dispatch==='hand';
@@ -1955,15 +1957,17 @@ function addItem(){
     if(shipEl){
       // Only auto-set if user hasn't manually overridden (value is a multiple of 50 or 0)
       const cur=parseFloat(shipEl.value)||0;
-      const expected=(items.length-1)*50;  // before push counted
+      const prevQty=totalQty()-1; // before this item was pushed, qty was one less
+      const expected=prevQty*50;
       if(cur===0||cur===expected){
-        shipEl.value=items.length*50;
+        shipEl.value=totalQty()*50;
       }
     }
   }
   renderItems();
 }
 function removeItem(id){
+  const removedQty=(items.find(i=>i.id===id)?.qty||1);
   items=items.filter(i=>i.id!==id);
   // Recalculate auto-shipping
   const channel=document.getElementById('sale-channel')?.value||'';
@@ -1973,8 +1977,8 @@ function removeItem(id){
     const shipEl=document.getElementById('shipping');
     if(shipEl){
       const cur=parseFloat(shipEl.value)||0;
-      const expected=(items.length+1)*50;
-      if(cur===expected||cur===0){shipEl.value=items.length*50;}
+      const expected=(totalQty()+removedQty)*50; // what it was before removal
+      if(cur===expected||cur===0){shipEl.value=totalQty()*50;}
     }
   }else if(items.length===0){
     const shipEl=document.getElementById('shipping');
@@ -2029,6 +2033,21 @@ function updateItem(id,f,v){
   else it[f]=v;
   const tot=document.getElementById('itot-'+id);
   if(tot)tot.textContent='₹'+((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN');
+  // Re-run auto-shipping when qty changes
+  if(f==='qty'){
+    const channel=document.getElementById('sale-channel')?.value||'';
+    const dispatch=document.getElementById('dispatch-method')?.value||'';
+    const isOffline=channel==='Offline'||dispatch==='walkin'||dispatch==='hand';
+    if(!isOffline){
+      const shipEl=document.getElementById('shipping');
+      if(shipEl){
+        const cur=parseFloat(shipEl.value)||0;
+        const tq=totalQty();
+        // Only auto-update if value looks like it was auto-set (multiple of 50)
+        if(cur===0||cur%50===0){shipEl.value=tq*50;}
+      }
+    }
+  }
   recalc();
 }
 function lookupProduct(rowId,val){
@@ -2092,7 +2111,7 @@ function setChannel(el,val){
       if(cur===0&&items.length>0){
         const dispatch=document.getElementById('dispatch-method')?.value||'';
         if(dispatch!=='walkin'&&dispatch!=='hand'){
-          shipEl.value=items.length*50;
+          shipEl.value=totalQty()*50;
         }
       }
     }
@@ -5444,7 +5463,7 @@ function getFestivalMessage(festKey,custName,approx,inv){
         }
       }catch(e){}
       const deliveryLine='We noticed that your order has been delivered'+daysEarlyLine+'.';
-      return 'Hi '+custName+',\n\n'+deliveryLine+' A quick photo or video wearing it would be wonderful. We would love to feature it on our page.\n\nVismaad Creations';
+      return 'Hi '+custName+',\n\n'+deliveryLine+' We hope you are happy with your purchase! Do let us know if you have any questions or need any assistance.\n\nVismaad Creations';
     },
   };
   return msgs[festKey]||`Hi ${custName},\n\nWishing you and your family a joyful celebration.\n\nVismaad Creations`;
@@ -5501,8 +5520,19 @@ function logMsgAR(arKey){
   if(!d.phone)return;
   logMsg(d.phone,d.type,d.year,d.name);
 }
+function hasSentFollowupSinceLastOrder(phone,lastOrder){
+  // Returns true if a followup was sent on or after the customer's last order date
+  return msgLog.some(l=>l.phone===phone&&l.type==='followup'&&l.sentDate&&l.sentDate>=lastOrder);
+}
 function isOptedOut(phone){
   return msgLog.some(l=>l.phone===phone&&l.type==='followup_opt_out');
+}
+// One-time purge of all followup_opt_out entries (runs once ever via localStorage marker)
+function purgeOptOutsOnce(){
+  if(localStorage.getItem('vc_optout_purged_v1'))return;
+  msgLog=msgLog.filter(l=>l.type!=='followup_opt_out');
+  saveMsgLog();
+  localStorage.setItem('vc_optout_purged_v1','1');
 }
 
 // ── DELIVERY REVIEW HELPERS ──
@@ -5781,7 +5811,7 @@ async function renderOutreachWidget(){
   // Follow-ups due (45+ days, not sent, not opted out)
   const followupsDue=customers.filter(c=>{
     if(isOptedOut(c.phone))return false;
-    if(hasSentMsg(c.phone,'followup',yr))return false;
+    if(hasSentFollowupSinceLastOrder(c.phone,c.lastOrder))return false;
     if(!c.lastOrder)return false;
     const days=Math.round((new Date(todayStr+'T12:00:00')-new Date(c.lastOrder+'T12:00:00'))/(864e5));
     return days>=45;
@@ -5849,7 +5879,7 @@ async function checkFollowupPopup(){
   const todayStr=today();
   _followupQueue=customers.filter(c=>{
     if(isOptedOut(c.phone))return false;
-    if(hasSentMsg(c.phone,'followup',yr))return false;
+    if(hasSentFollowupSinceLastOrder(c.phone,c.lastOrder))return false;
     if(!c.lastOrder)return false;
     const days=Math.round((new Date(todayStr+'T12:00:00')-new Date(c.lastOrder+'T12:00:00'))/(864e5));
     return days>=45;
@@ -5931,7 +5961,7 @@ async function renderOutreachPage(){
   // Follow-ups — skip if reordered within 45 days
   const followups=customers.filter(c=>{
     if(isOptedOut(c.phone))return false;
-    if(hasSentMsg(c.phone,'followup',yr))return false;
+    if(hasSentFollowupSinceLastOrder(c.phone,c.lastOrder))return false;
     if(!c.lastOrder)return false;
     const days=Math.round((new Date(todayStr)-new Date(c.lastOrder+'T00:00:00'))/(864e5));
     return days>=45;
@@ -5956,7 +5986,7 @@ async function renderOutreachPage(){
       <div class="card-title" style="margin-bottom:0;">📦 Delivery Reviews</div>
       <span style="font-size:12px;color:#888;">${deliveryReviews.length} pending</span>
     </div>
-    <div style="font-size:12px;color:#888;margin-bottom:10px;">Parcels marked Delivered — request a photo, video, or written review.</div>
+    <div style="font-size:12px;color:#888;margin-bottom:10px;">Parcels marked Delivered. You can send them a delivery notification.</div>
 
     <!-- Filter bar -->
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
@@ -6037,7 +6067,7 @@ async function renderOutreachPage(){
             onclick="logMsg('${c.phone}','followup',${yr},'');setTimeout(()=>renderOutreachPage(),600);"
             class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;text-align:center;">💬 Send</a>
           <button class="btn btn-o btn-sm" style="min-height:34px;font-size:11px;color:#c0392b;"
-            onclick="logMsg('${c.phone}','followup_opt_out',${yr},'');renderOutreachPage();">🚫 Never</button>
+            onclick="logMsg('${c.phone}','followup_opt_out',${yr},'');renderOutreachPage();">🚫 Opted Out</button>
         </div>
       </div>`;
     });
