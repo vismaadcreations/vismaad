@@ -3,15 +3,17 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v13.0
-PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
-STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 02-Jun-2026 — v13.0: Fixed all 7 cross-device sync issues: (1) invUpdatedAt set on invoice creation, (2) invUpdatedAt set when toggling shipped/pending, (3) trackingData locks Delivered status and remote wins on equal timestamps, (4) purchases use updatedAt-wins merge with updatedAt on save, (5) MessageLog uses updatedAt-wins merge, (6) CreditNotes use updatedAt-wins merge with updatedAt on creation, (7) sync push-back only writes records modified since last sync to prevent race conditions.
+APP: Vismaad Creations v14.0
+PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
+STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
+LAST_CHANGE: 02-Jun-2026 — v14.0: Product photo variants system — each product supports multiple variants (colour/design), each variant has label, price override, and multiple photos. Photos compressed client-side (full: 1200px 85% JPEG, thumb: 400px 80% JPEG) and uploaded to GitHub repo via PAT. Catalogue generator (select products, toggle prices, print to PDF). Live catalogue page (catalogue.html) reads public Google Sheet. Bulk cleanup for sold-out products with photo deletion. Settings: GitHub PAT, catalogue sheet ID, business tagline, WhatsApp number for customer enquiries.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
+          GITHUB_PAT(vc_gh_pat), GITHUB_REPO(vismaadcreations/vismaad), GITHUB_BRANCH(main),
+          CAT_SHEET_ID(vc_cat_sheet_id — public catalogue Google Sheet ID),
           salesFiltered(current filtered invoice list), currentInv(invoice in preview),
-          S(settings object: gstin/address/phone/email/gstEnabled),
+          S(settings object: gstin/address/phone/email/gstEnabled/githubPat/catSheetId/tagline/waNumber),
           lsGet/lsSet(safe localStorage), gsRead/gsWrite/gsWriteConfirmed/gsDelete(Sheets API)
 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
@@ -207,6 +209,22 @@ body.gst-mode .gst-only{display:block;}
 /* ── BUTTON LOADING STATE ── */
 .btn.loading{opacity:.7;pointer-events:none;}
 .btn.loading::after{content:' ⏳';}
+
+/* ── PHOTO VARIANT SYSTEM ── */
+.variant-block{border:1.5px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px;background:var(--cream);}
+.variant-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px;}
+.variant-photos{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+.variant-photo-thumb{position:relative;width:72px;height:72px;border-radius:8px;overflow:hidden;border:1.5px solid var(--border);flex-shrink:0;}
+.variant-photo-thumb img{width:100%;height:100%;object-fit:cover;}
+.variant-photo-del{position:absolute;top:2px;right:2px;background:rgba(192,57,43,.85);color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;}
+.variant-add-photo{width:72px;height:72px;border-radius:8px;border:1.5px dashed var(--gold);background:var(--goldp);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:11px;color:var(--brown);font-weight:600;gap:2px;flex-shrink:0;}
+.photo-upload-progress{height:4px;background:var(--goldp);border-radius:2px;overflow:hidden;margin-top:6px;}
+.photo-upload-progress-bar{height:100%;background:var(--gold);border-radius:2px;transition:width .3s;}
+
+/* ── CATALOGUE MODE ── */
+.cat-mode-bar{background:var(--goldp);border-radius:10px;padding:10px 12px;margin-bottom:12px;}
+.cat-sel-check{width:22px;height:22px;border-radius:6px;border:2px solid var(--border);background:var(--warm);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;}
+.cat-sel-check.checked{background:var(--brown);border-color:var(--brown);color:#fff;}
 
 </style>
 </head>
@@ -598,11 +616,13 @@ body.gst-mode .gst-only{display:block;}
   <!-- Register -->
   <div class="card">
     <div class="card-title">📋 Register
-      <div style="display:flex;gap:8px;align-items:center;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <select id="inv-status-filter" onchange="renderInventory()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--cream);font-size:12px;">
           <option value="">All</option><option value="instock">In Stock</option><option value="sold">Sold Out</option>
         </select>
         <button class="btn btn-o btn-sm" onclick="toggleInvPrintMode()" id="inv-print-mode-btn" style="white-space:nowrap;">🖨️ Price List</button>
+        <button class="btn btn-o btn-sm" onclick="toggleCatalogueMode()" id="inv-cat-mode-btn" style="white-space:nowrap;">📖 Catalogue</button>
+        <button class="btn btn-o btn-sm" onclick="openCleanupModal()" style="white-space:nowrap;color:#c0392b;border-color:#c0392b;">🗑 Cleanup</button>
       </div>
     </div>
     <!-- Print mode action bar (hidden until print mode active) -->
@@ -613,6 +633,17 @@ body.gst-mode .gst-only{display:block;}
           <button class="btn btn-o btn-sm" onclick="selectAllInvForPrint()">Select All</button>
           <button class="btn btn-g btn-sm" onclick="openInvPrintDialog()">🖨️ Print Selected</button>
           <button class="btn btn-o btn-sm" onclick="toggleInvPrintMode()">✕ Cancel</button>
+        </div>
+      </div>
+    </div>
+    <!-- Catalogue mode action bar -->
+    <div id="inv-cat-bar" style="display:none;background:var(--goldp);border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <span id="inv-cat-count" style="font-size:13px;font-weight:600;color:var(--brown);">0 selected</span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-o btn-sm" onclick="selectAllInvForCatalogue()">Select All In Stock</button>
+          <button class="btn btn-g btn-sm" onclick="openCatalogueDialog()">📖 Generate</button>
+          <button class="btn btn-o btn-sm" onclick="toggleCatalogueMode()">✕ Cancel</button>
         </div>
       </div>
     </div>
@@ -736,6 +767,19 @@ body.gst-mode .gst-only{display:block;}
     <div class="fg"><label>Calendarific API Key <span style="font-weight:400;color:#aaa;">(for auto festival dates)</span></label>
       <input id="ms-cal-key" placeholder="Get free key at calendarific.com"/>
       <div style="font-size:11px;color:#888;margin-top:4px;">Sign up free at calendarific.com → Dashboard → API Key. Needed for automatic festival date detection.</div>
+    </div>
+    <div style="background:#f0f7ff;border:1px solid #c8dff5;border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:10px;">📖 Catalogue Settings</div>
+      <div class="fg" style="margin-bottom:10px;"><label>Business Tagline <span style="font-weight:400;color:#aaa;">(shown on catalogue)</span></label>
+        <input id="ms-tagline" placeholder="e.g. Premium Unstitched Suits · Punjab"/></div>
+      <div class="fg" style="margin-bottom:10px;"><label>WhatsApp Number for Enquiries <span style="font-weight:400;color:#aaa;">(with country code, no +)</span></label>
+        <input id="ms-wa-number" placeholder="e.g. 919876543210" type="tel"/></div>
+      <div class="fg" style="margin-bottom:10px;"><label>GitHub Personal Access Token <span style="font-weight:400;color:#aaa;">(for photo uploads)</span></label>
+        <input id="ms-gh-pat" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" type="password"/>
+        <div style="font-size:11px;color:#888;margin-top:4px;">Create at github.com/settings/tokens → Classic → repo scope. Photos upload to your vismaadcreations/vismaad repo.</div></div>
+      <div class="fg" style="margin-bottom:0;"><label>Catalogue Google Sheet ID <span style="font-weight:400;color:#aaa;">(public sheet for live catalogue page)</span></label>
+        <input id="ms-cat-sheet-id" placeholder="1-rtn3pZsJJ09gbk5llf2rKkk…"/>
+        <div style="font-size:11px;color:#888;margin-top:4px;">Create a new blank public Google Sheet → share as Viewer → copy ID from URL. App writes product data here for the live catalogue page.</div></div>
     </div>
     <div class="fg">
       <label>Logo Image</label>
@@ -932,6 +976,15 @@ body.gst-mode .gst-only{display:block;}
       <div class="fg"><label>Sell Price (₹)</label><input type="number" id="iem-sell" placeholder="0"/></div>
     </div>
     <div class="fg"><label>Notes</label><input id="iem-notes" placeholder="Colour, design details"/></div>
+    <div class="fg"><label>Instagram Reel URL <span style="font-weight:400;color:#aaa;">(optional)</span></label>
+      <input id="iem-reel-url" placeholder="https://www.instagram.com/reel/..."/>
+    </div>
+    <div style="background:#f0f7ff;border:1px solid #c8dff5;border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:4px;">🎨 Photo Variants</div>
+      <div style="font-size:12px;color:#888;margin-bottom:10px;">Each variant = one colour/design. Add multiple photos per variant. First photo is the hero shot.</div>
+      <div id="iem-variants-list"></div>
+      <button class="btn btn-o btn-sm" style="width:100%;margin-top:6px;" onclick="addVariant()">+ Add Colour / Design Variant</button>
+    </div>
     <div style="background:#f0f7ff;border:1px solid #c8dff5;border-radius:8px;padding:10px 12px;margin-bottom:14px;">
       <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:8px;">📱 Posting Dates</div>
       <div style="font-size:12px;color:#888;margin-bottom:10px;">Set or correct the dates reels/stories were posted. Leave blank if not yet posted.</div>
@@ -1214,6 +1267,53 @@ body.gst-mode .gst-only{display:block;}
 
 </div><!-- end scroll-area -->
 
+<!-- ════ CATALOGUE GENERATE DIALOG ════ -->
+<div class="modal-bg" id="cat-gen-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="document.getElementById('cat-gen-modal').classList.remove('open')">✕</button>
+    <div class="modal-title">📖 Generate Catalogue</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px;" id="cat-gen-sub"></div>
+    <div class="fg">
+      <label>Catalogue Title (optional)</label>
+      <input id="cat-gen-title" placeholder="e.g. New Arrivals — June 2026"/>
+    </div>
+    <div style="background:var(--goldp);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--brown);">Show Prices</div>
+          <div style="font-size:12px;color:#888;margin-top:2px;">Show sell price on each variant</div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <div id="cat-price-toggle" onclick="toggleCatPriceToggle()"
+            style="width:48px;height:26px;border-radius:13px;background:var(--brown);cursor:pointer;position:relative;transition:background .2s;">
+            <div id="cat-price-knob" style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .2s;left:22px;"></div>
+          </div>
+        </label>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="generateCataloguePDF()">🖨️ Print / PDF</button>
+      <button class="btn btn-o" onclick="pushCatalogueToSheet()" style="flex:1;">☁️ Update Live Page</button>
+    </div>
+    <div id="cat-gen-status" style="font-size:12px;color:#888;margin-top:10px;text-align:center;"></div>
+  </div>
+</div>
+
+<!-- ════ CLEANUP MODAL ════ -->
+<div class="modal-bg" id="cleanup-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="document.getElementById('cleanup-modal').classList.remove('open')">✕</button>
+    <div class="modal-title">🗑 Cleanup Sold-Out Products</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px;">Select sold-out products to permanently delete. Their photos will also be deleted from GitHub.</div>
+    <div id="cleanup-list"></div>
+    <div class="btn-row" style="margin-top:12px;">
+      <button class="btn btn-d" id="cleanup-confirm-btn" onclick="confirmCleanup()" style="flex:1;">Delete Selected</button>
+      <button class="btn btn-o" onclick="document.getElementById('cleanup-modal').classList.remove('open')" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+    <div id="cleanup-status" style="font-size:12px;color:#888;margin-top:8px;text-align:center;"></div>
+  </div>
+</div>
+
 <!-- ════ IN-APP CONFIRM MODAL ════ -->
 <div class="modal-bg" id="confirm-modal">
   <div class="modal" style="max-width:380px;">
@@ -1286,6 +1386,10 @@ function getStateCode(state){return STATE_CODES[state]||'';}
 // ═══════════════════════════════════════════
 const SCRIPT_URL='https://script.google.com/macros/s/AKfycbwpfwN3NXnsxyOnYUyiMvEYCLJJaqzFqzuIWMSJ2XLucP6LEHZ4nLhGuuew2HtDmEIgbQ/exec';
 const SHEETS={invoices:'Invoices',inventory:'Inventory',purchases:'Purchases',settings:'Settings',tracking:'Tracking',suppliers:'Suppliers',bills:'Bills',supplierTxns:'SupplierTxns'};
+const GITHUB_OWNER='vismaadcreations';
+const GITHUB_REPO='vismaad';
+const GITHUB_BRANCH='main';
+const CAT_SHEET_SCRIPT_URL='https://script.google.com/macros/s/AKfycbwpfwN3NXnsxyOnYUyiMvEYCLJJaqzFqzuIWMSJ2XLucP6LEHZ4nLhGuuew2HtDmEIgbQ/exec'; // same script, catalogue sheet uses separate sheetId param
 
 function lsGet(key,def){try{const v=localStorage.getItem(key);return v?JSON.parse(v):def;}catch(e){return def;}}
 function lsSet(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch(e){console.warn('localStorage full:',e);}}
@@ -1536,19 +1640,39 @@ function gsClearSheet(sheet){
 function flattenInvoice(inv){
   return flattenForSheet(inv);
 }
-function flattenProduct(p){return{...p};}
+function flattenProduct(p){
+  const flat={...p};
+  // Serialize variants array to JSON string for sheet storage
+  if(Array.isArray(flat.variants)){
+    // Strip large base64 blobs — only store githubPath and thumbUrl (small relative URLs)
+    const slim=flat.variants.map(v=>({
+      id:v.id,label:v.label,price:v.price,
+      photos:(v.photos||[]).map(ph=>({id:ph.id,githubPath:ph.githubPath,fullUrl:ph.fullUrl,thumbUrl:ph.thumbUrl}))
+    }));
+    flat.variants=JSON.stringify(slim);
+  }
+  return flat;
+}
 function parseInventoryRow(r){
   let lp=r.linkedProducts;
   if(typeof lp==='string'){
     try{lp=lp.trim()?JSON.parse(lp):[];}catch{
-      // Google Sheets may have stored array as "1,2,3" — split and parse
       lp=lp.split(',').map(n=>parseInt(n.trim())).filter(n=>!isNaN(n));
     }
   }
   if(!Array.isArray(lp))lp=[];
+  // Parse variants
+  let variants=[];
+  if(r.variants){
+    try{
+      const parsed=typeof r.variants==='string'?JSON.parse(r.variants):r.variants;
+      if(Array.isArray(parsed))variants=parsed;
+    }catch{}
+  }
   return{...r,prodNo:parseInt(r.prodNo)||0,qty:parseInt(r.qty)||0,
     qtyOriginal:parseInt(r.qtyOriginal)||0,qtySold:parseInt(r.qtySold)||0,
-    cost:parseFloat(r.cost)||0,sellPrice:parseFloat(r.sellPrice)||0,linkedProducts:lp};
+    cost:parseFloat(r.cost)||0,sellPrice:parseFloat(r.sellPrice)||0,
+    linkedProducts:lp,variants};
 }
 
 
@@ -1731,6 +1855,7 @@ async function syncAll(){
       const rs=remSet[0];
       // Settings: prefer whichever side has a non-empty value; if both present, prefer remote
       // (remote is the shared source of truth across devices)
+      // Note: githubPat, catSheetId, tagline, waNumber are local-only (not synced to sheet for privacy)
       S={
         gstin:rs.gstin||S.gstin||'',
         address:rs.address||S.address||'',
@@ -1739,6 +1864,11 @@ async function syncAll(){
         gstEnabled:rs.gstEnabled!==undefined?(rs.gstEnabled==='true'||rs.gstEnabled===true):
                    (S.gstEnabled!==undefined?S.gstEnabled:true),
         calKey:rs.calKey||S.calKey||'',
+        // Catalogue / GitHub fields — keep local values (not in sheet)
+        githubPat:S.githubPat||'',
+        catSheetId:S.catSheetId||'',
+        tagline:S.tagline||'',
+        waNumber:S.waNumber||'',
       };
       lsSet('vc_s',S);
     }
@@ -2027,6 +2157,14 @@ function loadSettings(){
   });
   const calEl=document.getElementById('ms-cal-key');
   if(calEl&&S.calKey)calEl.value=S.calKey;
+  const tagEl=document.getElementById('ms-tagline');
+  if(tagEl&&S.tagline)tagEl.value=S.tagline;
+  const waEl=document.getElementById('ms-wa-number');
+  if(waEl&&S.waNumber)waEl.value=S.waNumber;
+  const patEl=document.getElementById('ms-gh-pat');
+  if(patEl&&S.githubPat)patEl.value=S.githubPat;
+  const catEl=document.getElementById('ms-cat-sheet-id');
+  if(catEl&&S.catSheetId)catEl.value=S.catSheetId;
   applyGSTMode();
 }
 
@@ -2038,10 +2176,15 @@ function saveSettings(){
     phone:(g('phone')?.value||'').trim(),
     email:(g('email')?.value||'').trim(),
     calKey:(document.getElementById('ms-cal-key')?.value||'').trim(),
+    tagline:(document.getElementById('ms-tagline')?.value||'').trim(),
+    waNumber:(document.getElementById('ms-wa-number')?.value||'').trim(),
+    githubPat:(document.getElementById('ms-gh-pat')?.value||'').trim(),
+    catSheetId:(document.getElementById('ms-cat-sheet-id')?.value||'').trim(),
   };
-  lsSet('vc_s',S);gsWrite(SHEETS.settings,{id:'settings',...S});
+  lsSet('vc_s',S);
+  // Note: githubPat, catSheetId, tagline, waNumber intentionally NOT synced to sheet (privacy)
+  gsWrite(SHEETS.settings,{id:'settings',gstin:S.gstin,address:S.address,phone:S.phone,email:S.email,gstEnabled:S.gstEnabled,calKey:S.calKey});
   applyGSTMode();toast('✅ Settings saved!');loadSettings();
-  // Re-fetch festivals if API key changed
   if(S.calKey)fetchFestivals(true);
 }
 
@@ -3932,21 +4075,29 @@ function renderInventory(){
     const s=parseInt(p.qty)||0,orig=parseInt(p.qtyOriginal)||s;
     const days=getAgeDays(p.dateAdded);const ac=ageColor(days);
     const badge=s===0?'<span class="badge b-red">Sold Out</span>':s<orig?'<span class="badge b-yellow">Partial</span>':'<span class="badge b-green">In Stock</span>';
-    const isSelected=_invPrintSelected.has(parseInt(p.prodNo));
-    return`<div class="list-row" style="${_invPrintMode&&isSelected?'background:var(--goldp);border-radius:10px;':''}" onclick="${_invPrintMode?'toggleInvPrintSelect('+p.prodNo+')':''}">
-      ${_invPrintMode?`<div style="display:flex;align-items:center;padding-right:8px;"><input type="checkbox" ${isSelected?'checked':''} onchange="toggleInvPrintSelect(${p.prodNo})" onclick="event.stopPropagation()" style="width:20px;height:20px;cursor:pointer;accent-color:var(--brown);flex-shrink:0;"/></div>`:''}
+    const isPrintSelected=_invPrintSelected.has(parseInt(p.prodNo));
+    const isCatSelected=_catSelected.has(parseInt(p.prodNo));
+    const varCount=(p.variants||[]).length;
+    const photoCount=(p.variants||[]).reduce((s,v)=>s+(v.photos||[]).length,0);
+    const varBadge=varCount?`<span style="background:var(--goldp);color:var(--brown);padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;">📷 ${varCount}v ${photoCount}p</span>`:'';
+    // Row onclick — print mode, cat mode, or edit
+    const rowClick=_invPrintMode?`toggleInvPrintSelect(${p.prodNo})`:_catMode?`toggleCatSelect(${p.prodNo})`:``;
+    const rowBg=(_invPrintMode&&isPrintSelected)||(_catMode&&isCatSelected)?'background:var(--goldp);border-radius:10px;':'';
+    return`<div class="list-row" style="${rowBg}" onclick="${rowClick}">
+      ${_invPrintMode?`<div style="display:flex;align-items:center;padding-right:8px;"><input type="checkbox" ${isPrintSelected?'checked':''} onchange="toggleInvPrintSelect(${p.prodNo})" onclick="event.stopPropagation()" style="width:20px;height:20px;cursor:pointer;accent-color:var(--brown);flex-shrink:0;"/></div>`:''}
+      ${_catMode?`<div style="display:flex;align-items:center;padding-right:8px;"><div class="cat-sel-check ${isCatSelected?'checked':''}" onclick="event.stopPropagation();toggleCatSelect(${p.prodNo})">${isCatSelected?'✓':''}</div></div>`:''}
       <div style="flex:1;">
-        <div style="display:flex;align-items:center;gap:8px;""><span style="font-size:18px;font-weight:700;color:var(--brown);">#${p.prodNo}</span>${badge}
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-size:18px;font-weight:700;color:var(--brown);">#${p.prodNo}</span>${badge}${varBadge}
         ${s>0?`<span style="background:${ac.bg};color:${ac.fg};padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;">${ac.lbl}</span>`:''}</div>
         <div class="list-main" style="margin-top:3px;">${p.name}</div>
         <div class="list-sub">${p.cost?'Cost ₹'+p.cost+' · ':''} ${s} of ${orig} in stock${p.notes?' · '+p.notes:''}</div>
       </div>
       <div class="list-right">
         ${p.sellPrice?`<div class="list-amt">₹${parseFloat(p.sellPrice).toLocaleString('en-IN')}</div>`:''}
-        <div style="display:flex;gap:6px;margin-top:6px;">
+        ${!_invPrintMode&&!_catMode?`<div style="display:flex;gap:6px;margin-top:6px;">
           <button class="btn btn-o btn-sm" onclick="event.stopPropagation();adjustStock(${p.prodNo})">± Stock</button>
           <button class="btn btn-o btn-sm" onclick="event.stopPropagation();openInvEdit(${p.prodNo})">✏️ Edit</button>
-        </div>
+        </div>`:''}
       </div>
     </div>`;
   }).join('');
@@ -7326,10 +7477,12 @@ function openInvEdit(prodNo) {
   document.getElementById('iem-cost').value = p.cost || '';
   document.getElementById('iem-sell').value = p.sellPrice || '';
   document.getElementById('iem-notes').value = p.notes || '';
+  document.getElementById('iem-reel-url').value = p.reelUrl || '';
   document.getElementById('iem-date-reel').value = p.dateReel || '';
   document.getElementById('iem-date-story1').value = p.dateStory1 || '';
   document.getElementById('iem-date-story2').value = p.dateStory2 || '';
   document.getElementById('iem-sold-link').style.display = 'none';
+  renderVariantsList(p);
   document.getElementById('inv-edit-modal').classList.add('open');
 }
 
@@ -7348,8 +7501,8 @@ function saveInvEdit() {
   p.cost = parseFloat(document.getElementById('iem-cost').value) || 0;
   p.sellPrice = parseFloat(document.getElementById('iem-sell').value) || 0;
   p.notes = document.getElementById('iem-notes').value || '';
+  p.reelUrl = (document.getElementById('iem-reel-url').value || '').trim();
   p.dateAdded = document.getElementById('iem-date').value || p.dateAdded;
-  // Posting dates — save value or preserve existing if field left blank
   const dReel=document.getElementById('iem-date-reel').value;
   const dS1=document.getElementById('iem-date-story1').value;
   const dS2=document.getElementById('iem-date-story2').value;
@@ -7361,9 +7514,12 @@ function saveInvEdit() {
     p.qty = newQty;
     p.qtyOriginal = Math.max(parseInt(p.qtyOriginal) || 0, p.qty + (parseInt(p.qtySold) || 0));
   }
+  // variants already saved live into p.variants by renderVariantsList/addVariant
   p.updatedAt = new Date().toISOString();
   saveStk();
   gsWrite(SHEETS.inventory, flattenProduct(p));
+  // Push to catalogue sheet if configured
+  pushProductToCatalogueSheet(p);
   closeInvEditModal();
   renderInventory(); renderAgingGrid(); updateInventoryStats(); renderPostingQueue();
   toast('✅ Product #' + _editingProdNo + ' updated');
@@ -7438,6 +7594,8 @@ let _invPrintMode = false;
 let _invPrintSelected = new Set();
 
 function toggleInvPrintMode() {
+  // Cancel catalogue mode if active
+  if (_catMode) { _catMode = false; _catSelected.clear(); const cb=document.getElementById('inv-cat-bar');if(cb)cb.style.display='none';const cbtn=document.getElementById('inv-cat-mode-btn');if(cbtn)cbtn.textContent='📖 Catalogue';}
   _invPrintMode = !_invPrintMode;
   _invPrintSelected.clear();
   const bar = document.getElementById('inv-print-bar');
@@ -8288,6 +8446,512 @@ function _buildSuppliersPageHTML() {
 
 // Hook showSubPage for suppliers to re-render after it's mounted
 
+
+
+// ═══════════════════════════════════════════
+// GITHUB API — Photo Upload / Delete
+// ═══════════════════════════════════════════
+async function githubRequest(method, path, body) {
+  const pat = S.githubPat || '';
+  if (!pat) throw new Error('GitHub token not set — add it in Settings → Catalogue Settings');
+  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`;
+  const res = await fetch(url, {
+    method,
+    headers: {
+      'Authorization': `token ${pat}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/vnd.github+json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `GitHub API error ${res.status}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function getGithubFileSha(path) {
+  try {
+    const data = await githubRequest('GET', path);
+    return data.sha || null;
+  } catch { return null; }
+}
+
+// Compress an image File to JPEG at maxPx pixels on longest side, quality 0-1
+function compressImage(file, maxPx, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.width, h = img.height;
+      if (Math.max(w, h) > maxPx) {
+        if (w >= h) { h = Math.round(h * maxPx / w); w = maxPx; }
+        else { w = Math.round(w * maxPx / h); h = maxPx; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => {
+        if (!blob) { reject(new Error('Compression failed')); return; }
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result.split(',')[1]); // base64
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      }, 'image/jpeg', quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image load failed')); };
+    img.src = url;
+  });
+}
+
+async function uploadPhotoToGithub(file, prodNo, variantId, photoId, progressCb) {
+  // Compress full (1200px, 85%) and thumb (400px, 80%)
+  if (progressCb) progressCb(10, 'Compressing…');
+  const [fullB64, thumbB64] = await Promise.all([
+    compressImage(file, 1200, 0.85),
+    compressImage(file, 400, 0.80),
+  ]);
+  if (progressCb) progressCb(40, 'Uploading full…');
+  const ts = Date.now();
+  const fullPath = `assets/products/${prodNo}/${variantId}/${photoId}_full.jpg`;
+  const thumbPath = `assets/products/${prodNo}/${variantId}/${photoId}_thumb.jpg`;
+  const fullUrl = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${fullPath}`;
+  const thumbUrl = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${thumbPath}`;
+
+  await githubRequest('PUT', fullPath, {
+    message: `Add product ${prodNo} variant ${variantId} photo ${photoId} full`,
+    content: fullB64,
+    branch: GITHUB_BRANCH,
+  });
+  if (progressCb) progressCb(75, 'Uploading thumbnail…');
+  await githubRequest('PUT', thumbPath, {
+    message: `Add product ${prodNo} variant ${variantId} photo ${photoId} thumb`,
+    content: thumbB64,
+    branch: GITHUB_BRANCH,
+  });
+  if (progressCb) progressCb(100, 'Done');
+  return { fullPath, thumbPath, fullUrl, thumbUrl };
+}
+
+async function deletePhotoFromGithub(fullPath, thumbPath) {
+  try {
+    const [fullSha, thumbSha] = await Promise.all([
+      getGithubFileSha(fullPath),
+      getGithubFileSha(thumbPath),
+    ]);
+    const reqs = [];
+    if (fullSha) reqs.push(githubRequest('DELETE', fullPath, { message: `Delete ${fullPath}`, sha: fullSha, branch: GITHUB_BRANCH }));
+    if (thumbSha) reqs.push(githubRequest('DELETE', thumbPath, { message: `Delete ${thumbPath}`, sha: thumbSha, branch: GITHUB_BRANCH }));
+    await Promise.all(reqs);
+  } catch (e) { console.warn('GitHub delete failed:', e.message); }
+}
+
+// ═══════════════════════════════════════════
+// VARIANT UI — rendered inside inventory edit modal
+// ═══════════════════════════════════════════
+function renderVariantsList(p) {
+  const el = document.getElementById('iem-variants-list');
+  if (!el) return;
+  const variants = p.variants || [];
+  if (!variants.length) { el.innerHTML = '<div style="font-size:12px;color:#aaa;text-align:center;padding:8px;">No variants yet — tap "Add Colour / Design Variant" below</div>'; return; }
+  el.innerHTML = variants.map((v, vi) => {
+    const photoHtml = (v.photos || []).map((ph, pi) => `
+      <div class="variant-photo-thumb" id="ph-thumb-${v.id}-${ph.id}">
+        <img src="${ph.thumbUrl||ph.fullUrl}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2272%22 height=%2272%22><rect width=%2272%22 height=%2272%22 fill=%22%23eee%22/><text x=%2236%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23aaa%22 font-size=%2211%22>Photo</text></svg>'"/>
+        <button class="variant-photo-del" onclick="deleteVariantPhoto('${v.id}','${ph.id}')" title="Delete photo">✕</button>
+      </div>`).join('');
+    return `<div class="variant-block" id="vblock-${v.id}">
+      <div class="variant-header">
+        <input value="${esc(v.label)}" placeholder="Label e.g. Navy Blue" style="flex:1;padding:8px 10px;border-radius:8px;border:1.5px solid var(--border);font-size:14px;" onchange="updateVariantLabel('${v.id}',this.value)"/>
+        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
+          <span style="font-size:12px;color:#888;">₹</span>
+          <input type="number" value="${v.price||''}" placeholder="${p.sellPrice||0}" style="width:80px;padding:7px 8px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;" onchange="updateVariantPrice('${v.id}',this.value)" title="Price override (leave blank to use product sell price)"/>
+        </div>
+        <button onclick="deleteVariant('${v.id}')" style="border:none;background:none;color:#c0392b;font-size:18px;cursor:pointer;padding:4px 6px;" title="Delete variant">🗑</button>
+      </div>
+      <div class="variant-photos">
+        ${photoHtml}
+        <div class="variant-add-photo" onclick="triggerPhotoUpload('${v.id}')">
+          <span style="font-size:20px;">📷</span>
+          <span>Add Photo</span>
+        </div>
+      </div>
+      <div id="vupload-progress-${v.id}" class="photo-upload-progress" style="display:none;"><div class="photo-upload-progress-bar" id="vpbar-${v.id}" style="width:0%;"></div></div>
+      <div id="vupload-msg-${v.id}" style="font-size:11px;color:#888;margin-top:4px;display:none;"></div>
+    </div>`;
+  }).join('');
+}
+
+function updateVariantLabel(variantId, val) {
+  const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
+  if (!p || !p.variants) return;
+  const v = p.variants.find(x => x.id === variantId);
+  if (v) { v.label = val; saveStk(); }
+}
+
+function updateVariantPrice(variantId, val) {
+  const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
+  if (!p || !p.variants) return;
+  const v = p.variants.find(x => x.id === variantId);
+  if (v) { v.price = parseFloat(val) || null; saveStk(); }
+}
+
+function addVariant() {
+  const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
+  if (!p) return;
+  if (!p.variants) p.variants = [];
+  p.variants.push({ id: 'v' + uid(), label: '', price: null, photos: [] });
+  saveStk();
+  renderVariantsList(p);
+}
+
+function deleteVariant(variantId) {
+  const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
+  if (!p || !p.variants) return;
+  const v = p.variants.find(x => x.id === variantId);
+  if (!v) return;
+  // Delete all photos from GitHub in background
+  (v.photos || []).forEach(ph => {
+    if (ph.githubPath) deletePhotoFromGithub(ph.githubPath, ph.thumbPath || ph.githubPath.replace('_full', '_thumb')).catch(() => {});
+  });
+  p.variants = p.variants.filter(x => x.id !== variantId);
+  saveStk();
+  renderVariantsList(p);
+}
+
+function triggerPhotoUpload(variantId) {
+  // Create hidden file input
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  inp.multiple = true;
+  inp.style.display = 'none';
+  document.body.appendChild(inp);
+  inp.onchange = async () => {
+    const files = Array.from(inp.files || []);
+    inp.remove();
+    if (!files.length) return;
+    if (!S.githubPat) { toast('⚠️ GitHub token not set — add it in Settings → Catalogue Settings'); return; }
+    const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
+    if (!p) return;
+    if (!p.variants) p.variants = [];
+    const v = p.variants.find(x => x.id === variantId);
+    if (!v) return;
+
+    const progBar = document.getElementById('vpbar-' + variantId);
+    const progWrap = document.getElementById('vupload-progress-' + variantId);
+    const progMsg = document.getElementById('vupload-msg-' + variantId);
+    if (progWrap) progWrap.style.display = 'block';
+    if (progMsg) progMsg.style.display = 'block';
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const photoId = 'p' + uid();
+      if (progMsg) progMsg.textContent = `Uploading photo ${i+1} of ${files.length}…`;
+      try {
+        const result = await uploadPhotoToGithub(file, p.prodNo, variantId, photoId, (pct, msg) => {
+          if (progBar) progBar.style.width = Math.round((i / files.length) * 100 + pct / files.length) + '%';
+          if (progMsg) progMsg.textContent = `Photo ${i+1}/${files.length}: ${msg}`;
+        });
+        if (!v.photos) v.photos = [];
+        v.photos.push({ id: photoId, githubPath: result.fullPath, thumbPath: result.thumbPath, fullUrl: result.fullUrl, thumbUrl: result.thumbUrl });
+        saveStk();
+        renderVariantsList(p);
+      } catch (e) {
+        toast('⚠️ Upload failed: ' + e.message, 5000);
+      }
+    }
+    if (progWrap) progWrap.style.display = 'none';
+    if (progMsg) progMsg.style.display = 'none';
+    toast('✅ ' + files.length + ' photo' + (files.length > 1 ? 's' : '') + ' uploaded');
+  };
+  inp.click();
+}
+
+async function deleteVariantPhoto(variantId, photoId) {
+  const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
+  if (!p || !p.variants) return;
+  const v = p.variants.find(x => x.id === variantId);
+  if (!v) return;
+  const ph = (v.photos || []).find(x => x.id === photoId);
+  if (!ph) return;
+  showConfirmModal('🗑 Delete Photo', 'Delete this photo? It will be removed from GitHub too.', async () => {
+    if (ph.githubPath) await deletePhotoFromGithub(ph.githubPath, ph.thumbPath || '').catch(() => {});
+    v.photos = v.photos.filter(x => x.id !== photoId);
+    saveStk();
+    gsWrite(SHEETS.inventory, flattenProduct(p));
+    renderVariantsList(p);
+    toast('🗑 Photo deleted');
+  }, null);
+}
+
+// ═══════════════════════════════════════════
+// CATALOGUE — Mode, Dialog, PDF, Live Page
+// ═══════════════════════════════════════════
+let _catMode = false;
+let _catSelected = new Set();
+let _catShowPrices = true;
+
+function toggleCatalogueMode() {
+  _catMode = !_catMode;
+  _catSelected.clear();
+  const bar = document.getElementById('inv-cat-bar');
+  const btn = document.getElementById('inv-cat-mode-btn');
+  if (bar) bar.style.display = _catMode ? 'block' : 'none';
+  if (btn) btn.textContent = _catMode ? '✕ Cancel' : '📖 Catalogue';
+  renderInventory();
+}
+
+function toggleCatSelect(prodNo) {
+  if (_catSelected.has(prodNo)) _catSelected.delete(prodNo);
+  else _catSelected.add(prodNo);
+  const el = document.getElementById('inv-cat-count');
+  if (el) el.textContent = _catSelected.size + ' selected';
+}
+
+function selectAllInvForCatalogue() {
+  inventory.filter(p => (parseInt(p.qty) || 0) > 0).forEach(p => _catSelected.add(parseInt(p.prodNo)));
+  const el = document.getElementById('inv-cat-count');
+  if (el) el.textContent = _catSelected.size + ' selected';
+  renderInventory();
+}
+
+function toggleCatPriceToggle() {
+  _catShowPrices = !_catShowPrices;
+  const toggle = document.getElementById('cat-price-toggle');
+  const knob = document.getElementById('cat-price-knob');
+  if (toggle) toggle.style.background = _catShowPrices ? 'var(--brown)' : '#ccc';
+  if (knob) knob.style.left = _catShowPrices ? '22px' : '3px';
+}
+
+function openCatalogueDialog() {
+  if (!_catSelected.size) { toast('⚠️ Select at least one product'); return; }
+  _catShowPrices = true;
+  const sub = document.getElementById('cat-gen-sub');
+  if (sub) sub.textContent = _catSelected.size + ' product(s) selected';
+  document.getElementById('cat-gen-title').value = '';
+  const toggle = document.getElementById('cat-price-toggle');
+  const knob = document.getElementById('cat-price-knob');
+  if (toggle) toggle.style.background = 'var(--brown)';
+  if (knob) knob.style.left = '22px';
+  const status = document.getElementById('cat-gen-status');
+  if (status) status.textContent = '';
+  document.getElementById('cat-gen-modal').classList.add('open');
+}
+
+function generateCataloguePDF() {
+  const selected = inventory.filter(p => _catSelected.has(parseInt(p.prodNo)));
+  if (!selected.length) return;
+  const title = (document.getElementById('cat-gen-title')?.value || '').trim() || 'Collection';
+  const showPrices = _catShowPrices;
+  const dateStr = new Date().toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+  const bizName = 'Vismaad Creations';
+  const tagline = S.tagline || 'Premium Unstitched Suits';
+  const logoHtml = logoB64 ? `<img src="${logoB64}" style="height:48px;object-fit:contain;margin-bottom:6px;"/>` : '';
+  const f = n => '₹' + parseFloat(n).toLocaleString('en-IN');
+
+  const productCards = selected.map(p => {
+    const variants = p.variants || [];
+    const inStock = (parseInt(p.qty) || 0) > 0;
+    const stockBadge = inStock
+      ? '<span style="background:#e8f5e9;color:#27ae60;padding:2px 8px;border-radius:8px;font-size:9pt;font-weight:700;">In Stock</span>'
+      : '<span style="background:#fde8e8;color:#c0392b;padding:2px 8px;border-radius:8px;font-size:9pt;font-weight:700;">Sold Out</span>';
+
+    let variantsHtml = '';
+    if (variants.length) {
+      variantsHtml = '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;">' +
+        variants.map(v => {
+          const photos = v.photos || [];
+          const heroPhoto = photos[0];
+          const price = v.price || p.sellPrice;
+          const priceHtml = showPrices && price ? `<div style="font-size:10pt;font-weight:700;color:#5c3d1e;margin-top:4px;">${f(price)}</div>` : '';
+          const labelHtml = v.label ? `<div style="font-size:9pt;color:#888;margin-top:3px;">${esc(v.label)}</div>` : '';
+          const imgHtml = heroPhoto
+            ? `<img src="${heroPhoto.thumbUrl||heroPhoto.fullUrl}" style="width:100%;height:90px;object-fit:cover;border-radius:6px;" onerror="this.style.display='none'"/>`
+            : `<div style="width:100%;height:90px;border-radius:6px;background:#f5e6c8;display:flex;align-items:center;justify-content:center;font-size:10pt;color:#aaa;">No Photo</div>`;
+          const extraPhotos = photos.length > 1
+            ? `<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">${photos.slice(1).map(ph => `<img src="${ph.thumbUrl||ph.fullUrl}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;" onerror="this.style.display='none'"/>`).join('')}</div>` : '';
+          return `<div style="width:110px;">${imgHtml}${extraPhotos}${labelHtml}${priceHtml}</div>`;
+        }).join('') + '</div>';
+    } else if (showPrices && p.sellPrice) {
+      variantsHtml = `<div style="font-size:12pt;font-weight:700;color:#5c3d1e;margin-top:8px;">${f(p.sellPrice)}</div>`;
+    }
+
+    const reelHtml = p.reelUrl ? `<div style="margin-top:8px;font-size:9pt;"><a href="${p.reelUrl}" style="color:#2980b9;">▶ View Reel</a></div>` : '';
+
+    return `<div style="border:1px solid #e2d4bc;border-radius:10px;padding:12px;break-inside:avoid;background:#fff;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <div style="font-size:11pt;font-weight:700;color:#5c3d1e;">#${p.prodNo} — ${esc(p.name)}</div>
+          ${p.fabric ? `<div style="font-size:9pt;color:#888;">${esc(p.fabric)}</div>` : ''}
+        </div>
+        ${stockBadge}
+      </div>
+      ${variantsHtml}
+      ${reelHtml}
+    </div>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;600&display=swap" rel="stylesheet"/>
+    <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    @page{margin:12mm 14mm;}
+    body{font-family:"DM Sans",Arial,sans-serif;font-size:11pt;color:#1a1208;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:16px;}
+    @media(min-width:800px){.grid{grid-template-columns:repeat(3,1fr);}}
+    </style>
+    <script>window.onload=function(){setTimeout(function(){window.print();},1200);};<\/script>
+    </head><body>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;border-bottom:2px solid #e2d4bc;padding-bottom:12px;margin-bottom:4px;">
+      <div>${logoHtml}<div style="font-family:'Playfair Display',serif;font-size:22pt;font-weight:700;color:#5c3d1e;">${bizName}</div><div style="font-size:10pt;color:#888;">${tagline}</div>${S.phone?`<div style="font-size:10pt;color:#888;margin-top:2px;">📞 ${S.phone}</div>`:''}</div>
+      <div style="text-align:right;"><div style="font-size:16pt;font-weight:700;color:#5c3d1e;">${esc(title)}</div><div style="font-size:10pt;color:#888;">${dateStr}</div></div>
+    </div>
+    <div class="grid">${productCards}</div>
+    <div style="margin-top:14px;font-size:9pt;color:#aaa;text-align:center;">${bizName} · ${esc(title)} · ${dateStr}</div>
+    </body></html>`;
+
+  const blob = new Blob([html], {type:'text/html'});
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, '_blank');
+  if (!w) toast('⚠️ Popup blocked — allow popups in browser settings', 5000);
+  else setTimeout(() => URL.revokeObjectURL(url), 60000);
+  document.getElementById('cat-gen-modal').classList.remove('open');
+}
+
+// Push selected products to public catalogue Google Sheet
+async function pushCatalogueToSheet() {
+  const catSheetId = S.catSheetId || '';
+  if (!catSheetId) {
+    toast('⚠️ Catalogue Sheet ID not set — add it in Settings → Catalogue Settings', 5000);
+    return;
+  }
+  const selected = inventory.filter(p => _catSelected.has(parseInt(p.prodNo)));
+  if (!selected.length) { toast('⚠️ No products selected'); return; }
+  const status = document.getElementById('cat-gen-status');
+  if (status) status.textContent = 'Pushing to live catalogue…';
+  // Push each product row to catalogue sheet via the Apps Script
+  // The Apps Script handles catalogue sheet separately using sheetId param
+  let done = 0;
+  for (const p of selected) {
+    const row = buildCatalogueRow(p);
+    await gsWriteToCatalogueSheet(catSheetId, row);
+    done++;
+    if (status) status.textContent = `Pushed ${done}/${selected.length}…`;
+  }
+  if (status) status.textContent = `✅ ${done} products pushed to live catalogue!`;
+  toast('✅ Live catalogue updated — ' + done + ' products');
+}
+
+function buildCatalogueRow(p) {
+  const inStock = (parseInt(p.qty) || 0) > 0;
+  const variants = (p.variants || []).map(v => ({
+    id: v.id, label: v.label, price: v.price,
+    photos: (v.photos || []).map(ph => ({thumbUrl: ph.thumbUrl, fullUrl: ph.fullUrl}))
+  }));
+  return {
+    id: String(p.prodNo),
+    prodNo: p.prodNo,
+    name: p.name || '',
+    fabric: p.fabric || '',
+    sellPrice: p.sellPrice || 0,
+    inStock: inStock ? '1' : '0',
+    reelUrl: p.reelUrl || '',
+    variants: JSON.stringify(variants),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function gsWriteToCatalogueSheet(sheetId, data) {
+  return new Promise(resolve => {
+    const flat = {...data};
+    const payload = JSON.stringify(flat);
+    const cb = '_cat' + Date.now() + Math.floor(Math.random() * 9999);
+    const url = SCRIPT_URL + '?action=write&sheet=Catalogue&sheetId=' + encodeURIComponent(sheetId) + '&data=' + encodeURIComponent(payload) + '&callback=' + cb;
+    const s = document.createElement('script');
+    const timer = setTimeout(() => { delete window[cb]; try{document.head.removeChild(s);}catch{} resolve(false); }, 15000);
+    window[cb] = () => { clearTimeout(timer); delete window[cb]; try{document.head.removeChild(s);}catch{} resolve(true); };
+    s.onerror = () => { clearTimeout(timer); delete window[cb]; resolve(false); };
+    s.src = url; document.head.appendChild(s);
+  });
+}
+
+// Push a single product to catalogue sheet silently (called after product save)
+function pushProductToCatalogueSheet(p) {
+  const catSheetId = S.catSheetId || '';
+  if (!catSheetId) return;
+  gsWriteToCatalogueSheet(catSheetId, buildCatalogueRow(p)).catch(() => {});
+}
+
+// ═══════════════════════════════════════════
+// CLEANUP — Bulk delete sold-out products
+// ═══════════════════════════════════════════
+let _cleanupSelected = new Set();
+
+function openCleanupModal() {
+  const soldOut = inventory.filter(p => (parseInt(p.qty) || 0) === 0);
+  _cleanupSelected.clear();
+  const list = document.getElementById('cleanup-list');
+  const status = document.getElementById('cleanup-status');
+  if (status) status.textContent = '';
+  if (!list) return;
+  if (!soldOut.length) {
+    list.innerHTML = '<div style="color:#aaa;text-align:center;padding:16px;">No sold-out products found.</div>';
+    document.getElementById('cleanup-modal').classList.add('open');
+    return;
+  }
+  list.innerHTML = soldOut.map(p => {
+    const varCount = (p.variants || []).length;
+    const photoCount = (p.variants || []).reduce((s, v) => s + (v.photos || []).length, 0);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
+      <div class="cat-sel-check" id="cls-${p.prodNo}" onclick="toggleCleanupSelect(${p.prodNo})"></div>
+      <div style="flex:1;">
+        <div style="font-size:14px;font-weight:600;">#${p.prodNo} — ${esc(p.name)}</div>
+        <div style="font-size:12px;color:#888;">${p.fabric||''} · Sold ${p.qtySold||0} unit${(p.qtySold||0)!==1?'s':''}${varCount?' · '+varCount+' variant'+(varCount!==1?'s':''):''}${photoCount?' · '+photoCount+' photo'+(photoCount!==1?'s':'')+'  on GitHub':''}</div>
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('cleanup-modal').classList.add('open');
+}
+
+function toggleCleanupSelect(prodNo) {
+  if (_cleanupSelected.has(prodNo)) _cleanupSelected.delete(prodNo);
+  else _cleanupSelected.add(prodNo);
+  const el = document.getElementById('cls-' + prodNo);
+  if (el) { el.classList.toggle('checked', _cleanupSelected.has(prodNo)); el.textContent = _cleanupSelected.has(prodNo) ? '✓' : ''; }
+}
+
+async function confirmCleanup() {
+  if (!_cleanupSelected.size) { toast('⚠️ Select at least one product'); return; }
+  const toDelete = inventory.filter(p => _cleanupSelected.has(parseInt(p.prodNo)));
+  const photoCount = toDelete.reduce((s, p) => s + (p.variants || []).reduce((s2, v) => s2 + (v.photos || []).length, 0), 0);
+  const msg = `Delete ${toDelete.length} product${toDelete.length!==1?'s':''}${photoCount?' and '+photoCount+' GitHub photo'+(photoCount!==1?'s':''):''}? This cannot be undone.`;
+  showConfirmModal('🗑 Confirm Cleanup', msg, async () => {
+    const status = document.getElementById('cleanup-status');
+    if (status) status.textContent = 'Deleting photos from GitHub…';
+    let done = 0;
+    for (const p of toDelete) {
+      // Delete all photos from GitHub
+      for (const v of (p.variants || [])) {
+        for (const ph of (v.photos || [])) {
+          if (ph.githubPath) await deletePhotoFromGithub(ph.githubPath, ph.thumbPath || '').catch(() => {});
+        }
+      }
+      // Delete from inventory and sheet
+      inventory = inventory.filter(x => parseInt(x.prodNo) !== parseInt(p.prodNo));
+      gsDelete(SHEETS.inventory, p.prodNo);
+      done++;
+      if (status) status.textContent = `Deleted ${done}/${toDelete.length}…`;
+    }
+    saveStk();
+    document.getElementById('cleanup-modal').classList.remove('open');
+    renderInventory(); renderAgingGrid(); updateInventoryStats();
+    toast('🗑 Cleaned up ' + done + ' product' + (done !== 1 ? 's' : ''));
+  }, null);
+}
 
 init();
 </script>
