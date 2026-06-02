@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.1
+APP: Vismaad Creations v14.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 02-Jun-2026 — v14.1: Fix tracking WhatsApp share — inline window.open directly in confirm OK callback so browser recognises it as a user gesture; move showLoading to after confirm resolves to prevent overlay blocking the popup.
+LAST_CHANGE: 02-Jun-2026 — v14.2: Add "Share as HTML" catalogue export — generates a fully self-contained HTML file with all product data, photos, carousel, and hardcoded "Buy Now" WhatsApp links baked in; works offline and in WhatsApp in-app browser with no network calls needed. Updated catalogue.html template button label from "Enquire on WhatsApp" to "Buy Now".
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -1293,6 +1293,9 @@ body.gst-mode .gst-only{display:block;}
     </div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="generateCataloguePDF()">🖨️ Print / PDF</button>
+      <button class="btn btn-g" onclick="generateCatalogueHTML()" style="flex:1;">📤 Share as HTML</button>
+    </div>
+    <div class="btn-row" style="margin-top:8px;">
       <button class="btn btn-o" onclick="pushCatalogueToSheet()" style="flex:1;">☁️ Update Live Page</button>
     </div>
     <div id="cat-gen-status" style="font-size:12px;color:#888;margin-top:10px;text-align:center;"></div>
@@ -8865,6 +8868,195 @@ function generateCataloguePDF() {
   if (!w) toast('⚠️ Popup blocked — allow popups in browser settings', 5000);
   else setTimeout(() => URL.revokeObjectURL(url), 60000);
   document.getElementById('cat-gen-modal').classList.remove('open');
+}
+
+// ── GENERATE SELF-CONTAINED SHAREABLE HTML CATALOGUE ──
+function generateCatalogueHTML() {
+  const selected = inventory.filter(p => _catSelected.has(parseInt(p.prodNo)));
+  if (!selected.length) return;
+  const title = (document.getElementById('cat-gen-title')?.value || '').trim() || 'Collection';
+  const showPrices = _catShowPrices;
+  const dateStr = new Date().toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+  const bizName = 'Vismaad Creations';
+  const tagline = S.tagline || 'Premium Unstitched Suits';
+  const waNum = (S.waNumber || S.phone || '').replace(/\D/g,'');
+  const f = n => '₹' + parseFloat(n).toLocaleString('en-IN');
+
+  const productCards = selected.map(p => {
+    const variants = p.variants || [];
+    const inStock = (parseInt(p.qty) || 0) > 0;
+    const stockBadge = inStock
+      ? '<span class="badge b-green">✓ In Stock</span>'
+      : '<span class="badge b-red">Sold Out</span>';
+
+    let variantsHtml = '';
+    if (variants.length) {
+      variantsHtml = '<div class="variants-wrap">' +
+        variants.map((v, vi) => {
+          const photos = v.photos || [];
+          const price = v.price || p.sellPrice;
+          const priceHtml = showPrices && price ? `<span class="variant-price">${f(price)}</span>` : '';
+          const labelHtml = v.label ? `<span class="variant-label">${esc(v.label)}</span>` : `<span class="variant-label">Design ${vi+1}</span>`;
+
+          let photosHtml = '';
+          if (photos.length === 0) {
+            photosHtml = `<div class="photo-single"><div class="no-photo">No photo yet</div></div>`;
+          } else if (photos.length === 1) {
+            photosHtml = `<div class="photo-single"><img src="${esc(photos[0].thumbUrl||photos[0].fullUrl)}" loading="lazy" alt="${esc(v.label||'Product photo')}"/>${!inStock?'<div class="soldout-overlay"><span class="soldout-tag">Sold Out</span></div>':''}</div>`;
+          } else {
+            const cid = `c-${p.prodNo}-${vi}`;
+            const slides = photos.map((ph,pi) =>
+              `<div class="photo-slide"><img src="${esc(ph.thumbUrl||ph.fullUrl)}" loading="lazy" alt="${esc(v.label||'Photo '+pi)}"/></div>`
+            ).join('');
+            const dots = photos.map((_,pi) =>
+              `<div class="carousel-dot ${pi===0?'active':''}" onclick="goTo('${cid}',${pi})"></div>`
+            ).join('');
+            photosHtml = `<div class="photo-carousel" data-carousel="${cid}" data-total="${photos.length}" data-cur="0">
+              <div class="photo-track" id="track-${cid}">${slides}</div>
+              <button class="carousel-btn carousel-prev" onclick="cPrev('${cid}')">‹</button>
+              <button class="carousel-btn carousel-next" onclick="cNext('${cid}')">›</button>
+              ${!inStock?'<div class="soldout-overlay"><span class="soldout-tag">Sold Out</span></div>':''}
+            </div>
+            <div class="carousel-dots" id="dots-${cid}">${dots}</div>`;
+          }
+
+          return `<div class="variant-item">
+            <div class="variant-label-row">${labelHtml}${priceHtml}</div>
+            ${photosHtml}
+          </div>`;
+        }).join('') + '</div>';
+    } else if (showPrices && p.sellPrice) {
+      variantsHtml = `<div style="padding:0 16px 10px;font-size:18px;font-weight:700;color:#5c3d1e;">${f(p.sellPrice)}</div>`;
+    }
+
+    const prodName = p.name || '';
+    const waMsg = `Hi, I'm interested in Product #${p.prodNo} — ${prodName}${variants.length?' (please share available colours/designs)':''}.`;
+    const waUrl = waNum ? `https://wa.me/${waNum}?text=${encodeURIComponent(waMsg)}` : '';
+    const reelUrl = p.reelUrl || '';
+
+    const actionsHtml = `<div class="prod-actions">
+      ${waUrl?`<a href="${waUrl}" class="btn-wa">🛒 Buy Now</a>`:''}
+      ${reelUrl?`<a href="${esc(reelUrl)}" class="btn-reel">▶ View Reel</a>`:''}
+    </div>`;
+
+    return `<div class="prod-card">
+      <div class="prod-info">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div class="prod-no">Article #${p.prodNo}</div>
+          ${stockBadge}
+        </div>
+        <div class="prod-name">${esc(prodName)}</div>
+        ${p.fabric?`<div class="prod-fabric">${esc(p.fabric)}</div>`:''}
+      </div>
+      ${variantsHtml}
+      ${actionsHtml}
+    </div>`;
+  }).join('');
+
+  const logoHtml = logoB64 ? `<img src="${logoB64}" style="height:44px;object-fit:contain;margin-bottom:4px;display:block;"/>` : '';
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>${esc(bizName)} — ${esc(title)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+:root{--cream:#fdf8f2;--warm:#fffdf9;--ink:#1a1208;--brown:#5c3d1e;--gold:#c9933a;--goldp:#f5e6c8;--border:#e2d4bc;--green:#27ae60;--red:#c0392b;}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--ink);min-height:100vh;}
+.hdr{background:var(--brown);color:#fff;padding:16px 20px;text-align:center;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,.2);}
+.hdr-name{font-family:'Playfair Display',serif;font-size:24px;font-weight:700;letter-spacing:.5px;}
+.hdr-tag{font-size:13px;opacity:.8;margin-top:3px;}
+.hdr-phone{font-size:12px;opacity:.7;margin-top:2px;}
+.main{max-width:1100px;margin:0 auto;padding:20px 16px 60px;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px;margin-top:20px;}
+@media(max-width:480px){.grid{grid-template-columns:1fr;}}
+.prod-card{background:var(--warm);border:1.5px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:0 2px 10px rgba(92,61,30,.08);}
+.prod-info{padding:14px 16px;}
+.prod-no{font-size:12px;font-weight:600;color:var(--gold);text-transform:uppercase;letter-spacing:.5px;}
+.prod-name{font-family:'Playfair Display',serif;font-size:17px;font-weight:600;color:var(--brown);margin-top:2px;}
+.prod-fabric{font-size:12px;color:#888;margin-top:2px;}
+.variants-wrap{padding:0 16px 14px;}
+.variant-item{margin-bottom:14px;}
+.variant-label-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.variant-label{font-size:13px;font-weight:600;color:var(--ink);}
+.variant-price{font-size:14px;font-weight:700;color:var(--brown);}
+.photo-single{position:relative;border-radius:10px;overflow:hidden;background:var(--goldp);}
+.photo-single img{width:100%;aspect-ratio:4/5;object-fit:cover;display:block;}
+.no-photo{width:100%;aspect-ratio:4/5;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:13px;background:var(--goldp);}
+.photo-carousel{position:relative;overflow:hidden;border-radius:10px;background:var(--goldp);}
+.photo-track{display:flex;transition:transform .3s ease;}
+.photo-slide{flex-shrink:0;width:100%;}
+.photo-slide img{width:100%;aspect-ratio:4/5;object-fit:cover;display:block;}
+.carousel-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.85);border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.2);}
+.carousel-prev{left:8px;} .carousel-next{right:8px;}
+.carousel-dots{display:flex;justify-content:center;gap:5px;margin-top:6px;}
+.carousel-dot{width:6px;height:6px;border-radius:50%;background:var(--border);cursor:pointer;transition:background .2s;}
+.carousel-dot.active{background:var(--gold);}
+.soldout-overlay{position:absolute;inset:0;background:rgba(26,18,8,.55);display:flex;align-items:center;justify-content:center;border-radius:10px;}
+.soldout-tag{background:var(--red);color:#fff;padding:6px 18px;border-radius:20px;font-size:13px;font-weight:700;}
+.badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;}
+.b-green{background:#dff0d8;color:var(--green);} .b-red{background:#fde8e8;color:var(--red);}
+.prod-actions{display:flex;gap:8px;padding:0 16px 16px;flex-wrap:wrap;}
+.btn-wa{background:#25d366;color:#fff;border:none;border-radius:10px;padding:11px 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;flex:1;justify-content:center;min-height:44px;text-decoration:none;}
+.btn-reel{background:transparent;color:var(--brown);border:1.5px solid var(--brown);border-radius:10px;padding:11px 16px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;flex:1;justify-content:center;min-height:44px;text-decoration:none;}
+.stats-bar{background:var(--warm);border:1px solid var(--border);border-radius:12px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:16px;}
+.stats-item{font-size:13px;color:#888;} .stats-item strong{color:var(--brown);}
+footer{background:var(--brown);color:rgba(255,255,255,.8);text-align:center;padding:24px 20px;font-size:13px;margin-top:40px;}
+footer strong{color:#fff;}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <div>${logoHtml}</div>
+  <div class="hdr-name">${esc(bizName)}</div>
+  <div class="hdr-tag">${esc(tagline)}</div>
+  ${S.phone?`<div class="hdr-phone">📞 ${esc(S.phone)}</div>`:''}
+</div>
+<div class="main">
+  <div class="stats-bar">
+    <div class="stats-item" style="font-family:'Playfair Display',serif;font-size:16px;color:var(--brown);font-weight:600;">${esc(title)}</div>
+    <div class="stats-item">🧵 <strong>${selected.length}</strong> designs · <span style="font-size:12px;">${dateStr}</span></div>
+  </div>
+  <div class="grid">${productCards}</div>
+</div>
+<footer>
+  <strong>${esc(bizName)}</strong>${S.phone?`<br/>${esc(S.phone)}`:''}
+</footer>
+<script>
+function goTo(id,idx){
+  const el=document.querySelector('[data-carousel="'+id+'"]');if(!el)return;
+  const total=parseInt(el.dataset.total)||1;
+  idx=Math.max(0,Math.min(total-1,idx));
+  el.dataset.cur=idx;
+  const t=document.getElementById('track-'+id);if(t)t.style.transform='translateX(-'+(idx*100)+'%)';
+  const d=document.getElementById('dots-'+id);if(d)d.querySelectorAll('.carousel-dot').forEach((x,i)=>x.classList.toggle('active',i===idx));
+}
+function cPrev(id){const el=document.querySelector('[data-carousel="'+id+'"]');if(!el)return;const c=parseInt(el.dataset.cur)||0,t=parseInt(el.dataset.total)||1;goTo(id,(c-1+t)%t);}
+function cNext(id){const el=document.querySelector('[data-carousel="'+id+'"]');if(!el)return;const c=parseInt(el.dataset.cur)||0,t=parseInt(el.dataset.total)||1;goTo(id,(c+1)%t);}
+let _tx=0;
+document.addEventListener('touchstart',e=>{_tx=e.touches[0].clientX;},{passive:true});
+document.addEventListener('touchend',e=>{
+  const dx=e.changedTouches[0].clientX-_tx;if(Math.abs(dx)<40)return;
+  const car=e.target.closest('[data-carousel]');if(!car)return;
+  const id=car.dataset.carousel;if(dx>0)cPrev(id);else cNext(id);
+},{passive:true});
+<\/script>
+</body>
+</html>`;
+
+  const safeName = (bizName + ' — ' + title).replace(/[^a-zA-Z0-9 _\-]/g, '').trim();
+  const blob = new Blob([html], {type:'text/html'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = safeName + '.html';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 10000);
+  document.getElementById('cat-gen-modal').classList.remove('open');
+  toast('✅ Catalogue downloaded — share the HTML file on WhatsApp!', 4000);
 }
 
 // Push selected products to public catalogue Google Sheet
