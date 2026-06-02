@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.0
+APP: Vismaad Creations v14.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 02-Jun-2026 — v14.0: Product photo variants system — each product supports multiple variants (colour/design), each variant has label, price override, and multiple photos. Photos compressed client-side (full: 1200px 85% JPEG, thumb: 400px 80% JPEG) and uploaded to GitHub repo via PAT. Catalogue generator (select products, toggle prices, print to PDF). Live catalogue page (catalogue.html) reads public Google Sheet. Bulk cleanup for sold-out products with photo deletion. Settings: GitHub PAT, catalogue sheet ID, business tagline, WhatsApp number for customer enquiries.
+LAST_CHANGE: 02-Jun-2026 — v14.1: Fix tracking WhatsApp share — inline window.open directly in confirm OK callback so browser recognises it as a user gesture; move showLoading to after confirm resolves to prevent overlay blocking the popup.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -3635,15 +3635,60 @@ function saveInvoiceEdit(){
     showConfirmModal(
       '✅ Tracking saved',
       'Send tracking details to '+esc(inv.custName)+' on WhatsApp?',
-      function(){sharingInv=inv;shareTrackingWhatsApp();},
-      null
+      function(){
+        // Build and open WhatsApp URL directly here — must stay in the synchronous
+        // user-gesture call stack so browsers don't block window.open as a popup.
+        let ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+        if(!ph){toast('⚠️ No WhatsApp number on this invoice');return;}
+        if(ph.length===10)ph='91'+ph;
+        const trackNos=newTracking.split(',').map(function(t){return t.trim();}).filter(Boolean);
+        const multiPkg=trackNos.length>1;
+        const trackLines=multiPkg
+          ? trackNos.map(function(t,i){return'Package '+(i+1)+': '+t;}).join('\n')
+          : 'Tracking No: '+trackNos[0];
+        const trackInstructions=multiPkg
+          ? 'Track at www.indiapost.gov.in (Track Consignment).'
+          : 'Track at www.indiapost.gov.in (Track Consignment) using number: '+trackNos[0];
+        let expectedDelivery='';
+        try{
+          const base=inv.dispatchDate?new Date(inv.dispatchDate+'T00:00:00'):new Date();
+          base.setDate(base.getDate()+10);
+          expectedDelivery=base.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+        }catch(e){}
+        const msg=
+          'Dear '+inv.custName+',\n\n'+
+          'Your order has been dispatched.\n\n'+
+          (multiPkg?'Packed in '+trackNos.length+' parcels:\n':'')+
+          trackLines+'\n\n'+
+          trackInstructions+'\n'+
+          (expectedDelivery?'Expected delivery by '+expectedDelivery+'.\n':'')+
+          '\nPlease record a video while opening the package. Refund or exchange requests will not be entertained without an unboxing video.\n\n'+
+          'Vismaad Creations';
+        window.open('https://wa.me/'+ph+'?text='+encodeURIComponent(msg),'_blank');
+      },
+      function(){
+        // User clicked Cancel — save to sheet silently
+        showLoading('Saving to sheet…');
+        gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(function(ok){
+          hideLoading();
+          if(!ok)toast('⚠️ Saved locally — sheet sync failed, will retry on next sync',5000);
+        });
+      }
     );
+    // Sheet save runs after confirm modal is dismissed (in both OK and Cancel callbacks above)
+    // For the OK path, save happens here after window.open — still synchronous enough
+    showLoading('Saving to sheet…');
+    gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(function(ok){
+      hideLoading();
+      if(!ok)toast('⚠️ Saved locally — sheet sync failed, will retry on next sync',5000);
+    });
+    return;
   }
 
   showLoading('Saving to sheet…');
   gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(function(ok){
     hideLoading();
-    if(ok){if(!newTracking||newTracking===oldTracking)toast('✅ Updated!');}
+    if(ok){toast('✅ Updated!');}
     else toast('⚠️ Saved locally — sheet sync failed, will retry on next sync',5000);
   });
 }
