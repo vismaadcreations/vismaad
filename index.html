@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v12.9
+APP: Vismaad Creations v13.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend
-LAST_CHANGE: 01-Jun-2026 — v12.9: Invoice item rows now support product name search (partial match via datalist) in addition to product number autofill; selecting from name dropdown fills description, price, and cost just like number lookup.
+LAST_CHANGE: 02-Jun-2026 — v13.0: Fixed all 7 cross-device sync issues: (1) invUpdatedAt set on invoice creation, (2) invUpdatedAt set when toggling shipped/pending, (3) trackingData locks Delivered status and remote wins on equal timestamps, (4) purchases use updatedAt-wins merge with updatedAt on save, (5) MessageLog uses updatedAt-wins merge, (6) CreditNotes use updatedAt-wins merge with updatedAt on creation, (7) sync push-back only writes records modified since last sync to prevent race conditions.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -1590,10 +1590,12 @@ async function syncAll(){
             // Remote is strictly newer — trust remote isShipped
             local.isShipped=remShipped;
             local.status=remShipped?'Shipped':'Pending';
-          } else if(!locTime&&!localShipped){
-            // No timestamps on either side — only overwrite if local isn't already shipped
-            local.isShipped=remShipped;
-            local.status=remShipped?'Shipped':'Pending';
+            local.invUpdatedAt=r.invUpdatedAt; // keep newer timestamp
+          } else if(!locTime&&!remTime){
+            // No timestamps on either side — remote wins only if not locally shipped
+            // Backfill timestamp so future syncs can resolve correctly
+            if(!localShipped){local.isShipped=remShipped;local.status=remShipped?'Shipped':'Pending';}
+            local.invUpdatedAt=new Date().toISOString();
           }
           // else: local timestamp is newer or local is already shipped — keep local
           if(r.tracking&&!local.tracking)local.tracking=r.tracking;
@@ -1641,9 +1643,18 @@ async function syncAll(){
       setTimeout(()=>toast(msg,4000),1200);
     }
 
-    // PURCHASES — merge
+    // PURCHASES — newer updatedAt wins; remote-only items added
     const pm={};purchases.forEach(l=>{pm[String(l.id)]=l;});
-    remPur.forEach(r=>{if(r.id&&!pm[String(r.id)])pm[String(r.id)]=r;});
+    remPur.forEach(r=>{
+      if(!r.id)return;
+      const key=String(r.id);
+      if(!pm[key]){pm[key]=r;}
+      else{
+        const remTime=r.updatedAt?new Date(r.updatedAt).getTime():0;
+        const locTime=pm[key].updatedAt?new Date(pm[key].updatedAt).getTime():0;
+        if(remTime>locTime)pm[key]=r;
+      }
+    });
     purchases=Object.values(pm).sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
 
     // SUPPLIERS — newer updatedAt wins; remote-only items added
@@ -1698,11 +1709,20 @@ async function syncAll(){
       }
     });
     supplierTxns=Object.values(stxnm);
-    // CREDIT NOTES — merge (remote adds new, local wins for same id; CNs are immutable once issued)
+    // CREDIT NOTES — newer updatedAt wins; remote-only items added
     try{
       const remCN=await gsRead('CreditNotes');
       const cnm={};creditNotes.forEach(c=>{cnm[String(c.id)]=c;});
-      remCN.forEach(r=>{if(r.id&&!cnm[String(r.id)])cnm[String(r.id)]=r;});
+      remCN.forEach(r=>{
+        if(!r.id)return;
+        const key=String(r.id);
+        if(!cnm[key]){cnm[key]=r;}
+        else{
+          const remTime=r.updatedAt?new Date(r.updatedAt).getTime():0;
+          const locTime=cnm[key].updatedAt?new Date(cnm[key].updatedAt).getTime():0;
+          if(remTime>locTime)cnm[key]=r;
+        }
+      });
       creditNotes=Object.values(cnm).sort((a,b)=>(a.cnDate||'')>(b.cnDate||'')?1:-1);
       saveCNs();
     }catch(e){console.warn('CreditNotes sync failed:',e.message);}
@@ -1751,7 +1771,12 @@ async function syncAll(){
       const local=trackingData[key];
       const remTime=rd.updatedAt?new Date(rd.updatedAt).getTime():0;
       const locTime=local&&local.updatedAt?new Date(local.updatedAt).getTime():0;
-      if(!local||remTime>locTime)trackingData[key]=rd;
+      // Never overwrite a locally-Delivered status with a non-Delivered remote entry
+      const localDelivered=local&&(local.status||'').toLowerCase().includes('delivered');
+      const remDelivered=(rd.status||'').toLowerCase().includes('delivered');
+      if(localDelivered&&!remDelivered)return; // lock delivered
+      // Remote wins if newer OR equal (avoids stale local persisting indefinitely)
+      if(!local||remTime>=locTime)trackingData[key]=rd;
     });
     saveTracking();
 
@@ -1759,20 +1784,24 @@ async function syncAll(){
     try{
       const remMsgLog=await gsRead('MessageLog');
       if(remMsgLog&&remMsgLog.length){
-        const localKeys=new Set(msgLog.map(l=>l.phone+'_'+l.type+'_'+l.year));
+        const localMap={};msgLog.forEach(l=>{localMap[l.phone+'_'+l.type+'_'+l.year]=l;});
         let changed=false;
         remMsgLog.forEach(r=>{
           if(!r.phone||!r.type)return;
           const key=r.phone+'_'+r.type+'_'+r.year;
-          if(!localKeys.has(key)){
-            msgLog.push({phone:r.phone,type:r.type,year:r.year,sentDate:r.sentDate||'',name:r.name||''});
-            localKeys.add(key);
-            changed=true;
-            // If it's a review_never flag, also update the local never-map
+          const local=localMap[key];
+          const remTime=r.updatedAt?new Date(r.updatedAt).getTime():0;
+          const locTime=local&&local.updatedAt?new Date(local.updatedAt).getTime():0;
+          if(!local){
+            const entry={phone:r.phone,type:r.type,year:r.year,sentDate:r.sentDate||'',name:r.name||'',updatedAt:r.updatedAt||''};
+            msgLog.push(entry);localMap[key]=entry;changed=true;
             if(r.type==='review_never'&&r.phone){
               const nv=getReviewNever();
               if(!nv[r.phone]){nv[r.phone]=true;saveReviewNever(nv);}
             }
+          } else if(remTime>locTime){
+            Object.assign(local,{sentDate:r.sentDate||'',name:r.name||'',updatedAt:r.updatedAt||''});
+            changed=true;
           }
         });
         if(changed)saveMsgLog();
@@ -1781,21 +1810,27 @@ async function syncAll(){
 
     save();saveStk();savePur();saveSup();saveBills();
 
-    // Push small datasets back — inventory and purchases only
-    // Invoices are already in sheet from when they were saved individually
-    inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
-    purchases.forEach(p=>gsWrite(SHEETS.purchases,p));
-    suppliers.forEach(s=>gsWrite(SHEETS.suppliers,s));
-    bills.forEach(b=>gsWrite(SHEETS.bills,{...b,payments:JSON.stringify(b.payments||[])}));
-    supplierTxns.forEach(t=>gsWrite(SHEETS.supplierTxns,t));
+    // Push back only records modified since last successful sync — avoids race condition
+    // on concurrent device writes. lastSyncTime is set at end of a successful sync.
+    const lastSync=lsGet('vc_last_sync_time',0);
+    const needsPush=(updatedAt)=>{
+      if(!updatedAt)return true; // no timestamp = legacy record, always push once
+      return new Date(updatedAt).getTime()>lastSync;
+    };
+    inventory.filter(p=>needsPush(p.updatedAt)).forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
+    purchases.filter(p=>needsPush(p.updatedAt)).forEach(p=>gsWrite(SHEETS.purchases,p));
+    suppliers.filter(s=>needsPush(s.updatedAt)).forEach(s=>gsWrite(SHEETS.suppliers,s));
+    bills.filter(b=>needsPush(b.updatedAt)).forEach(b=>gsWrite(SHEETS.bills,{...b,payments:JSON.stringify(b.payments||[])}));
+    supplierTxns.filter(t=>needsPush(t.updatedAt)).forEach(t=>gsWrite(SHEETS.supplierTxns,t));
     if(S.gstin)gsWrite(SHEETS.settings,{id:'settings',...S});
-    creditNotes.forEach(cn=>gsWrite('CreditNotes',cn));
-    // Push tracking — one row per article (no URL length limit)
-    Object.entries(trackingData).forEach(([key,td])=>{
+    creditNotes.filter(cn=>needsPush(cn.updatedAt)).forEach(cn=>gsWrite('CreditNotes',cn));
+    // Push tracking — only entries updated since last sync
+    Object.entries(trackingData).filter(([,td])=>needsPush(td.updatedAt)).forEach(([key,td])=>{
       gsWrite(SHEETS.tracking,{id:key,...td});
     });
 
     try{localStorage.removeItem('vc_inv_cleared');}catch(e){};
+    lsSet('vc_last_sync_time',Date.now());
     setInvNumber();
     setSyncStatus('ok');
     const banner=document.getElementById('dash-sync-banner');
@@ -2339,6 +2374,7 @@ function generateInvoice(){
     isShipped:false,status:'Pending',
     costPrice:itemsCostTotal,
     religion:getAutoReligion(custName,custPhone,custWhatsapp),
+    invUpdatedAt:new Date().toISOString(),
   };
   invoices.push(saved);save();
 
@@ -2743,7 +2779,7 @@ function toggleSelectAll(cb){document.querySelectorAll('.sale-cb').forEach(c=>c.
 function getSelectedInvoices(){return[...document.querySelectorAll('.sale-cb:checked')].map(c=>salesFiltered[parseInt(c.dataset.idx)]).filter(Boolean);}
 function bulkMarkShipped(shipped){
   const sel=getSelectedInvoices();if(!sel.length){toast('⚠️ Select at least one invoice');return;}
-  sel.forEach(inv=>{inv.isShipped=shipped;inv.status=shipped?'Shipped':'Pending';});
+  sel.forEach(inv=>{inv.isShipped=shipped;inv.status=shipped?'Shipped':'Pending';inv.invUpdatedAt=new Date().toISOString();});
   save();renderSales();
   toast((shipped?'🚚 Marking shipped: ':'↩ Marking pending: ')+sel.length+'…');
   // Write all with confirmed writes sequentially
@@ -2816,7 +2852,7 @@ function printInvoiceByIdx(idx){
 }
 function toggleShippedByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
-  inv.isShipped=!inv.isShipped;inv.status=inv.isShipped?'Shipped':'Pending';
+  inv.isShipped=!inv.isShipped;inv.status=inv.isShipped?'Shipped':'Pending';inv.invUpdatedAt=new Date().toISOString();
   save();
   // Use confirmed write so status definitely lands in Google Sheets
   gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{
@@ -3568,6 +3604,7 @@ function saveCreditNote(){
     gstReversed:gst?parseFloat((amt-amt/1.05).toFixed(2)):0,
     taxableReversed:gst?parseFloat((amt/1.05).toFixed(2)):amt,
     notes:document.getElementById('cn-notes')?.value||'',
+    updatedAt:new Date().toISOString(),
   };
   creditNotes.push(cn);
   saveCNs();
@@ -4391,7 +4428,8 @@ function savePurchaseEntry(){
   const entry={id:uid(),type:'purchase',date:document.getElementById('pp-date')?.value||today(),supplier:sup,
     desc:document.getElementById('pp-desc')?.value||'Suit Purchase',qty:parseInt(document.getElementById('pp-qty')?.value)||0,
     amount:amt,gstRate:document.getElementById('pp-gst')?.value,gstAmt:parseFloat(document.getElementById('pp-itc')?.value)||0,
-    supGstin:(document.getElementById('pp-gstin')?.value||'').toUpperCase(),billNo:document.getElementById('pp-billno')?.value||''};
+    supGstin:(document.getElementById('pp-gstin')?.value||'').toUpperCase(),billNo:document.getElementById('pp-billno')?.value||'',
+    updatedAt:new Date().toISOString()};
   purchases.push(entry);savePur();gsWrite(SHEETS.purchases,entry);
   toast('✅ Purchase saved!');showSubPage('purchases');
 }
@@ -5703,12 +5741,13 @@ function hasSentMsg(phone,type,year){
 }
 function logMsg(phone,type,year,name){
   // Avoid duplicate entries locally
+  const now=new Date().toISOString();
   if(!msgLog.some(l=>l.phone===phone&&l.type===type&&(year?l.year===year:true))){
-    msgLog.push({phone,type,year,sentDate:today(),name:name||''});
+    msgLog.push({phone,type,year,sentDate:today(),name:name||'',updatedAt:now});
     saveMsgLog();
   }
   // Always push to sheet so other devices pick it up on sync
-  gsWrite('MessageLog',{id:phone+'_'+type+'_'+year,phone,type,year,sentDate:today(),name:name||''});
+  gsWrite('MessageLog',{id:phone+'_'+type+'_'+year,phone,type,year,sentDate:today(),name:name||'',updatedAt:now});
 }
 // Registry-based version — avoids inline string bugs
 function logMsgAR(arKey){
