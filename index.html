@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.2
+APP: Vismaad Creations v14.3
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 02-Jun-2026 — v14.2: Add "Share as HTML" catalogue export — generates a fully self-contained HTML file with all product data, photos, carousel, and hardcoded "Buy Now" WhatsApp links baked in; works offline and in WhatsApp in-app browser with no network calls needed. Updated catalogue.html template button label from "Enquire on WhatsApp" to "Buy Now".
+LAST_CHANGE: 03-Jun-2026 — v14.3: Per-variant stock (qty) tracking. Each colour/design variant now has its own qty (default 1 for existing variants). Product-level qty auto-computed as sum of variant qtys. Invoice item row shows variant picker when a product with variants is selected — auto-deducts from that variant on save. Mark Sold (both standalone and link-to-invoice) also prompts for variant selection. Catalogue: sold-out variants show with overlay; toggle to hide sold-out variants; products with all variants sold out are hidden from catalogue. buildCatalogueRow filters to available variants only.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -971,7 +971,7 @@ body.gst-mode .gst-only{display:block;}
     <div class="fg"><label>Product Name *</label><input id="iem-name" placeholder="Product name"/></div>
     <div class="fg"><label>Fabric Type</label><input id="iem-fabric" placeholder="e.g. Georgette, Silk"/></div>
     <div class="row3">
-      <div class="fg"><label>Qty in Stock</label><input type="number" id="iem-qty" min="0"/></div>
+      <div class="fg"><label>Qty in Stock <span id="iem-qty-note" style="font-weight:400;color:#888;font-size:10px;text-transform:none;letter-spacing:0;">(auto from variants)</span></label><input type="number" id="iem-qty" min="0"/></div>
       <div class="fg"><label>Cost Price (incl. 5% GST)</label><input type="number" id="iem-cost" placeholder="0"/></div>
       <div class="fg"><label>Sell Price (₹)</label><input type="number" id="iem-sell" placeholder="0"/></div>
     </div>
@@ -1011,6 +1011,17 @@ body.gst-mode .gst-only{display:block;}
       <button class="btn btn-p" onclick="saveInvEdit()">Save Changes</button>
       <button class="btn btn-d btn-sm" onclick="deleteInvProduct()" style="width:auto;padding:13px 16px;">Delete</button>
     </div>
+  </div>
+</div>
+
+<!-- ════ VARIANT PICKER MODAL ════ -->
+<div class="modal-bg" id="variant-picker-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeVariantPickerModal()">✕</button>
+    <div class="modal-title" id="vpm-title">🎨 Which Colour / Design?</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px;" id="vpm-subtitle"></div>
+    <div id="vpm-variant-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;"></div>
+    <button class="btn btn-o" onclick="closeVariantPickerModal()" style="width:auto;padding:13px 16px;">Cancel</button>
   </div>
 </div>
 
@@ -1287,6 +1298,20 @@ body.gst-mode .gst-only{display:block;}
           <div id="cat-price-toggle" onclick="toggleCatPriceToggle()"
             style="width:48px;height:26px;border-radius:13px;background:var(--brown);cursor:pointer;position:relative;transition:background .2s;">
             <div id="cat-price-knob" style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .2s;left:22px;"></div>
+          </div>
+        </label>
+      </div>
+    </div>
+    <div style="background:var(--goldp);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--brown);">Hide Sold-Out Variants</div>
+          <div style="font-size:12px;color:#888;margin-top:2px;">Don't show colours/designs that are sold out</div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <div id="cat-so-toggle" onclick="toggleCatHideSoldOut()"
+            style="width:48px;height:26px;border-radius:13px;background:#ccc;cursor:pointer;position:relative;transition:background .2s;">
+            <div id="cat-so-knob" style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .2s;"></div>
           </div>
         </label>
       </div>
@@ -2052,6 +2077,15 @@ function init(){
       }
     });
     save();
+    // MIGRATION v14.3: default variant qty to 1 for existing variants that have no qty set
+    let _varMigrated = 0;
+    inventory.forEach(p => {
+      if (!p.variants || !p.variants.length) return;
+      let changed = false;
+      p.variants.forEach(v => { if (v.qty === undefined || v.qty === null) { v.qty = 1; changed = true; _varMigrated++; } });
+      if (changed) recalcProductQtyFromVariants(p);
+    });
+    if (_varMigrated > 0) saveStk();
     // Cleanup: remove any wrongly set Hindu override for Sikh names (Singh/Kaur)
     const _ov=lsGet('vc_religion_overrides',{});
     let _fixed=false;
@@ -2340,16 +2374,18 @@ function updateItem(id,f,v){
 }
 function lookupProduct(rowId,val){
   const num=parseInt(val);const it=items.find(i=>i.id===rowId);if(!it)return;
-  if(!num){it.desc='Unstitched Suit';const d=document.getElementById('idesc-'+rowId);if(d)d.value='Unstitched Suit';return;}
+  if(!num){it.desc='Unstitched Suit';it.prodNo='';it.variantId=null;it.variantLabel=null;
+    const d=document.getElementById('idesc-'+rowId);if(d)d.value='Unstitched Suit';
+    renderVariantDropdown(rowId, null); return;}
   const prod=inventory.find(p=>parseInt(p.prodNo)===num);
   if(prod){
-    it.desc=prod.name;
+    it.desc=prod.name;it.prodNo=num;it.variantId=null;it.variantLabel=null;
     if(!it.unitPrice&&prod.sellPrice){it.unitPrice=prod.sellPrice;const pr=document.getElementById('iprice-'+rowId);if(pr)pr.value=prod.sellPrice;}
     if(prod.cost){it.costPrice=prod.cost;const cr=document.getElementById('icost-'+rowId);if(cr){cr.value=prod.cost;cr.style.background='#f0faf4';}}
     const d=document.getElementById('idesc-'+rowId);if(d){d.value=prod.name;d.style.background='#f0faf4';}
     const tot=document.getElementById('itot-'+rowId);if(tot)tot.textContent='₹'+((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN');
-    // Clear name search field to avoid stale text
     const nf=document.getElementById('iname-'+rowId);if(nf)nf.value='';
+    renderVariantDropdown(rowId, prod);
     recalc();toast('✅ #'+num+': '+prod.name);
   }
 }
@@ -2359,29 +2395,80 @@ function buildProdNameOptions(){
 }
 function lookupProductByName(rowId,val){
   if(!val)return;
-  // Match option format: "#N — Name"
   const m=val.match(/^#(\d+)\s*—/);
   if(!m)return;
   const num=parseInt(m[1]);
   const prod=inventory.find(p=>parseInt(p.prodNo)===num);
   if(!prod)return;
   const it=items.find(i=>i.id===rowId);if(!it)return;
-  it.prodNo=num;it.desc=prod.name;
-  // Fill product number input
+  it.prodNo=num;it.desc=prod.name;it.variantId=null;it.variantLabel=null;
   const pnInput=document.querySelector('#irow-'+rowId+' input[type="number"]');
   if(pnInput)pnInput.value=num;
   if(!it.unitPrice&&prod.sellPrice){it.unitPrice=prod.sellPrice;const pr=document.getElementById('iprice-'+rowId);if(pr)pr.value=prod.sellPrice;}
   if(prod.cost){it.costPrice=prod.cost;const cr=document.getElementById('icost-'+rowId);if(cr){cr.value=prod.cost;cr.style.background='#f0faf4';}}
   const d=document.getElementById('idesc-'+rowId);if(d){d.value=prod.name;d.style.background='#f0faf4';}
   const tot=document.getElementById('itot-'+rowId);if(tot)tot.textContent='₹'+((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN');
-  // Clear name field after selection so it doesn't show the full option string
   setTimeout(()=>{const nf=document.getElementById('iname-'+rowId);if(nf)nf.value='';},200);
+  renderVariantDropdown(rowId, prod);
   recalc();toast('✅ #'+num+': '+prod.name);
 }
 
-// ═══════════════════════════════════════════
-// CALCULATIONS
-// ═══════════════════════════════════════════
+// Render variant selector inside an invoice item row
+function renderVariantDropdown(rowId, prod) {
+  const it = items.find(i => i.id === rowId);
+  let container = document.getElementById('ivariant-' + rowId);
+  if (!prod || !prod.variants || !prod.variants.length) {
+    if (container) container.remove();
+    return;
+  }
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'ivariant-' + rowId;
+    const row = document.getElementById('irow-' + rowId);
+    if (row) row.appendChild(container);
+  }
+  const variants = prod.variants;
+  const opts = variants.map(v => {
+    const vQty = parseInt(v.qty) || 0;
+    const label = v.label || 'Design (unlabelled)';
+    const isOut = vQty === 0;
+    return `<option value="${v.id}" data-label="${esc(label)}" ${isOut?'disabled':''} ${it&&it.variantId===v.id?'selected':''}>${label}${isOut?' (Sold Out)':' (Qty: '+vQty+')'}</option>`;
+  }).join('');
+  container.innerHTML = `<div class="fg" style="margin-top:8px;margin-bottom:0;">
+    <label>Colour / Design *</label>
+    <select onchange="selectInvoiceVariant(${rowId}, this.value, this.options[this.selectedIndex].dataset.label)" style="padding:11px 12px;border-radius:10px;border:1.5px solid var(--gold);background:var(--cream);font-size:14px;">
+      <option value="">— Select colour/design —</option>
+      ${opts}
+    </select>
+  </div>`;
+  // Re-select if already set
+  if (it && it.variantId) {
+    const sel = container.querySelector('select');
+    if (sel) sel.value = it.variantId;
+  }
+}
+
+function selectInvoiceVariant(rowId, variantId, variantLabel) {
+  const it = items.find(i => i.id === rowId);
+  if (!it) return;
+  it.variantId = variantId || null;
+  it.variantLabel = variantLabel || null;
+  // If variant has a price override, use it
+  if (variantId) {
+    const prod = inventory.find(p => parseInt(p.prodNo) === parseInt(it.prodNo));
+    if (prod) {
+      const v = (prod.variants || []).find(x => x.id === variantId);
+      if (v && v.price) {
+        it.unitPrice = v.price;
+        const pr = document.getElementById('iprice-' + rowId);
+        if (pr) { pr.value = v.price; pr.style.background = '#f0faf4'; }
+        const tot = document.getElementById('itot-' + rowId);
+        if (tot) tot.textContent = '₹' + ((it.qty||1) * (it.unitPrice||0)).toLocaleString('en-IN');
+        recalc();
+      }
+    }
+  }
+}
 function calcTotals(arr,ship,disc){
   const suits=arr.reduce((s,i)=>s+(i.qty||1)*(i.unitPrice||0),0);
   const grand=suits+ship-disc;
@@ -2514,7 +2601,7 @@ function generateInvoice(){
     dispatchMethod,courierName,channel,
     grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
     itemCount:validItems.length,
-    itemsSummary:validItems.map(i=>`${i.desc} x${i.qty} @₹${i.unitPrice}`).join(' | '),
+    itemsSummary:validItems.map(i=>`${i.desc}${i.variantLabel?' ('+i.variantLabel+')':''} x${i.qty} @₹${i.unitPrice}`).join(' | '),
     itemsArr:validItems,
     gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,
     isShipped:false,status:'Pending',
@@ -2524,12 +2611,19 @@ function generateInvoice(){
   };
   invoices.push(saved);save();
 
-  // Deduct inventory
+  // Deduct inventory — per variant if variant was selected on the item row
   validItems.forEach(it=>{
     const num=parseInt(it.prodNo);if(!num)return;
     const prod=inventory.find(p=>parseInt(p.prodNo)===num);if(!prod)return;
     prod.qtySold=(prod.qtySold||0)+(it.qty||1);
-    prod.qty=Math.max(0,(prod.qty||0)-(it.qty||1));
+    if (it.variantId && prod.variants) {
+      // Deduct from the specific variant (qty on invoice row = 1 for suit items)
+      const v = prod.variants.find(x => x.id === it.variantId);
+      if (v) { v.qty = Math.max(0, (parseInt(v.qty)||0) - (it.qty||1)); }
+      recalcProductQtyFromVariants(prod);
+    } else {
+      prod.qty=Math.max(0,(prod.qty||0)-(it.qty||1));
+    }
     prod.updatedAt=new Date().toISOString();
   });
   saveStk();
@@ -7522,6 +7616,20 @@ function openInvEdit(prodNo) {
   document.getElementById('iem-name').value = p.name || '';
   document.getElementById('iem-fabric').value = p.fabric || '';
   document.getElementById('iem-qty').value = p.qty !== undefined ? p.qty : '';
+  // If product has variants, qty is auto-computed — make it readonly
+  const qtyEl = document.getElementById('iem-qty');
+  const qtyNote = document.getElementById('iem-qty-note');
+  if (p.variants && p.variants.length) {
+    qtyEl.setAttribute('readonly', 'readonly');
+    qtyEl.style.background = '#f0e8d8';
+    qtyEl.title = 'Auto-computed from variant quantities';
+    if (qtyNote) qtyNote.style.display = '';
+  } else {
+    qtyEl.removeAttribute('readonly');
+    qtyEl.style.background = '';
+    qtyEl.title = '';
+    if (qtyNote) qtyNote.style.display = 'none';
+  }
   document.getElementById('iem-cost').value = p.cost || '';
   document.getElementById('iem-sell').value = p.sellPrice || '';
   document.getElementById('iem-notes').value = p.notes || '';
@@ -7558,7 +7666,10 @@ function saveInvEdit() {
   p.dateStory1=dS1||p.dateStory1||'';
   p.dateStory2=dS2||p.dateStory2||'';
   const newQty = parseInt(document.getElementById('iem-qty').value);
-  if (!isNaN(newQty) && newQty >= 0) {
+  if (p.variants && p.variants.length) {
+    // qty is auto-computed from variants — recalc to ensure consistency
+    recalcProductQtyFromVariants(p);
+  } else if (!isNaN(newQty) && newQty >= 0) {
     p.qty = newQty;
     p.qtyOriginal = Math.max(parseInt(p.qtyOriginal) || 0, p.qty + (parseInt(p.qtySold) || 0));
   }
@@ -7588,7 +7699,74 @@ function _doDeleteProduct(prodNoArg){
   toast('🗑 Product deleted');
 }
 
+// ═══════════════════════════════════════════
+// VARIANT PICKER — for mark-sold flows
+// ═══════════════════════════════════════════
+let _pendingVariantId = null;
+let _pendingVariantLabel = null;
+let _variantPickerMode = null; // 'standalone' or 'link'
+
+function openVariantPicker(p, mode, _unused) {
+  _variantPickerMode = mode;
+  _pendingVariantId = null;
+  _pendingVariantLabel = null;
+  const variants = p.variants || [];
+  const titleEl = document.getElementById('vpm-title');
+  const subEl = document.getElementById('vpm-subtitle');
+  const listEl = document.getElementById('vpm-variant-list');
+  if (titleEl) titleEl.textContent = '🎨 Which Colour / Design?';
+  if (subEl) subEl.textContent = '#' + p.prodNo + ' — ' + esc(p.name);
+  if (listEl) {
+    listEl.innerHTML = variants.map(v => {
+      const vQty = parseInt(v.qty) || 0;
+      const isOut = vQty === 0;
+      const label = v.label || 'Design (unlabelled)';
+      const price = v.price || p.sellPrice;
+      const thumb = (v.photos && v.photos[0]) ? v.photos[0].thumbUrl || v.photos[0].fullUrl : '';
+      return `<button onclick="selectVariantForSale('${v.id}','${esc(label)}')" ${isOut?'disabled':''} style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;border:1.5px solid ${isOut?'#e2d4bc':'var(--brown)'};background:${isOut?'#f5f5f5':'var(--warm)'};cursor:${isOut?'not-allowed':'pointer'};width:100%;text-align:left;opacity:${isOut?'.5':'1'};">
+        ${thumb ? `<img src="${thumb}" style="width:48px;height:48px;border-radius:6px;object-fit:cover;flex-shrink:0;"/>` : '<div style="width:48px;height:48px;border-radius:6px;background:var(--goldp);flex-shrink:0;"></div>'}
+        <div style="flex:1;">
+          <div style="font-size:14px;font-weight:600;color:${isOut?'#aaa':'var(--brown)'};">${esc(label)}</div>
+          ${price ? `<div style="font-size:12px;color:#888;">₹${parseFloat(price).toLocaleString('en-IN')}</div>` : ''}
+        </div>
+        <div style="font-size:13px;font-weight:700;color:${isOut?'#c0392b':vQty===1?'#e67e22':'#27ae60'};">${isOut?'Sold Out':'Qty: '+vQty}</div>
+      </button>`;
+    }).join('');
+  }
+  document.getElementById('variant-picker-modal').classList.add('open');
+}
+
+function closeVariantPickerModal() {
+  document.getElementById('variant-picker-modal').classList.remove('open');
+  _variantPickerMode = null; _pendingVariantId = null; _pendingVariantLabel = null;
+}
+
+function selectVariantForSale(variantId, variantLabel) {
+  _pendingVariantId = variantId;
+  _pendingVariantLabel = variantLabel;
+  document.getElementById('variant-picker-modal').classList.remove('open');
+  const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
+  if (!p) return;
+  if (_variantPickerMode === 'standalone') {
+    showConfirmModal('✅ Mark Sold','Mark #'+p.prodNo+' &ldquo;'+esc(p.name)+'&rdquo; ('+esc(variantLabel)+') as sold (no invoice)?',function(){_doMarkSoldStandalone(p.prodNo, variantId);},null);
+  } else if (_variantPickerMode === 'link') {
+    _openMarkSoldInvoiceSelector();
+  }
+}
+
 function openMarkSoldLinkInvoice() {
+  const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
+  if (!p) return;
+  const variants = (p.variants || []);
+  if (variants.length) {
+    // Show variant picker first, then invoice selector
+    openVariantPicker(p, 'link', null);
+  } else {
+    _openMarkSoldInvoiceSelector();
+  }
+}
+
+function _openMarkSoldInvoiceSelector() {
   const sel = document.getElementById('iem-inv-select');
   sel.innerHTML = '<option value="">— select invoice —</option>' +
     [...invoices].sort((a,b) => (b.invDate||'') > (a.invDate||'') ? 1 : -1)
@@ -7600,11 +7778,23 @@ function openMarkSoldLinkInvoice() {
 function markInvItemSoldStandalone() {
   const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
   if (!p) return;
-  showConfirmModal('✅ Mark Sold','Mark product #'+p.prodNo+' &ldquo;'+esc(p.name)+'&rdquo; as sold (no invoice link)?',function(){_doMarkSoldStandalone(p.prodNo);},null);return;}
-function _doMarkSoldStandalone(prodNoArg){
+  const variants = (p.variants || []);
+  if (variants.length) {
+    openVariantPicker(p, 'standalone', null);
+  } else {
+    showConfirmModal('✅ Mark Sold','Mark product #'+p.prodNo+' &ldquo;'+esc(p.name)+'&rdquo; as sold (no invoice link)?',function(){_doMarkSoldStandalone(p.prodNo, null);},null);
+  }
+}
+function _doMarkSoldStandalone(prodNoArg, variantId){
   const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(prodNoArg));
   if(!p)return;
-  p.qty = Math.max(0, (parseInt(p.qty) || 0) - 1);
+  // Deduct from specific variant if provided
+  if (variantId && p.variants) {
+    const v = p.variants.find(x => x.id === variantId);
+    if (v) { v.qty = Math.max(0, (parseInt(v.qty) || 0) - 1); recalcProductQtyFromVariants(p); }
+  } else {
+    p.qty = Math.max(0, (parseInt(p.qty) || 0) - 1);
+  }
   p.qtySold = (parseInt(p.qtySold) || 0) + 1;
   p.updatedAt = new Date().toISOString();
   saveStk(); gsWrite(SHEETS.inventory, flattenProduct(p));
@@ -7619,16 +7809,23 @@ function confirmMarkSoldLinked() {
   const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
   const inv = invoices.find(i => String(i.id) === String(invId));
   if (!p || !inv) return;
-  showConfirmModal('🔗 Link to Invoice','Link #'+p.prodNo+' &ldquo;'+esc(p.name)+'&rdquo; to invoice '+(inv.invNo||inv.id)+' and deduct 1 from stock?',function(){_doLinkToInvoice(p.prodNo,inv.id);},null);return;}
-function _doLinkToInvoice(prodNoArg,invId){
+  showConfirmModal('🔗 Link to Invoice','Link #'+p.prodNo+' &ldquo;'+esc(p.name)+'&rdquo;'+(_pendingVariantId?' ('+esc((_pendingVariantLabel)||'selected variant')+')':'')+'<br/>to invoice '+(inv.invNo||inv.id)+' and deduct 1 from stock?',function(){_doLinkToInvoice(p.prodNo, inv.id, _pendingVariantId);},null);return;}
+function _doLinkToInvoice(prodNoArg, invId, variantId){
   const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(prodNoArg));
   const inv=invoices.find(i=>String(i.id)===String(invId));
   if(!p||!inv)return;
-  p.qty = Math.max(0, (parseInt(p.qty) || 0) - 1);
+  // Deduct from specific variant if provided
+  if (variantId && p.variants) {
+    const v = p.variants.find(x => x.id === variantId);
+    if (v) { v.qty = Math.max(0, (parseInt(v.qty) || 0) - 1); recalcProductQtyFromVariants(p); }
+  } else {
+    p.qty = Math.max(0, (parseInt(p.qty) || 0) - 1);
+  }
   p.qtySold = (parseInt(p.qtySold) || 0) + 1;
   if (!p.linkedInvoices) p.linkedInvoices = [];
   p.linkedInvoices.push(String(inv.id));
   p.updatedAt = new Date().toISOString();
+  _pendingVariantId = null; _pendingVariantLabel = null;
   saveStk(); gsWrite(SHEETS.inventory, flattenProduct(p));
   closeInvEditModal();
   renderInventory(); renderAgingGrid(); updateInventoryStats();
@@ -8611,9 +8808,15 @@ function renderVariantsList(p) {
         <img src="${ph.thumbUrl||ph.fullUrl}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2272%22 height=%2272%22><rect width=%2272%22 height=%2272%22 fill=%22%23eee%22/><text x=%2236%22 y=%2240%22 text-anchor=%22middle%22 fill=%22%23aaa%22 font-size=%2211%22>Photo</text></svg>'"/>
         <button class="variant-photo-del" onclick="deleteVariantPhoto('${v.id}','${ph.id}')" title="Delete photo">✕</button>
       </div>`).join('');
+    const vQty = v.qty !== undefined ? v.qty : 1;
+    const vQtyColor = vQty === 0 ? '#c0392b' : vQty === 1 ? '#e67e22' : '#27ae60';
     return `<div class="variant-block" id="vblock-${v.id}">
       <div class="variant-header">
         <input value="${esc(v.label)}" placeholder="Label e.g. Navy Blue" style="flex:1;padding:8px 10px;border-radius:8px;border:1.5px solid var(--border);font-size:14px;" onchange="updateVariantLabel('${v.id}',this.value)"/>
+        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;" title="Stock qty for this colour/design">
+          <span style="font-size:11px;color:#888;font-weight:600;">Qty</span>
+          <input type="number" value="${vQty}" min="0" style="width:52px;padding:7px 8px;border-radius:8px;border:1.5px solid ${vQtyColor};font-size:13px;font-weight:700;color:${vQtyColor};text-align:center;" onchange="updateVariantQty('${v.id}',this.value)" title="Stock qty for this colour/design"/>
+        </div>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
           <span style="font-size:12px;color:#888;">₹</span>
           <input type="number" value="${v.price||''}" placeholder="${p.sellPrice||0}" style="width:80px;padding:7px 8px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;" onchange="updateVariantPrice('${v.id}',this.value)" title="Price override (leave blank to use product sell price)"/>
@@ -8647,11 +8850,36 @@ function updateVariantPrice(variantId, val) {
   if (v) { v.price = parseFloat(val) || null; saveStk(); }
 }
 
+function updateVariantQty(variantId, val) {
+  const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
+  if (!p || !p.variants) return;
+  const v = p.variants.find(x => x.id === variantId);
+  if (!v) return;
+  v.qty = Math.max(0, parseInt(val) || 0);
+  recalcProductQtyFromVariants(p);
+  saveStk();
+  // Refresh qty field display colour live
+  const el = document.querySelector(`#vblock-${variantId} input[type="number"]`);
+  if (el) { el.style.borderColor = v.qty === 0 ? '#c0392b' : v.qty === 1 ? '#e67e22' : '#27ae60'; el.style.color = el.style.borderColor; }
+}
+
+// Recompute product-level qty as sum of all variant qtys (when variants exist)
+function recalcProductQtyFromVariants(p) {
+  if (!p || !p.variants || !p.variants.length) return;
+  const total = p.variants.reduce((s, v) => s + (parseInt(v.qty) || 0), 0);
+  p.qty = total;
+  p.qtyOriginal = Math.max(parseInt(p.qtyOriginal) || 0, total + (parseInt(p.qtySold) || 0));
+  // Update qty display in edit modal
+  const qtyEl = document.getElementById('iem-qty');
+  if (qtyEl) { qtyEl.value = total; qtyEl.style.background = '#f0e8d8'; }
+}
+
 function addVariant() {
   const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
   if (!p) return;
   if (!p.variants) p.variants = [];
-  p.variants.push({ id: 'v' + uid(), label: '', price: null, photos: [] });
+  p.variants.push({ id: 'v' + uid(), label: '', price: null, qty: 1, photos: [] });
+  recalcProductQtyFromVariants(p);
   saveStk();
   renderVariantsList(p);
 }
@@ -8742,6 +8970,7 @@ async function deleteVariantPhoto(variantId, photoId) {
 let _catMode = false;
 let _catSelected = new Set();
 let _catShowPrices = true;
+let _catHideSoldOut = false;
 
 function toggleCatalogueMode() {
   _catMode = !_catMode;
@@ -8775,9 +9004,18 @@ function toggleCatPriceToggle() {
   if (knob) knob.style.left = _catShowPrices ? '22px' : '3px';
 }
 
+function toggleCatHideSoldOut() {
+  _catHideSoldOut = !_catHideSoldOut;
+  const toggle = document.getElementById('cat-so-toggle');
+  const knob = document.getElementById('cat-so-knob');
+  if (toggle) toggle.style.background = _catHideSoldOut ? 'var(--brown)' : '#ccc';
+  if (knob) knob.style.left = _catHideSoldOut ? '22px' : '3px';
+}
+
 function openCatalogueDialog() {
   if (!_catSelected.size) { toast('⚠️ Select at least one product'); return; }
   _catShowPrices = true;
+  _catHideSoldOut = false;
   const sub = document.getElementById('cat-gen-sub');
   if (sub) sub.textContent = _catSelected.size + ' product(s) selected';
   document.getElementById('cat-gen-title').value = '';
@@ -8785,6 +9023,10 @@ function openCatalogueDialog() {
   const knob = document.getElementById('cat-price-knob');
   if (toggle) toggle.style.background = 'var(--brown)';
   if (knob) knob.style.left = '22px';
+  const soToggle = document.getElementById('cat-so-toggle');
+  const soKnob = document.getElementById('cat-so-knob');
+  if (soToggle) soToggle.style.background = '#ccc';
+  if (soKnob) soKnob.style.left = '3px';
   const status = document.getElementById('cat-gen-status');
   if (status) status.textContent = '';
   document.getElementById('cat-gen-modal').classList.add('open');
@@ -8801,28 +9043,42 @@ function generateCataloguePDF() {
   const logoHtml = logoB64 ? `<img src="${logoB64}" style="height:48px;object-fit:contain;margin-bottom:6px;"/>` : '';
   const f = n => '₹' + parseFloat(n).toLocaleString('en-IN');
 
-  const productCards = selected.map(p => {
+  const hideSoldOut = _catHideSoldOut;
+
+  // Filter out products where ALL variants are sold out
+  const visibleProductsPDF = selected.filter(p => {
     const variants = p.variants || [];
+    if (!variants.length) return (parseInt(p.qty) || 0) > 0;
+    return variants.some(v => (parseInt(v.qty) || 0) > 0);
+  });
+
+  const productCards = visibleProductsPDF.map(p => {
+    const allVariants = p.variants || [];
+    const variantsToShow = hideSoldOut
+      ? allVariants.filter(v => (parseInt(v.qty) || 0) > 0)
+      : allVariants;
     const inStock = (parseInt(p.qty) || 0) > 0;
     const stockBadge = inStock
       ? '<span style="background:#e8f5e9;color:#27ae60;padding:2px 8px;border-radius:8px;font-size:9pt;font-weight:700;">In Stock</span>'
       : '<span style="background:#fde8e8;color:#c0392b;padding:2px 8px;border-radius:8px;font-size:9pt;font-weight:700;">Sold Out</span>';
 
     let variantsHtml = '';
-    if (variants.length) {
+    if (variantsToShow.length) {
       variantsHtml = '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;">' +
-        variants.map(v => {
+        variantsToShow.map(v => {
+          const vInStock = (parseInt(v.qty) || 0) > 0;
           const photos = v.photos || [];
           const heroPhoto = photos[0];
           const price = v.price || p.sellPrice;
           const priceHtml = showPrices && price ? `<div style="font-size:10pt;font-weight:700;color:#5c3d1e;margin-top:4px;">${f(price)}</div>` : '';
           const labelHtml = v.label ? `<div style="font-size:9pt;color:#888;margin-top:3px;">${esc(v.label)}</div>` : '';
+          const soldOutBadge = !vInStock ? `<div style="font-size:8pt;color:#c0392b;font-weight:700;margin-top:2px;">Sold Out</div>` : '';
           const imgHtml = heroPhoto
-            ? `<img src="${heroPhoto.thumbUrl||heroPhoto.fullUrl}" style="width:100%;height:90px;object-fit:cover;border-radius:6px;" onerror="this.style.display='none'"/>`
+            ? `<img src="${heroPhoto.thumbUrl||heroPhoto.fullUrl}" style="width:100%;height:90px;object-fit:cover;border-radius:6px;${!vInStock?'opacity:.5;':''}" onerror="this.style.display='none'"/>`
             : `<div style="width:100%;height:90px;border-radius:6px;background:#f5e6c8;display:flex;align-items:center;justify-content:center;font-size:10pt;color:#aaa;">No Photo</div>`;
           const extraPhotos = photos.length > 1
             ? `<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">${photos.slice(1).map(ph => `<img src="${ph.thumbUrl||ph.fullUrl}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;" onerror="this.style.display='none'"/>`).join('')}</div>` : '';
-          return `<div style="width:110px;">${imgHtml}${extraPhotos}${labelHtml}${priceHtml}</div>`;
+          return `<div style="width:110px;">${imgHtml}${extraPhotos}${labelHtml}${soldOutBadge}${priceHtml}</div>`;
         }).join('') + '</div>';
     } else if (showPrices && p.sellPrice) {
       variantsHtml = `<div style="font-size:12pt;font-weight:700;color:#5c3d1e;margin-top:8px;">${f(p.sellPrice)}</div>`;
@@ -8882,17 +9138,31 @@ function generateCatalogueHTML() {
   const waNum = (S.waNumber || S.phone || '').replace(/\D/g,'');
   const f = n => '₹' + parseFloat(n).toLocaleString('en-IN');
 
-  const productCards = selected.map(p => {
+  const hideSoldOut = _catHideSoldOut;
+
+  // Filter out products where ALL variants are sold out (always hidden regardless of toggle)
+  const visibleProducts = selected.filter(p => {
     const variants = p.variants || [];
+    if (!variants.length) return (parseInt(p.qty) || 0) > 0; // no-variant product: show only if in stock
+    return variants.some(v => (parseInt(v.qty) || 0) > 0); // has variants: show if any variant has stock
+  });
+
+  const productCards = visibleProducts.map(p => {
+    const allVariants = p.variants || [];
+    // Determine which variants to show: if hideSoldOut, only available ones; otherwise all
+    const variantsToShow = hideSoldOut
+      ? allVariants.filter(v => (parseInt(v.qty) || 0) > 0)
+      : allVariants;
     const inStock = (parseInt(p.qty) || 0) > 0;
     const stockBadge = inStock
       ? '<span class="badge b-green">✓ In Stock</span>'
       : '<span class="badge b-red">Sold Out</span>';
 
     let variantsHtml = '';
-    if (variants.length) {
+    if (variantsToShow.length) {
       variantsHtml = '<div class="variants-wrap">' +
-        variants.map((v, vi) => {
+        variantsToShow.map((v, vi) => {
+          const vInStock = (parseInt(v.qty) || 0) > 0;
           const photos = v.photos || [];
           const price = v.price || p.sellPrice;
           const priceHtml = showPrices && price ? `<span class="variant-price">${f(price)}</span>` : '';
@@ -8902,7 +9172,7 @@ function generateCatalogueHTML() {
           if (photos.length === 0) {
             photosHtml = `<div class="photo-single"><div class="no-photo">No photo yet</div></div>`;
           } else if (photos.length === 1) {
-            photosHtml = `<div class="photo-single"><img src="${esc(photos[0].thumbUrl||photos[0].fullUrl)}" loading="lazy" alt="${esc(v.label||'Product photo')}"/>${!inStock?'<div class="soldout-overlay"><span class="soldout-tag">Sold Out</span></div>':''}</div>`;
+            photosHtml = `<div class="photo-single"><img src="${esc(photos[0].thumbUrl||photos[0].fullUrl)}" loading="lazy" alt="${esc(v.label||'Product photo')}"/>${!vInStock?'<div class="soldout-overlay"><span class="soldout-tag">Sold Out</span></div>':''}</div>`;
           } else {
             const cid = `c-${p.prodNo}-${vi}`;
             const slides = photos.map((ph,pi) =>
@@ -8915,7 +9185,7 @@ function generateCatalogueHTML() {
               <div class="photo-track" id="track-${cid}">${slides}</div>
               <button class="carousel-btn carousel-prev" onclick="cPrev('${cid}')">‹</button>
               <button class="carousel-btn carousel-next" onclick="cNext('${cid}')">›</button>
-              ${!inStock?'<div class="soldout-overlay"><span class="soldout-tag">Sold Out</span></div>':''}
+              ${!vInStock?'<div class="soldout-overlay"><span class="soldout-tag">Sold Out</span></div>':''}
             </div>
             <div class="carousel-dots" id="dots-${cid}">${dots}</div>`;
           }
@@ -8930,7 +9200,7 @@ function generateCatalogueHTML() {
     }
 
     const prodName = p.name || '';
-    const waMsg = `Hi, I'm interested in Product #${p.prodNo} — ${prodName}${variants.length?' (please share available colours/designs)':''}.`;
+    const waMsg = `Hi, I'm interested in Product #${p.prodNo} — ${prodName}${allVariants.length?' (please share available colours/designs)':''}.`;
     const waUrl = waNum ? `https://wa.me/${waNum}?text=${encodeURIComponent(waMsg)}` : '';
     const reelUrl = p.reelUrl || '';
 
@@ -9084,9 +9354,10 @@ async function pushCatalogueToSheet() {
 }
 
 function buildCatalogueRow(p) {
-  const inStock = (parseInt(p.qty) || 0) > 0;
-  const variants = (p.variants || []).map(v => ({
-    id: v.id, label: v.label, price: v.price,
+  const availableVariants = (p.variants || []).filter(v => (parseInt(v.qty) || 0) > 0);
+  const inStock = availableVariants.length > 0 || ((p.variants || []).length === 0 && (parseInt(p.qty) || 0) > 0);
+  const variants = availableVariants.map(v => ({
+    id: v.id, label: v.label, price: v.price, qty: v.qty,
     photos: (v.photos || []).map(ph => ({thumbUrl: ph.thumbUrl, fullUrl: ph.fullUrl}))
   }));
   return {
