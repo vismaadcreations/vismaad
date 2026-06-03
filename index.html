@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.3
+APP: Vismaad Creations v14.4
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 03-Jun-2026 — v14.3: Per-variant stock (qty) tracking. Each colour/design variant now has its own qty (default 1 for existing variants). Product-level qty auto-computed as sum of variant qtys. Invoice item row shows variant picker when a product with variants is selected — auto-deducts from that variant on save. Mark Sold (both standalone and link-to-invoice) also prompts for variant selection. Catalogue: sold-out variants show with overlay; toggle to hide sold-out variants; products with all variants sold out are hidden from catalogue. buildCatalogueRow filters to available variants only.
+LAST_CHANGE: 03-Jun-2026 — v14.4: (1) Sync now re-renders ALL sections on ALL pages after completing — dashboard, inventory, aging grid, posting queue, sales, outreach, sync info — so every screen reflects fresh data regardless of which tab was open. Previously only the current page was refreshed. (2) Inventory page list rows now show the posting stage badge (Reel not posted / Post Story 1 / Post Story 2 / On track etc.) and the appropriate Mark Posted action button for unsold items, identical to the aging grid on the home screen.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -1993,8 +1993,12 @@ async function syncAll(){
     setSyncStatus('ok');
     const banner=document.getElementById('dash-sync-banner');
     if(banner)banner.style.display='flex';
-    refreshCurrentPage();
+    // Render ALL sections on ALL pages so every screen reflects synced data
+    renderDashboard();
+    renderInventory();renderAgingGrid();updateInventoryStats();renderPostingQueue();
+    renderSales();
     renderOutreachWidget();
+    renderSyncInfo();
     toast('☁️ Synced — '+invoices.length+' invoices');
   }catch(e){
     setSyncStatus('err');
@@ -4233,6 +4237,20 @@ function renderInventory(){
         ${s>0?`<span style="background:${ac.bg};color:${ac.fg};padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;">${ac.lbl}</span>`:''}</div>
         <div class="list-main" style="margin-top:3px;">${p.name}</div>
         <div class="list-sub">${p.cost?'Cost ₹'+p.cost+' · ':''} ${s} of ${orig} in stock${p.notes?' · '+p.notes:''}</div>
+        ${s>0?(()=>{
+          const stage=getPostingStage(p);
+          const col=getStageColor(stage);
+          const label=getStageLabel(stage);
+          const daysReel=getDaysFromReel(p);
+          let btn='';
+          if(!p.dateReel)btn=`<button class="btn btn-p btn-sm" style="min-height:32px;margin-top:4px;" onclick="event.stopPropagation();markPosted(${p.prodNo},'dateReel')">🎬 Mark Reel Posted</button>`;
+          else if(stage==='story1')btn=`<button class="btn btn-p btn-sm" style="min-height:32px;margin-top:4px;" onclick="event.stopPropagation();markPosted(${p.prodNo},'dateStory1')">📱 Mark Story 1 Posted</button>`;
+          else if(stage==='story2')btn=`<button class="btn btn-p btn-sm" style="min-height:32px;margin-top:4px;" onclick="event.stopPropagation();markPosted(${p.prodNo},'dateStory2')">📱 Mark Story 2 Posted</button>`;
+          return`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:5px;">
+            <span style="font-size:10px;font-weight:700;color:#fff;background:${col};padding:2px 7px;border-radius:8px;">${label}</span>
+            ${p.dateReel?`<span style="font-size:10px;color:#888;">Reel: ${fmtDate(p.dateReel)} · ${daysReel}d ago</span>`:''}
+          </div>${btn}`;
+        })():''}
       </div>
       <div class="list-right">
         ${p.sellPrice?`<div class="list-amt">₹${parseFloat(p.sellPrice).toLocaleString('en-IN')}</div>`:''}
