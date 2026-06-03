@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.4
+APP: Vismaad Creations v14.5
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 03-Jun-2026 — v14.4: (1) Sync now re-renders ALL sections on ALL pages after completing — dashboard, inventory, aging grid, posting queue, sales, outreach, sync info — so every screen reflects fresh data regardless of which tab was open. Previously only the current page was refreshed. (2) Inventory page list rows now show the posting stage badge (Reel not posted / Post Story 1 / Post Story 2 / On track etc.) and the appropriate Mark Posted action button for unsold items, identical to the aging grid on the home screen.
+LAST_CHANGE: 03-Jun-2026 — v14.5: Fixed tracking save + WhatsApp flow in saveInvoiceEdit: sheet save now runs inside each callback (OK and Cancel) instead of firing immediately before the modal is dismissed. OK opens WhatsApp then saves; Cancel saves silently. Both show ✅ Updated toast on success. (1) Sync now re-renders ALL sections on ALL pages after completing — dashboard, inventory, aging grid, posting queue, sales, outreach, sync info — so every screen reflects fresh data regardless of which tab was open. Previously only the current page was refreshed. (2) Inventory page list rows now show the posting stage badge (Reel not posted / Post Story 1 / Post Story 2 / On track etc.) and the appropriate Mark Posted action button for unsold items, identical to the aging grid on the home screen.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -3766,23 +3766,24 @@ function saveInvoiceEdit(){
           '\nPlease record a video while opening the package. Refund or exchange requests will not be entertained without an unboxing video.\n\n'+
           'Vismaad Creations';
         window.open('https://wa.me/'+ph+'?text='+encodeURIComponent(msg),'_blank');
+        // Save to sheet after opening WhatsApp
+        showLoading('Saving to sheet…');
+        gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(function(ok){
+          hideLoading();
+          if(ok){toast('✅ Updated!');}
+          else toast('⚠️ Saved locally — sheet sync failed, will retry on next sync',5000);
+        });
       },
       function(){
         // User clicked Cancel — save to sheet silently
         showLoading('Saving to sheet…');
         gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(function(ok){
           hideLoading();
-          if(!ok)toast('⚠️ Saved locally — sheet sync failed, will retry on next sync',5000);
+          if(ok){toast('✅ Updated!');}
+          else toast('⚠️ Saved locally — sheet sync failed, will retry on next sync',5000);
         });
       }
     );
-    // Sheet save runs after confirm modal is dismissed (in both OK and Cancel callbacks above)
-    // For the OK path, save happens here after window.open — still synchronous enough
-    showLoading('Saving to sheet…');
-    gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(function(ok){
-      hideLoading();
-      if(!ok)toast('⚠️ Saved locally — sheet sync failed, will retry on next sync',5000);
-    });
     return;
   }
 
