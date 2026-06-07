@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.6
+APP: Vismaad Creations v14.7
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 06-Jun-2026 — v14.6: (1) WhatsApp fix: confirm modal OK now calls onOk() before closeConfirmModal() so window.open stays in synchronous user-gesture call stack — fixes iOS/Safari popup blocking on tracking save. (2) UPI QR on Walk-in invoices: printing a Walk-in invoice now shows a pre-print modal with UPI ID, payee name, phone, amount (auto-filled), transaction note and ref — all editable. QR generated client-side via qrcodejs. Default UPI details stored in Settings (UPI section). QR block injected into printed invoice with scan-to-pay instructions.
+LAST_CHANGE: 07-Jun-2026 — v14.7: Config Backup/Restore system — Settings now has "💾 Backup Config" (downloads vismaad-config.json with logo, QR, GitHub PAT, Cat Sheet ID, WA number, tagline, UPI details) and "📂 Restore Config" (file picker, restores everything in one tap). On startup, if githubPat or catSheetId is missing after setup, a dismissible yellow banner on the Home page prompts user to restore from backup file.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -372,6 +372,19 @@ body.gst-mode .gst-only{display:block;}
   </div>
   <div id="dash-sync-banner" class="sync-banner" style="display:none;">
     ☁️ Data synced with Google Sheets — accessible on all your devices
+  </div>
+  <div id="config-missing-banner" style="display:none;background:#fff8e1;border:1.5px solid #f9a825;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:#5c3d1e;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div>
+        <div style="font-weight:700;margin-bottom:4px;">🔑 App config not set up on this device</div>
+        <div style="color:#7c5e35;margin-bottom:10px;">GitHub token, Catalogue Sheet ID and other settings are missing. Restore from your backup file to set up in one tap.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-p btn-sm" onclick="triggerConfigRestore()">📂 Restore from Backup</button>
+          <button class="btn btn-o btn-sm" onclick="showPage('more',document.getElementById('bnav-more'));setTimeout(()=>{const c=document.getElementById('settings-card');if(c)c.style.display='block';},100);">⚙️ Enter Manually</button>
+        </div>
+      </div>
+      <button onclick="document.getElementById('config-missing-banner').style.display='none';lsSet('vc_cfg_banner_dismissed','1');" style="background:none;border:none;font-size:18px;cursor:pointer;color:#bbb;flex-shrink:0;padding:0;line-height:1;">✕</button>
+    </div>
   </div>
   <div class="stat-grid" id="dash-stats">
     <div class="stat-card"><div class="stat-val" id="ds-orders">—</div><div class="stat-lbl">Orders</div></div>
@@ -801,6 +814,17 @@ body.gst-mode .gst-only{display:block;}
         <input id="ms-upi-phone" placeholder="e.g. 7719683825" type="tel" inputmode="numeric"/></div>
     </div>
     <button class="btn btn-p" onclick="saveSettings()">💾 Save Settings</button>
+    <!-- Config Backup / Restore -->
+    <div style="background:#f5f0ff;border:1px solid #c9aff7;border-radius:10px;padding:12px 14px;margin-top:16px;">
+      <div style="font-size:13px;font-weight:600;color:#5c3d1e;margin-bottom:6px;">🔐 Config Backup &amp; Restore</div>
+      <div style="font-size:12px;color:#7c5e35;margin-bottom:12px;line-height:1.55;">Save your logo, QR code, GitHub token, Catalogue Sheet ID, WhatsApp number, UPI details, and tagline to a file. Restore instantly on any new device or after reinstall — no re-entering needed.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-o" style="flex:1;min-width:120px;" onclick="backupConfig()">💾 Backup Config</button>
+        <button class="btn btn-o" style="flex:1;min-width:120px;" onclick="triggerConfigRestore()">📂 Restore Config</button>
+      </div>
+      <input type="file" id="config-restore-input" accept=".json" style="display:none;" onchange="handleConfigRestore(event)"/>
+      <div id="config-backup-status" style="font-size:12px;color:#27ae60;margin-top:8px;display:none;"></div>
+    </div>
     <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
       <div style="font-size:13px;font-weight:600;color:#c0392b;margin-bottom:8px;">⚠️ Danger Zone</div>
       <button class="btn btn-d btn-sm" style="width:100%;" onclick="toggleDangerZone()">🗑 Reset All Invoices (This Device Only)</button>
@@ -2140,6 +2164,7 @@ function init(){
     addItem();
     renderDashboard();
     loadAssetThumbs();
+    checkConfigBanner();
     setTimeout(()=>syncAll(),1000);
     // Outreach — check follow-up popup after sync settles
     setTimeout(()=>{
@@ -9635,6 +9660,88 @@ async function doUpiQrPrint(){
     document.getElementById('print-area').innerHTML='<div class="print-page">'+(injected===invHtml?invHtml+qrBlock:injected)+'</div>';
     window.print();
   }catch(e){hideLoading();toast('⚠️ Error: '+e.message);}
+}
+
+// ═══════════════════════════════════════════
+// CONFIG BACKUP & RESTORE
+// ═══════════════════════════════════════════
+function backupConfig(){
+  const config={
+    _version:1,
+    _created:new Date().toISOString(),
+    githubPat:S.githubPat||'',
+    catSheetId:S.catSheetId||'',
+    tagline:S.tagline||'',
+    waNumber:S.waNumber||'',
+    upiId:S.upiId||'',
+    upiName:S.upiName||'',
+    upiPhone:S.upiPhone||'',
+    calKey:S.calKey||'',
+    logoB64:logoB64||'',
+    qrB64:qrB64||''
+  };
+  const json=JSON.stringify(config,null,2);
+  const blob=new Blob([json],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='vismaad-config.json';
+  document.body.appendChild(a);a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),5000);
+  const st=document.getElementById('config-backup-status');
+  if(st){st.textContent='✅ Config downloaded — save this file to Google Drive or iCloud for easy restore.';st.style.display='block';setTimeout(()=>{st.style.display='none';},7000);}
+  toast('✅ Config backup downloaded!');
+}
+
+function triggerConfigRestore(){
+  const inp=document.getElementById('config-restore-input');
+  if(inp){inp.value='';inp.click();}
+}
+
+function handleConfigRestore(e){
+  const f=e.target.files[0];
+  if(!f){return;}
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try{
+      const config=JSON.parse(ev.target.result);
+      if(!config||config._version!==1){toast('⚠️ Invalid config file');return;}
+      // Restore settings fields
+      if(config.githubPat)S.githubPat=config.githubPat;
+      if(config.catSheetId)S.catSheetId=config.catSheetId;
+      if(config.tagline)S.tagline=config.tagline;
+      if(config.waNumber)S.waNumber=config.waNumber;
+      if(config.upiId)S.upiId=config.upiId;
+      if(config.upiName)S.upiName=config.upiName;
+      if(config.upiPhone)S.upiPhone=config.upiPhone;
+      if(config.calKey)S.calKey=config.calKey;
+      lsSet('vc_s',S);
+      // Restore images
+      if(config.logoB64){logoB64=config.logoB64;lsSet('vc_logo',logoB64);}
+      if(config.qrB64){qrB64=config.qrB64;lsSet('vc_qr',qrB64);}
+      // Refresh UI
+      loadSettings();
+      loadAssetThumbs();
+      // Clear banner
+      lsSet('vc_cfg_banner_dismissed','1');
+      const banner=document.getElementById('config-missing-banner');
+      if(banner)banner.style.display='none';
+      const st=document.getElementById('config-backup-status');
+      if(st){st.textContent='✅ Config restored! All settings, logo and QR are back.';st.style.display='block';setTimeout(()=>{st.style.display='none';},7000);}
+      toast('✅ Config restored successfully!');
+      if(S.calKey)fetchFestivals(true);
+    }catch(err){toast('⚠️ Could not read config file: '+err.message);}
+  };
+  reader.readAsText(f);
+}
+
+function checkConfigBanner(){
+  // Show banner if setup is done but key credentials are missing and user hasn't dismissed
+  if(!S.address)return; // setup not done yet
+  if(lsGet('vc_cfg_banner_dismissed',null)==='1')return;
+  const missing=!S.githubPat||!S.catSheetId;
+  const banner=document.getElementById('config-missing-banner');
+  if(banner)banner.style.display=missing?'block':'none';
 }
 
 init();
