@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.5
+APP: Vismaad Creations v14.6
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 03-Jun-2026 — v14.5: Fixed tracking save + WhatsApp flow in saveInvoiceEdit: sheet save now runs inside each callback (OK and Cancel) instead of firing immediately before the modal is dismissed. OK opens WhatsApp then saves; Cancel saves silently. Both show ✅ Updated toast on success. (1) Sync now re-renders ALL sections on ALL pages after completing — dashboard, inventory, aging grid, posting queue, sales, outreach, sync info — so every screen reflects fresh data regardless of which tab was open. Previously only the current page was refreshed. (2) Inventory page list rows now show the posting stage badge (Reel not posted / Post Story 1 / Post Story 2 / On track etc.) and the appropriate Mark Posted action button for unsold items, identical to the aging grid on the home screen.
+LAST_CHANGE: 06-Jun-2026 — v14.6: (1) WhatsApp fix: confirm modal OK now calls onOk() before closeConfirmModal() so window.open stays in synchronous user-gesture call stack — fixes iOS/Safari popup blocking on tracking save. (2) UPI QR on Walk-in invoices: printing a Walk-in invoice now shows a pre-print modal with UPI ID, payee name, phone, amount (auto-filled), transaction note and ref — all editable. QR generated client-side via qrcodejs. Default UPI details stored in Settings (UPI section). QR block injected into printed invoice with scan-to-pay instructions.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -791,6 +791,15 @@ body.gst-mode .gst-only{display:block;}
       <input type="file" id="logo-upload" accept="image/*" style="display:none;" onchange="handleLogoUpload(event)"/>
       <input type="file" id="qr-upload" accept="image/*" style="display:none;" onchange="handleQRUpload(event)"/>
     </div>
+    <div style="background:#f0fff4;border:1px solid #b2dfdb;border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:10px;">💳 UPI Payment (Walk-in Invoices)</div>
+      <div class="fg" style="margin-bottom:10px;"><label>UPI ID</label>
+        <input id="ms-upi-id" placeholder="e.g. 7719683825-2@ybl"/></div>
+      <div class="fg" style="margin-bottom:10px;"><label>Payee Name</label>
+        <input id="ms-upi-name" placeholder="e.g. Ravinder Kaur"/></div>
+      <div class="fg" style="margin-bottom:0;"><label>UPI Phone Number</label>
+        <input id="ms-upi-phone" placeholder="e.g. 7719683825" type="tel" inputmode="numeric"/></div>
+    </div>
     <button class="btn btn-p" onclick="saveSettings()">💾 Save Settings</button>
     <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
       <div style="font-size:13px;font-weight:600;color:#c0392b;margin-bottom:8px;">⚠️ Danger Zone</div>
@@ -1354,6 +1363,26 @@ body.gst-mode .gst-only{display:block;}
   </div>
 </div>
 
+<!-- ════ UPI QR PRINT MODAL ════ -->
+<div class="modal-bg" id="upi-qr-modal">
+  <div class="modal" style="max-width:400px;">
+    <button class="modal-close" onclick="closeUpiQrModal()">✕</button>
+    <div class="modal-title">💳 UPI Payment QR</div>
+    <div style="font-size:12px;color:#888;margin-bottom:14px;">These details will be embedded in the QR code on the printed invoice.</div>
+    <div class="fg"><label>UPI ID *</label><input id="upi-qr-id" placeholder="e.g. 7719683825-2@ybl" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>Payee Name *</label><input id="upi-qr-name" placeholder="e.g. Ravinder Kaur" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>UPI Phone Number</label><input id="upi-qr-phone" placeholder="e.g. 7719683825" type="tel" inputmode="numeric" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>Amount (₹) <span style="font-weight:400;color:#888;">— auto-filled from invoice</span></label><input id="upi-qr-amount" type="number" inputmode="decimal" placeholder="0.00" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>Transaction Note</label><input id="upi-qr-tn" placeholder="e.g. INV-001" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>Transaction Ref (Invoice No.)</label><input id="upi-qr-tr" placeholder="e.g. INV-001" oninput="previewUpiQr()"/></div>
+    <div id="upi-qr-preview" style="text-align:center;margin:14px 0 6px;min-height:140px;"></div>
+    <div class="btn-row">
+      <button class="btn btn-p" style="flex:1;" onclick="doUpiQrPrint()">🖨 Print Invoice with QR</button>
+      <button class="btn btn-o" style="width:auto;padding:13px 16px;" onclick="closeUpiQrModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- BOTTOM NAV -->
 <div class="bnav">
   <button class="bnav-btn active" id="bnav-dash" onclick="showPage('dash',this)">
@@ -1483,7 +1512,7 @@ function showConfirmModal(title,body,onOk,onCancel){
   _confirmOkCb=onOk||null;
   _confirmCancelCb=onCancel||null;
   const okBtn=document.getElementById('confirm-modal-ok');
-  if(okBtn){okBtn.onclick=function(){closeConfirmModal();if(_confirmOkCb)_confirmOkCb();};}
+  if(okBtn){okBtn.onclick=function(){const cb=_confirmOkCb;_confirmOkCb=null;closeConfirmModal();if(cb)cb();};}
   document.getElementById('confirm-modal').classList.add('open');
 }
 function closeConfirmModal(){
@@ -2206,6 +2235,12 @@ function loadSettings(){
   if(patEl&&S.githubPat)patEl.value=S.githubPat;
   const catEl=document.getElementById('ms-cat-sheet-id');
   if(catEl&&S.catSheetId)catEl.value=S.catSheetId;
+  const upiIdEl=document.getElementById('ms-upi-id');
+  if(upiIdEl)upiIdEl.value=S.upiId||'7719683825-2@ybl';
+  const upiNameEl=document.getElementById('ms-upi-name');
+  if(upiNameEl)upiNameEl.value=S.upiName||'Ravinder Kaur';
+  const upiPhoneEl=document.getElementById('ms-upi-phone');
+  if(upiPhoneEl)upiPhoneEl.value=S.upiPhone||'7719683825';
   applyGSTMode();
 }
 
@@ -2221,6 +2256,9 @@ function saveSettings(){
     waNumber:(document.getElementById('ms-wa-number')?.value||'').trim(),
     githubPat:(document.getElementById('ms-gh-pat')?.value||'').trim(),
     catSheetId:(document.getElementById('ms-cat-sheet-id')?.value||'').trim(),
+    upiId:(document.getElementById('ms-upi-id')?.value||'').trim(),
+    upiName:(document.getElementById('ms-upi-name')?.value||'').trim(),
+    upiPhone:(document.getElementById('ms-upi-phone')?.value||'').trim(),
   };
   lsSet('vc_s',S);
   // Note: githubPat, catSheetId, tagline, waNumber intentionally NOT synced to sheet (privacy)
@@ -2656,6 +2694,9 @@ function getInvHtml(inv){
 }
 function printCurrentInvoice(){
   if(!currentInv)return;
+  if((currentInv.channel==='walkin'||currentInv.dispatchMethod==='walkin')&&(S.upiId||'7719683825-2@ybl')){
+    openUpiQrModal(currentInv);return;
+  }
   document.getElementById('print-area').innerHTML=`<div class="print-page">${getInvHtml(currentInv)}</div>`;
   window.print();
 }
@@ -3258,6 +3299,9 @@ function shareInvoiceWhatsApp(){
 function shareInvoicePDF(){
   const inv=sharingInv;if(!inv)return;
   closeShareModal();
+  if((inv.channel==='walkin'||inv.dispatchMethod==='walkin')&&(S.upiId||'7719683825-2@ybl')){
+    openUpiQrModal(inv);return;
+  }
   // Print the invoice — on iPhone Safari this gives Share → Save to Files / WhatsApp
   document.getElementById('print-area').innerHTML=
     '<div class="print-page">'+getInvHtml(inv)+'</div>';
@@ -9478,6 +9522,119 @@ async function confirmCleanup() {
     renderInventory(); renderAgingGrid(); updateInventoryStats();
     toast('🗑 Cleaned up ' + done + ' product' + (done !== 1 ? 's' : ''));
   }, null);
+}
+
+// ═══════════════════════════════════════════
+// UPI QR — WALK-IN INVOICE PRINT
+// ═══════════════════════════════════════════
+let _upiQrInv=null;
+
+function ensureQRLib(){
+  return new Promise((resolve,reject)=>{
+    if(window.QRCode){resolve();return;}
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    s.onload=resolve;s.onerror=reject;
+    document.head.appendChild(s);
+  });
+}
+
+function openUpiQrModal(inv){
+  _upiQrInv=inv;
+  document.getElementById('upi-qr-id').value=S.upiId||'7719683825-2@ybl';
+  document.getElementById('upi-qr-name').value=S.upiName||'Ravinder Kaur';
+  document.getElementById('upi-qr-phone').value=S.upiPhone||'7719683825';
+  document.getElementById('upi-qr-amount').value=parseFloat(inv.grandTotal||0).toFixed(2);
+  document.getElementById('upi-qr-tn').value=inv.invNo||'';
+  document.getElementById('upi-qr-tr').value=inv.invNo||'';
+  document.getElementById('upi-qr-preview').innerHTML='<div style="color:#aaa;font-size:12px;padding:20px;">Fill details above then tap Preview</div>';
+  document.getElementById('upi-qr-modal').classList.add('open');
+  // Auto-generate preview after short delay
+  setTimeout(()=>previewUpiQr(),300);
+}
+
+function closeUpiQrModal(){
+  document.getElementById('upi-qr-modal').classList.remove('open');
+  _upiQrInv=null;
+}
+
+function buildUpiUrl(){
+  const pa=document.getElementById('upi-qr-id').value.trim();
+  const pn=document.getElementById('upi-qr-name').value.trim();
+  const am=document.getElementById('upi-qr-amount').value.trim();
+  const tn=document.getElementById('upi-qr-tr').value.trim()||document.getElementById('upi-qr-tn').value.trim();
+  const mc='5691'; // merchant category: clothing
+  let url='upi://pay?pa='+encodeURIComponent(pa)+'&pn='+encodeURIComponent(pn)+'&cu=INR';
+  if(am)url+='&am='+encodeURIComponent(am);
+  if(tn)url+='&tn='+encodeURIComponent('Payment for '+tn)+'&tr='+encodeURIComponent(tn);
+  url+='&mc='+mc;
+  return url;
+}
+
+async function previewUpiQr(){
+  const pa=document.getElementById('upi-qr-id').value.trim();
+  if(!pa){toast('⚠️ Enter UPI ID first');return;}
+  const prev=document.getElementById('upi-qr-preview');
+  prev.innerHTML='<div style="color:#aaa;font-size:12px;">Generating…</div>';
+  try{
+    await ensureQRLib();
+    prev.innerHTML='';
+    new QRCode(prev,{text:buildUpiUrl(),width:140,height:140,colorDark:'#1a1208',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+    const ph=document.getElementById('upi-qr-phone').value.trim();
+    const name=document.getElementById('upi-qr-name').value.trim();
+    const am=document.getElementById('upi-qr-amount').value.trim();
+    prev.insertAdjacentHTML('beforeend','<div style="font-size:11px;color:#555;margin-top:6px;line-height:1.6;">'
+      +'<strong>'+name+'</strong>'+(ph?'<br/>'+ph:'')+'<br/>'+pa
+      +(am?'<br/><span style="font-weight:700;color:#5c3d1e;">₹'+parseFloat(am).toLocaleString('en-IN',{minimumFractionDigits:2})+'</span>':'')
+      +'</div>');
+  }catch(e){prev.innerHTML='<div style="color:#c0392b;font-size:12px;">QR generation failed. Check internet connection.</div>';}
+}
+
+async function doUpiQrPrint(){
+  const inv=_upiQrInv;if(!inv)return;
+  const pa=document.getElementById('upi-qr-id').value.trim();
+  if(!pa){toast('⚠️ Enter UPI ID');return;}
+  showLoading('Generating QR…');
+  try{
+    await ensureQRLib();
+    // Generate QR as data URL
+    const tmp=document.createElement('div');
+    tmp.style.cssText='position:fixed;left:-9999px;top:0;';
+    document.body.appendChild(tmp);
+    await new Promise((res,rej)=>{
+      try{
+        new QRCode(tmp,{text:buildUpiUrl(),width:160,height:160,colorDark:'#1a1208',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+        setTimeout(res,400);
+      }catch(e){rej(e);}
+    });
+    const canvas=tmp.querySelector('canvas');
+    const img=tmp.querySelector('img');
+    const qrDataUrl=canvas?canvas.toDataURL('image/png'):(img?img.src:'');
+    document.body.removeChild(tmp);
+    hideLoading();
+    if(!qrDataUrl){toast('⚠️ QR generation failed');return;}
+    closeUpiQrModal();
+    const upiName=document.getElementById('upi-qr-name')?.value.trim()||S.upiName||'Ravinder Kaur';
+    const upiPhone=document.getElementById('upi-qr-phone')?.value.trim()||S.upiPhone||'';
+    const upiId=pa;
+    const amount=document.getElementById('upi-qr-amount')?.value.trim()||'';
+    const qrBlock='<div style="margin-top:18px;padding-top:14px;border-top:1px solid #e2d4bc;display:flex;align-items:center;gap:18px;">'
+      +'<div><img src="'+qrDataUrl+'" style="width:110px;height:110px;display:block;"/></div>'
+      +'<div style="font-size:11px;color:#1a1208;line-height:1.8;">'
+      +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:4px;">Scan to Pay via UPI</div>'
+      +'<div><strong>'+upiName+'</strong></div>'
+      +(upiPhone?'<div>📱 '+upiPhone+'</div>':'')
+      +'<div style="color:#555;">UPI: '+upiId+'</div>'
+      +(amount?'<div style="font-weight:700;color:#5c3d1e;font-size:13px;">₹'+parseFloat(amount).toLocaleString('en-IN',{minimumFractionDigits:2})+'</div>':'')
+      +'<div style="font-size:10px;color:#888;margin-top:4px;">Pay using GPay, PhonePe, Paytm or any UPI app</div>'
+      +'</div></div>';
+    const invHtml=getInvHtml(inv);
+    // Inject QR block just before closing div of invoice
+    const injected=invHtml.replace(/(<div style="text-align:center;margin-top:14px[^"]*"[^>]*>[\s\S]*?<\/div>)\s*<\/div>\s*`?$/,
+      (m,thankYou)=>thankYou+qrBlock+'</div>');
+    document.getElementById('print-area').innerHTML='<div class="print-page">'+(injected===invHtml?invHtml+qrBlock:injected)+'</div>';
+    window.print();
+  }catch(e){hideLoading();toast('⚠️ Error: '+e.message);}
 }
 
 init();
