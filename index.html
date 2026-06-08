@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.8
+APP: Vismaad Creations v14.8.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 07-Jun-2026 — v14.8: Inventory "Sold To" panel — each product's edit modal now shows a collapsible "📋 Sold To" section listing every linked invoice (invoice no., customer, date, amount, channel, ship status). Tapping a row closes the modal, navigates to Sales, and opens that invoice's preview. Products sold standalone (no invoice) show a "Sold (no invoice)" note. Panel hidden if no sales yet.
+LAST_CHANGE: 08-Jun-2026 — v14.8: Inventory "Sold To" panel — each product's edit modal now shows a collapsible "📋 Sold To" section listing every linked invoice (invoice no., customer, date, amount, channel, ship status). Tapping a row closes the modal, navigates to Sales, and opens that invoice's preview. Products sold standalone (no invoice) show a "Sold (no invoice)" note. Panel hidden if no sales yet.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -1756,7 +1756,7 @@ function parseInventoryRow(r){
   }
   // Parse linkedInvoices
   let li=r.linkedInvoices;
-  if(typeof li='string'){
+  if(typeof li==='string'){
     try{li=li.trim()?JSON.parse(li):[];}catch{
       li=li.split(',').map(s=>s.trim()).filter(Boolean);
     }
