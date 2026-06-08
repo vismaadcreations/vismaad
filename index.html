@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.7
+APP: Vismaad Creations v14.8
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 07-Jun-2026 — v14.7: Config Backup/Restore system — Settings now has "💾 Backup Config" (downloads vismaad-config.json with logo, QR, GitHub PAT, Cat Sheet ID, WA number, tagline, UPI details) and "📂 Restore Config" (file picker, restores everything in one tap). On startup, if githubPat or catSheetId is missing after setup, a dismissible yellow banner on the Home page prompts user to restore from backup file.
+LAST_CHANGE: 07-Jun-2026 — v14.8: Inventory "Sold To" panel — each product's edit modal now shows a collapsible "📋 Sold To" section listing every linked invoice (invoice no., customer, date, amount, channel, ship status). Tapping a row closes the modal, navigates to Sales, and opens that invoice's preview. Products sold standalone (no invoice) show a "Sold (no invoice)" note. Panel hidden if no sales yet.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -1027,6 +1027,10 @@ body.gst-mode .gst-only{display:block;}
         <div class="fg" style="margin-bottom:0;"><label>📱 Story 2</label><input type="date" id="iem-date-story2"/></div>
       </div>
     </div>
+    <div id="iem-sold-to-section" style="display:none;background:#f0f7ef;border:1px solid #b7ddb0;border-radius:8px;padding:10px 12px;margin-bottom:14px;">
+      <div style="font-size:12px;font-weight:600;color:#1a5c14;margin-bottom:8px;">📋 Sold To</div>
+      <div id="iem-sold-to-list"></div>
+    </div>
     <div style="background:var(--goldp);border-radius:8px;padding:10px 12px;margin-bottom:14px;">
       <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:8px;">Mark as Sold</div>
       <div style="font-size:12px;color:#888;margin-bottom:8px;">Link this product to an existing invoice, or mark sold without an invoice.</div>
@@ -1750,10 +1754,18 @@ function parseInventoryRow(r){
       if(Array.isArray(parsed))variants=parsed;
     }catch{}
   }
+  // Parse linkedInvoices
+  let li=r.linkedInvoices;
+  if(typeof li='string'){
+    try{li=li.trim()?JSON.parse(li):[];}catch{
+      li=li.split(',').map(s=>s.trim()).filter(Boolean);
+    }
+  }
+  if(!Array.isArray(li))li=[];
   return{...r,prodNo:parseInt(r.prodNo)||0,qty:parseInt(r.qty)||0,
     qtyOriginal:parseInt(r.qtyOriginal)||0,qtySold:parseInt(r.qtySold)||0,
     cost:parseFloat(r.cost)||0,sellPrice:parseFloat(r.sellPrice)||0,
-    linkedProducts:lp,variants};
+    linkedProducts:lp,linkedInvoices:li,variants};
 }
 
 
@@ -7726,6 +7738,7 @@ function openInvEdit(prodNo) {
   document.getElementById('iem-date-story1').value = p.dateStory1 || '';
   document.getElementById('iem-date-story2').value = p.dateStory2 || '';
   document.getElementById('iem-sold-link').style.display = 'none';
+  renderSoldToSection(p);
   renderVariantsList(p);
   document.getElementById('inv-edit-modal').classList.add('open');
 }
@@ -7733,6 +7746,56 @@ function openInvEdit(prodNo) {
 function closeInvEditModal() {
   document.getElementById('inv-edit-modal').classList.remove('open');
   _editingProdNo = null;
+}
+
+function renderSoldToSection(p) {
+  const sec = document.getElementById('iem-sold-to-section');
+  const list = document.getElementById('iem-sold-to-list');
+  if (!sec || !list) return;
+  // Gather linked invoices (array of invoice IDs)
+  const linkedIds = Array.isArray(p.linkedInvoices) ? p.linkedInvoices : [];
+  const standaloneSold = (parseInt(p.qtySold) || 0) - linkedIds.length;
+  if (!linkedIds.length && standaloneSold <= 0) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+  let html = '';
+  linkedIds.forEach(invId => {
+    const inv = invoices.find(i => String(i.id) === String(invId));
+    if (!inv) {
+      html += `<div style="font-size:12px;color:#888;padding:6px 0;border-bottom:1px solid #c8e6c0;">Invoice ID ${esc(String(invId))} <span style="color:#bbb;">(not found locally)</span></div>`;
+      return;
+    }
+    const amt = inv.grandTotal || inv.total || 0;
+    const channel = inv.channel || inv.saleChannel || '';
+    const shipped = inv.isShipped === true || inv.isShipped === 'true';
+    html += `<div onclick="viewInvoiceFromInventory('${esc(String(inv.id))}')" style="cursor:pointer;padding:8px 6px;border-bottom:1px solid #c8e6c0;display:flex;justify-content:space-between;align-items:center;gap:8px;-webkit-tap-highlight-color:rgba(0,0,0,.05);active:background:#e8f5e3;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;color:var(--brown);">${esc(inv.invNo||String(inv.id))} &nbsp;<span style="font-size:11px;font-weight:400;color:#555;">${esc(inv.custName||'')}</span></div>
+        <div style="font-size:11px;color:#888;margin-top:2px;">${fmtDate(inv.invDate)}${channel?' · '+esc(channel):''}${shipped?' · <span style="color:#27ae60;">Shipped</span>':' · <span style="color:#e67e22;">Pending</span>'}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;">
+        <div style="font-size:13px;font-weight:600;">₹${fmtNum(amt)}</div>
+        <div style="font-size:10px;color:#888;margin-top:1px;">tap to view →</div>
+      </div>
+    </div>`;
+  });
+  if (standaloneSold > 0) {
+    html += `<div style="font-size:12px;color:#888;padding:6px 4px;">+ ${standaloneSold} unit${standaloneSold!==1?'s':''} sold without invoice</div>`;
+  }
+  list.innerHTML = html;
+}
+
+function viewInvoiceFromInventory(invId) {
+  const inv = invoices.find(i => String(i.id) === String(invId));
+  if (!inv) { toast('Invoice not found'); return; }
+  closeInvEditModal();
+  showPage('sales', document.getElementById('bnav-sales'));
+  // Filter salesFiltered to all invoices, find index
+  salesFiltered = [...invoices].sort((a,b)=>(b.invDate||'').localeCompare(a.invDate||''));
+  renderSales();
+  const idx = salesFiltered.findIndex(i => String(i.id) === String(invId));
+  if (idx >= 0) {
+    setTimeout(() => viewInvoiceByIdx(idx), 120);
+  }
 }
 
 function saveInvEdit() {
