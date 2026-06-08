@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.9
+APP: Vismaad Creations v14.10
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 08-Jun-2026 — v14.9: Four inventory integrity fixes: (1) Invoice save now links prod.linkedInvoices so Sold To panel works. (2) Sold To panel counts per-invoice units from itemsArr for accurate standalone-sold display. (3) Deleting an invoice restores qty/variant qty/qtySold/linkedInvoices for all products. (4) flattenProduct now includes v.qty in slim variant so per-variant stock survives Sheet sync round-trips.
+LAST_CHANGE: 08-Jun-2026 — v14.10: (1) Robust Sold To fix — backfillLinkedInvoices() rebuilds linkedInvoices by scanning itemsArr, runs at every init (idempotent) and on panel open. (2) One-time migration (vc_migration_v14_10 flag) restores stock for units whose invoices were deleted before v14.9 — compares qtySold to actual invoice units, adds drift back to qty.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -2156,6 +2156,37 @@ function init(){
       if (changed) recalcProductQtyFromVariants(p);
     });
     if (_varMigrated > 0) saveStk();
+    // Backfill linkedInvoices for all products (fixes pre-v14.9 data where invoices
+    // weren't linked to products — runs every init, safe and idempotent)
+    backfillAllLinkedInvoices();
+    // ONE-TIME migration v14.10: restore stock for units whose invoices were deleted
+    // before v14.9 (which never ran the stock-restore logic on delete).
+    // For each product: actual sold = sum of units across existing invoices.
+    // If qtySold > actualSold, the difference was from deleted invoices → add back to qty.
+    if (!lsGet('vc_migration_v14_10', false)) {
+      let _driftFixed = 0;
+      inventory.forEach(p => {
+        const pn = parseInt(p.prodNo); if (!pn) return;
+        let actualSold = 0;
+        invoices.forEach(inv => {
+          if (!Array.isArray(inv.itemsArr)) return;
+          inv.itemsArr.forEach(it => {
+            if (parseInt(it.prodNo) === pn) actualSold += (parseInt(it.qty) || 1);
+          });
+        });
+        const drift = (parseInt(p.qtySold) || 0) - actualSold;
+        if (drift > 0) {
+          p.qty = (parseInt(p.qty) || 0) + drift;
+          p.qtySold = actualSold;
+          p.updatedAt = new Date().toISOString();
+          _driftFixed++;
+          console.log('v14.10 drift fix: #' + p.prodNo + ' ' + p.name + ' — restored ' + drift + ' unit(s) to stock');
+        }
+      });
+      if (_driftFixed > 0) saveStk();
+      lsSet('vc_migration_v14_10', true);
+      if (_driftFixed > 0) console.log('v14.10 migration: restored stock for', _driftFixed, 'product(s)');
+    }
     // Cleanup: remove any wrongly set Hindu override for Sikh names (Singh/Kaur)
     const _ov=lsGet('vc_religion_overrides',{});
     let _fixed=false;
@@ -7774,14 +7805,46 @@ function closeInvEditModal() {
   _editingProdNo = null;
 }
 
+// Rebuild linkedInvoices for a product by scanning all invoices.
+// Safe to call any time — only adds missing IDs, never removes valid ones.
+// Returns true if anything changed (caller should saveStk).
+function backfillLinkedInvoices(prod) {
+  if (!Array.isArray(prod.linkedInvoices)) prod.linkedInvoices = [];
+  const pn = parseInt(prod.prodNo);
+  if (!pn) return false;
+  let changed = false;
+  invoices.forEach(inv => {
+    const items = Array.isArray(inv.itemsArr) ? inv.itemsArr : [];
+    const hasProduct = items.some(it => parseInt(it.prodNo) === pn);
+    if (!hasProduct) return;
+    const idStr = String(inv.id);
+    if (!prod.linkedInvoices.includes(idStr)) {
+      prod.linkedInvoices.push(idStr);
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+// Run backfill across ALL products at once (called from init).
+function backfillAllLinkedInvoices() {
+  let changed = 0;
+  inventory.forEach(p => { if (backfillLinkedInvoices(p)) changed++; });
+  if (changed > 0) { saveStk(); console.log('backfillAllLinkedInvoices: fixed', changed, 'products'); }
+}
+
 function renderSoldToSection(p) {
   const sec = document.getElementById('iem-sold-to-section');
   const list = document.getElementById('iem-sold-to-list');
   if (!sec || !list) return;
+
+  // Always backfill before rendering — ensures pre-v14.9 invoices appear correctly
+  backfillLinkedInvoices(p);
+
   const linkedIds = Array.isArray(p.linkedInvoices) ? p.linkedInvoices : [];
   const totalSold = parseInt(p.qtySold) || 0;
 
-  // Count units sold via invoices
+  // Count units sold via invoices (source of truth: itemsArr, not qtySold)
   let invoiceUnitsSold = 0;
   linkedIds.forEach(invId => {
     const inv = invoices.find(i => String(i.id) === String(invId));
@@ -7790,6 +7853,7 @@ function renderSoldToSection(p) {
       if (parseInt(it.prodNo) === parseInt(p.prodNo)) invoiceUnitsSold += (parseInt(it.qty) || 1);
     });
   });
+  // standaloneSold = units deducted from stock that have no matching invoice row
   const standaloneSold = Math.max(0, totalSold - invoiceUnitsSold);
 
   if (!linkedIds.length && standaloneSold <= 0 && totalSold <= 0) { sec.style.display = 'none'; return; }
