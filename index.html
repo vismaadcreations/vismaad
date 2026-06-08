@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.10
+APP: Vismaad Creations v14.11
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 08-Jun-2026 — v14.10: (1) Robust Sold To fix — backfillLinkedInvoices() rebuilds linkedInvoices by scanning itemsArr, runs at every init (idempotent) and on panel open. (2) One-time migration (vc_migration_v14_10 flag) restores stock for units whose invoices were deleted before v14.9 — compares qtySold to actual invoice units, adds drift back to qty.
+LAST_CHANGE: 08-Jun-2026 — v14.11: Fixed broken stock/sold counts and Sold To panel. Removed bad v14.10 migration that corrupted qtySold. qtySold now always recomputed as qtyOriginal−qty on init (idempotent, correct). Sold To section now shows whenever linkedInvoices exist, regardless of qtySold value. vc_migration_v14_10 flag cleared so all devices re-normalise.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -2159,34 +2159,22 @@ function init(){
     // Backfill linkedInvoices for all products (fixes pre-v14.9 data where invoices
     // weren't linked to products — runs every init, safe and idempotent)
     backfillAllLinkedInvoices();
-    // ONE-TIME migration v14.10: restore stock for units whose invoices were deleted
-    // before v14.9 (which never ran the stock-restore logic on delete).
-    // For each product: actual sold = sum of units across existing invoices.
-    // If qtySold > actualSold, the difference was from deleted invoices → add back to qty.
-    if (!lsGet('vc_migration_v14_10', false)) {
-      let _driftFixed = 0;
-      inventory.forEach(p => {
-        const pn = parseInt(p.prodNo); if (!pn) return;
-        let actualSold = 0;
-        invoices.forEach(inv => {
-          if (!Array.isArray(inv.itemsArr)) return;
-          inv.itemsArr.forEach(it => {
-            if (parseInt(it.prodNo) === pn) actualSold += (parseInt(it.qty) || 1);
-          });
-        });
-        const drift = (parseInt(p.qtySold) || 0) - actualSold;
-        if (drift > 0) {
-          p.qty = (parseInt(p.qty) || 0) + drift;
-          p.qtySold = actualSold;
-          p.updatedAt = new Date().toISOString();
-          _driftFixed++;
-          console.log('v14.10 drift fix: #' + p.prodNo + ' ' + p.name + ' — restored ' + drift + ' unit(s) to stock');
-        }
-      });
-      if (_driftFixed > 0) saveStk();
-      lsSet('vc_migration_v14_10', true);
-      if (_driftFixed > 0) console.log('v14.10 migration: restored stock for', _driftFixed, 'product(s)');
-    }
+    // Clear the bad v14.10 migration flag so all devices re-normalise with correct logic
+    lsSet('vc_migration_v14_10', false);
+    // Recompute qtySold for every product as qtyOriginal - qty (clamped to 0).
+    // qty is the authoritative source of truth: decremented on invoice save, restored on delete.
+    // qtySold is purely derived. This runs every init, is idempotent, and fixes past corruption.
+    let _qtyNormFixed = 0;
+    inventory.forEach(p => {
+      const orig = parseInt(p.qtyOriginal) || 0;
+      const cur  = parseInt(p.qty)         || 0;
+      const correct = Math.max(0, orig - cur);
+      if ((parseInt(p.qtySold) || 0) !== correct) {
+        p.qtySold = correct;
+        _qtyNormFixed++;
+      }
+    });
+    if (_qtyNormFixed > 0) { saveStk(); console.log('v14.11 qtySold normalised for', _qtyNormFixed, 'product(s)'); }
     // Cleanup: remove any wrongly set Hindu override for Sikh names (Singh/Kaur)
     const _ov=lsGet('vc_religion_overrides',{});
     let _fixed=false;
@@ -7856,7 +7844,8 @@ function renderSoldToSection(p) {
   // standaloneSold = units deducted from stock that have no matching invoice row
   const standaloneSold = Math.max(0, totalSold - invoiceUnitsSold);
 
-  if (!linkedIds.length && standaloneSold <= 0 && totalSold <= 0) { sec.style.display = 'none'; return; }
+  // Show section whenever there are linked invoices OR any units sold
+  if (!linkedIds.length && totalSold <= 0) { sec.style.display = 'none'; return; }
   sec.style.display = 'block';
   let html = '';
   linkedIds.forEach(invId => {
