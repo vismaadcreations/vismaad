@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.8.2
+APP: Vismaad Creations v14.9
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 08-Jun-2026 — v14.8.2: Fix missing fmtNum helper (ReferenceError when opening edit modal on sold products) — v14.8: Inventory "Sold To" panel — each product's edit modal now shows a collapsible "📋 Sold To" section listing every linked invoice (invoice no., customer, date, amount, channel, ship status). Tapping a row closes the modal, navigates to Sales, and opens that invoice's preview. Products sold standalone (no invoice) show a "Sold (no invoice)" note. Panel hidden if no sales yet.
+LAST_CHANGE: 08-Jun-2026 — v14.9: Four inventory integrity fixes: (1) Invoice save now links prod.linkedInvoices so Sold To panel works. (2) Sold To panel counts per-invoice units from itemsArr for accurate standalone-sold display. (3) Deleting an invoice restores qty/variant qty/qtySold/linkedInvoices for all products. (4) flattenProduct now includes v.qty in slim variant so per-variant stock survives Sheet sync round-trips.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -1732,7 +1732,7 @@ function flattenProduct(p){
   if(Array.isArray(flat.variants)){
     // Strip large base64 blobs — only store githubPath and thumbUrl (small relative URLs)
     const slim=flat.variants.map(v=>({
-      id:v.id,label:v.label,price:v.price,
+      id:v.id,label:v.label,price:v.price,qty:v.qty,
       photos:(v.photos||[]).map(ph=>({id:ph.id,githubPath:ph.githubPath,fullUrl:ph.fullUrl,thumbUrl:ph.thumbUrl}))
     }));
     flat.variants=JSON.stringify(slim);
@@ -2696,6 +2696,9 @@ function generateInvoice(){
     const num=parseInt(it.prodNo);if(!num)return;
     const prod=inventory.find(p=>parseInt(p.prodNo)===num);if(!prod)return;
     prod.qtySold=(prod.qtySold||0)+(it.qty||1);
+    // Link invoice ID to product (avoid duplicates)
+    if(!Array.isArray(prod.linkedInvoices))prod.linkedInvoices=[];
+    if(!prod.linkedInvoices.includes(String(saved.id)))prod.linkedInvoices.push(String(saved.id));
     if (it.variantId && prod.variants) {
       // Deduct from the specific variant (qty on invoice row = 1 for suit items)
       const v = prod.variants.find(x => x.id === it.variantId);
@@ -3197,6 +3200,28 @@ function deleteInvoiceByIdx(idx){
   showConfirmModal('🗑 Delete Invoice','Delete '+(inv.invNo||'this record')+'?<br/><br/>This removes it from your device and Google Sheet. Issue a Credit Note for legal record of cancellation.',function(){_doDeleteInvoice(inv);},null);return;}
 function _doDeleteInvoice(inv){
   addDeletedId(inv.id);
+  // Restore inventory for all items on this invoice
+  const items = Array.isArray(inv.itemsArr) ? inv.itemsArr : [];
+  items.forEach(it=>{
+    const num=parseInt(it.prodNo);if(!num)return;
+    const prod=inventory.find(p=>parseInt(p.prodNo)===num);if(!prod)return;
+    const soldQty=parseInt(it.qty)||1;
+    // Restore qtySold
+    prod.qtySold=Math.max(0,(parseInt(prod.qtySold)||0)-soldQty);
+    // Remove invoice ID from linkedInvoices
+    if(Array.isArray(prod.linkedInvoices))
+      prod.linkedInvoices=prod.linkedInvoices.filter(id=>String(id)!==String(inv.id));
+    // Restore stock
+    if(it.variantId && prod.variants){
+      const v=prod.variants.find(x=>x.id===it.variantId);
+      if(v){v.qty=(parseInt(v.qty)||0)+soldQty;}
+      recalcProductQtyFromVariants(prod);
+    }else{
+      prod.qty=(parseInt(prod.qty)||0)+soldQty;
+    }
+    prod.updatedAt=new Date().toISOString();
+  });
+  if(items.length){saveStk();inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));}
   invoices=invoices.filter(i=>String(i.id)!==String(inv.id));
   save();
   gsDelete(SHEETS.invoices,inv.id);
@@ -7753,10 +7778,21 @@ function renderSoldToSection(p) {
   const sec = document.getElementById('iem-sold-to-section');
   const list = document.getElementById('iem-sold-to-list');
   if (!sec || !list) return;
-  // Gather linked invoices (array of invoice IDs)
   const linkedIds = Array.isArray(p.linkedInvoices) ? p.linkedInvoices : [];
-  const standaloneSold = (parseInt(p.qtySold) || 0) - linkedIds.length;
-  if (!linkedIds.length && standaloneSold <= 0) { sec.style.display = 'none'; return; }
+  const totalSold = parseInt(p.qtySold) || 0;
+
+  // Count units sold via invoices
+  let invoiceUnitsSold = 0;
+  linkedIds.forEach(invId => {
+    const inv = invoices.find(i => String(i.id) === String(invId));
+    if (!inv || !Array.isArray(inv.itemsArr)) return;
+    inv.itemsArr.forEach(it => {
+      if (parseInt(it.prodNo) === parseInt(p.prodNo)) invoiceUnitsSold += (parseInt(it.qty) || 1);
+    });
+  });
+  const standaloneSold = Math.max(0, totalSold - invoiceUnitsSold);
+
+  if (!linkedIds.length && standaloneSold <= 0 && totalSold <= 0) { sec.style.display = 'none'; return; }
   sec.style.display = 'block';
   let html = '';
   linkedIds.forEach(invId => {
@@ -7765,12 +7801,18 @@ function renderSoldToSection(p) {
       html += `<div style="font-size:12px;color:#888;padding:6px 0;border-bottom:1px solid #c8e6c0;">Invoice ID ${esc(String(invId))} <span style="color:#bbb;">(not found locally)</span></div>`;
       return;
     }
+    // Count units of this product on this invoice
+    let unitsOnInv = 0;
+    if (Array.isArray(inv.itemsArr)) {
+      inv.itemsArr.forEach(it => { if (parseInt(it.prodNo) === parseInt(p.prodNo)) unitsOnInv += (parseInt(it.qty) || 1); });
+    }
+    if (!unitsOnInv) unitsOnInv = 1;
     const amt = inv.grandTotal || inv.total || 0;
     const channel = inv.channel || inv.saleChannel || '';
     const shipped = inv.isShipped === true || inv.isShipped === 'true';
-    html += `<div onclick="viewInvoiceFromInventory('${esc(String(inv.id))}')" style="cursor:pointer;padding:8px 6px;border-bottom:1px solid #c8e6c0;display:flex;justify-content:space-between;align-items:center;gap:8px;-webkit-tap-highlight-color:rgba(0,0,0,.05);active:background:#e8f5e3;">
+    html += `<div onclick="viewInvoiceFromInventory('${esc(String(inv.id))}')" style="cursor:pointer;padding:8px 6px;border-bottom:1px solid #c8e6c0;display:flex;justify-content:space-between;align-items:center;gap:8px;">
       <div style="flex:1;min-width:0;">
-        <div style="font-size:13px;font-weight:600;color:var(--brown);">${esc(inv.invNo||String(inv.id))} &nbsp;<span style="font-size:11px;font-weight:400;color:#555;">${esc(inv.custName||'')}</span></div>
+        <div style="font-size:13px;font-weight:600;color:var(--brown);">${esc(inv.invNo||String(inv.id))}${unitsOnInv>1?' <span style="font-size:11px;font-weight:400;color:#888;">×'+unitsOnInv+'</span>':''} &nbsp;<span style="font-size:11px;font-weight:400;color:#555;">${esc(inv.custName||'')}</span></div>
         <div style="font-size:11px;color:#888;margin-top:2px;">${fmtDate(inv.invDate)}${channel?' · '+esc(channel):''}${shipped?' · <span style="color:#27ae60;">Shipped</span>':' · <span style="color:#e67e22;">Pending</span>'}</div>
       </div>
       <div style="text-align:right;flex-shrink:0;">
@@ -7781,6 +7823,9 @@ function renderSoldToSection(p) {
   });
   if (standaloneSold > 0) {
     html += `<div style="font-size:12px;color:#888;padding:6px 4px;">+ ${standaloneSold} unit${standaloneSold!==1?'s':''} sold without invoice</div>`;
+  }
+  if (!html) {
+    html = `<div style="font-size:12px;color:#888;padding:6px 4px;">${totalSold} unit${totalSold!==1?'s':''} sold</div>`;
   }
   list.innerHTML = html;
 }
