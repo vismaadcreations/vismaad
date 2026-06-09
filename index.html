@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.12
+APP: Vismaad Creations v14.13
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 09-Jun-2026 — v14.12: Fixed invoice costPrice saved without multiplying by qty (per-item cost × qty). Same fix applied to bulk import save (2 places). Bulk import preview totals also fixed (unitPrice × qty). One-time idempotent migration at init recomputes costPrice on all past invoices from itemsArr so exports and P&L are corrected retroactively.
+LAST_CHANGE: 09-Jun-2026 — v14.13: Audit fixes — C1: GST export now filters to Tax Invoices only (isGST:true), warns if BOS excluded; C2: new INV/YY-YY/NNN format + FY reset activates on first GST enable; C3: shipping taxed at 18% GST (SAC 9965) separately on Tax Invoices — calcTotals returns split suit/ship GST components; H1: invoices added to needsPush sync loop using invUpdatedAt; H2: localStorage overflow now shows visible toast; H3: discount row moved above subtotal on printed invoice; M1: COGS fallback shows 5% GST assumption warning; M2: credit note guards against over-reversal across prior CNs on same invoice; L1: GST export warns when date range contains mixed document types.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -1477,7 +1477,7 @@ const GITHUB_BRANCH='main';
 const CAT_SHEET_SCRIPT_URL='https://script.google.com/macros/s/AKfycbwpfwN3NXnsxyOnYUyiMvEYCLJJaqzFqzuIWMSJ2XLucP6LEHZ4nLhGuuew2HtDmEIgbQ/exec'; // same script, catalogue sheet uses separate sheetId param
 
 function lsGet(key,def){try{const v=localStorage.getItem(key);return v?JSON.parse(v):def;}catch(e){return def;}}
-function lsSet(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch(e){console.warn('localStorage full:',e);}}
+function lsSet(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch(e){console.warn('localStorage full:',e);try{toast('⚠️ Storage full — data may not be saved. Please sync now.',7000);}catch(_){}}}
 // Safe unique ID — Date.now + 4-digit random suffix avoids same-millisecond collisions
 function uid(){return Date.now()*10000+Math.floor(Math.random()*9999);}
 
@@ -1493,6 +1493,21 @@ let supplierTxns = lsGet('vc_stxn',[]);
 let purchases = lsGet('vc_pur',[]);
 let trackingData = lsGet('vc_tracking',{});  // keyed by tracking number
 let invCtr = parseInt(lsGet('vc_ctr','0'))||0;
+// C2: per-FY GST invoice counter (only used when GST is enabled)
+function getGSTInvCtr(){
+  const fy=getFY(today());
+  const key='vc_ctr_gst_'+fy.replace('-','_');
+  return parseInt(lsGet(key,'0'))||0;
+}
+function setGSTInvCtr(n){
+  const fy=getFY(today());
+  const key='vc_ctr_gst_'+fy.replace('-','_');
+  lsSet(key,n);
+}
+function fmtGSTInvNo(n){
+  const fy=getFY(today());
+  return'INV/'+fy+'/'+String(n).padStart(3,'0');
+}
 let items=[],itemId=0,selChannel='',currentInv=null,syncing=false;
 let logoB64=lsGet('vc_logo',null);
 let qrB64 =lsGet('vc_qr',null);
@@ -2042,6 +2057,8 @@ async function syncAll(){
       return new Date(updatedAt).getTime()>lastSync;
     };
     inventory.filter(p=>needsPush(p.updatedAt)).forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
+    // H1: re-push invoices that were updated since last sync (catches failed initial writes)
+    invoices.filter(i=>needsPush(i.invUpdatedAt)).forEach(i=>gsWrite(SHEETS.invoices,flattenInvoice(i)));
     purchases.filter(p=>needsPush(p.updatedAt)).forEach(p=>gsWrite(SHEETS.purchases,p));
     suppliers.filter(s=>needsPush(s.updatedAt)).forEach(s=>gsWrite(SHEETS.suppliers,s));
     bills.filter(b=>needsPush(b.updatedAt)).forEach(b=>gsWrite(SHEETS.bills,{...b,payments:JSON.stringify(b.payments||[])}));
@@ -2354,14 +2371,27 @@ function setDates(){
   const ipd=document.getElementById('ip-date');if(ipd&&!ipd.value)ipd.value=t;
 }
 function setInvNumber(){
-  if(invoices.length>0){
-    const nums=invoices.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
-    const maxNum=Math.max(...nums);
-    if(maxNum>invCtr)invCtr=maxNum;
-  }
-  const next=invCtr+1;
   const el=document.getElementById('inv-no');
-  if(el)el.value='INV-'+String(next).padStart(3,'0');
+  if(isGSTEnabled()){
+    // GST mode: FY-scoped counter, new format INV/YY-YY/NNN
+    let ctr=getGSTInvCtr();
+    const fy=getFY(today());
+    const fyInvs=invoices.filter(i=>i.fy===fy&&(i.invNo||'').startsWith('INV/'));
+    if(fyInvs.length>0){
+      const nums=fyInvs.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
+      const mx=Math.max(...nums);
+      if(mx>ctr){ctr=mx;setGSTInvCtr(mx);}
+    }
+    if(el)el.value=fmtGSTInvNo(ctr+1);
+  }else{
+    // BOS mode: legacy INV-NNN counter
+    if(invoices.length>0){
+      const nums=invoices.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
+      const maxNum=Math.max(...nums);
+      if(maxNum>invCtr)invCtr=maxNum;
+    }
+    if(el)el.value='INV-'+String(invCtr+1).padStart(3,'0');
+  }
 }
 function onInvDateChange(){
   const d=document.getElementById('inv-date')?.value;
@@ -2583,15 +2613,22 @@ function selectInvoiceVariant(rowId, variantId, variantLabel) {
 }
 function calcTotals(arr,ship,disc){
   const suits=arr.reduce((s,i)=>s+(i.qty||1)*(i.unitPrice||0),0);
-  const grand=suits+ship-disc;
-  const taxable=parseFloat((grand/1.05).toFixed(2));
-  const gst=parseFloat((grand-taxable).toFixed(2));
-  return{suitsTotal:suits,grandIncl:grand,taxableExcl:taxable,gstAmt:gst};
+  // Suits taxed at 5% GST (HSN 540754); shipping taxed at 18% GST (SAC 9965)
+  const suitBase=Math.max(0,suits-disc); // discount applied pre-GST on goods
+  const suitTaxable=parseFloat((suitBase/1.05).toFixed(2));
+  const suitGST=parseFloat((suitBase-suitTaxable).toFixed(2));
+  const shipTaxable=parseFloat((ship/1.18).toFixed(2));
+  const shipGST=parseFloat((ship-shipTaxable).toFixed(2));
+  const taxable=parseFloat((suitTaxable+shipTaxable).toFixed(2));
+  const gst=parseFloat((suitGST+shipGST).toFixed(2));
+  const grand=parseFloat((suitBase+ship).toFixed(2));
+  return{suitsTotal:suits,grandIncl:grand,taxableExcl:taxable,gstAmt:gst,
+         suitTaxable,suitGST,shipTaxable,shipGST};
 }
 function recalc(){
   const ship=parseFloat(document.getElementById('shipping')?.value)||0;
   const disc=parseFloat(document.getElementById('discount')?.value)||0;
-  const{suitsTotal,grandIncl,taxableExcl,gstAmt}=calcTotals(items,ship,disc);
+  const{suitsTotal,grandIncl,taxableExcl,gstAmt,suitTaxable,suitGST,shipTaxable,shipGST}=calcTotals(items,ship,disc);
   const isIntra=document.getElementById('c-state')?.value==='Punjab';
   const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
   let h=`<div class="list-row"><span>Suits subtotal</span><strong>${f(suitsTotal)}</strong></div>
@@ -2600,10 +2637,15 @@ function recalc(){
   h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>Taxable (excl. GST)</span><span>${f(taxableExcl)}</span></div>`;
   if(isGSTEnabled()){
     if(isIntra){
-      h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>CGST 2.5%</span><span>${f(gstAmt/2)}</span></div>`;
-      h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>SGST 2.5%</span><span>${f(gstAmt/2)}</span></div>`;
+      h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>CGST on Suits 2.5%</span><span>${f(suitGST/2)}</span></div>`;
+      h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>SGST on Suits 2.5%</span><span>${f(suitGST/2)}</span></div>`;
+      if(ship>0){
+        h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>CGST on Shipping 9%</span><span>${f(shipGST/2)}</span></div>`;
+        h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>SGST on Shipping 9%</span><span>${f(shipGST/2)}</span></div>`;
+      }
     }else{
-      h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>IGST 5%</span><span>${f(gstAmt)}</span></div>`;
+      h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>IGST on Suits 5%</span><span>${f(suitGST)}</span></div>`;
+      if(ship>0)h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>IGST on Shipping 18%</span><span>${f(shipGST)}</span></div>`;
     }
   }
   h+=`<div class="list-row" style="font-size:17px;border-top:2px solid var(--brown);margin-top:4px;padding-top:10px;">
@@ -2676,13 +2718,28 @@ function generateInvoice(){
   if(isGSTEnabled()&&!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
   if(items.every(i=>!i.unitPrice)){toast('⚠️ Add at least one suit with price');return;}
 
-  // Derive correct next number
-  if(invoices.length>0){
-    const nums=invoices.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
-    invCtr=Math.max(...nums,invCtr);
+  // Derive correct next number (C2: GST mode uses FY-scoped INV/YY-YY/NNN format)
+  let invNo;
+  if(isGSTEnabled()){
+    const fy=getFY(document.getElementById('inv-date')?.value||today());
+    let ctr=getGSTInvCtr();
+    const fyInvs=invoices.filter(i=>i.fy===fy&&(i.invNo||'').startsWith('INV/'));
+    if(fyInvs.length>0){
+      const nums=fyInvs.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
+      const mx=Math.max(...nums);
+      if(mx>ctr){ctr=mx;}
+    }
+    ctr++;
+    setGSTInvCtr(ctr);
+    invNo=fmtGSTInvNo(ctr);
+  }else{
+    if(invoices.length>0){
+      const nums=invoices.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
+      invCtr=Math.max(...nums,invCtr);
+    }
+    invCtr++;
+    invNo='INV-'+String(invCtr).padStart(3,'0');
   }
-  invCtr++;
-  const invNo='INV-'+String(invCtr).padStart(3,'0');
   document.getElementById('inv-no').value=invNo;
 
   const invDate=document.getElementById('inv-date')?.value||today();
@@ -2774,11 +2831,7 @@ function printCurrentInvoice(){
   window.print();
 }
 function resetInvoiceForm(){
-  if(invoices.length>0){
-    const nums=invoices.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
-    invCtr=Math.max(...nums,invCtr);
-  }
-  const el=document.getElementById('inv-no');if(el)el.value='INV-'+String(invCtr+1).padStart(3,'0');
+  setInvNumber();
   ['c-name','c-phone','c-whatsapp','c-gstin','c-address','c-pin','tracking'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   const cs=document.getElementById('c-state');if(cs)cs.value='';
   const td=document.getElementById('tax-display');if(td)td.value='';
@@ -2816,10 +2869,16 @@ function buildInvoiceHTML(data){
   const storedDiscount=parseFloat(data.discount)||0;
   const itemsArr=data.itemsArr||[];
 
-  const{suitsTotal,grandIncl,taxableExcl,gstAmt}=calcTotals(itemsArr,storedShipping,storedDiscount);
+  const{suitsTotal,grandIncl,taxableExcl,gstAmt,suitTaxable,suitGST,shipTaxable,shipGST}=calcTotals(itemsArr,storedShipping,storedDiscount);
   const displayGrand=storedGrand>0?storedGrand:grandIncl;
-  const displayTaxable=parseFloat((displayGrand/1.05).toFixed(2));
-  const displayGST=parseFloat((displayGrand-displayTaxable).toFixed(2));
+  // Re-derive split GST from stored grand for display consistency
+  const displaySuitBase=Math.max(0,suitsTotal-storedDiscount);
+  const displaySuitTaxable=parseFloat((displaySuitBase/1.05).toFixed(2));
+  const displaySuitGST=parseFloat((displaySuitBase-displaySuitTaxable).toFixed(2));
+  const displayShipTaxable=storedShipping>0?parseFloat((storedShipping/1.18).toFixed(2)):0;
+  const displayShipGST=storedShipping>0?parseFloat((storedShipping-displayShipTaxable).toFixed(2)):0;
+  const displayTaxable=parseFloat((displaySuitTaxable+displayShipTaxable).toFixed(2));
+  const displayGST=parseFloat((displaySuitGST+displayShipGST).toFixed(2));
 
   const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
   const fd=d=>{
@@ -2841,7 +2900,6 @@ function buildInvoiceHTML(data){
   };
   const validItems=itemsArr.filter(i=>i.unitPrice>0);
   const hsnSet=[...new Set(validItems.map(i=>i.hsn||'540754'))];
-  const hsnLabel=storedShipping>0?hsnSet.join('/')+'/9965':hsnSet.join('/');
   const itemRows=validItems.map((it,i)=>{
     const lineIncl=(it.qty||1)*(it.unitPrice||0);
     const lineTax=parseFloat((lineIncl/1.05).toFixed(2));
@@ -2862,16 +2920,21 @@ function buildInvoiceHTML(data){
       +(gstMode?'<td style="padding:6px 8px;">9965</td>':'')
       +'<td style="padding:6px 8px;text-align:center;">1</td>'
       +'<td style="padding:6px 8px;text-align:right;">'+f(storedShipping)+'</td>'
-      +(gstMode?'<td style="padding:6px 8px;text-align:right;">'+f(parseFloat((storedShipping/1.05).toFixed(2)))+'</td>':'')
+      +(gstMode?'<td style="padding:6px 8px;text-align:right;">'+f(parseFloat((storedShipping/1.18).toFixed(2)))+'</td>':'')
       +'<td style="padding:6px 8px;text-align:right;font-weight:600;">'+f(storedShipping)+'</td>'
       +'</tr>'
     :'';
   const discColspan=gstMode?6:4;
-  const discRow=storedDiscount>0?'<tr><td colspan="'+discColspan+'" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: Discount</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−'+f(storedDiscount)+'</td></tr>':'';
+  // H3: discount shown above GST summary (pre-tax deduction)
+  const discRow=storedDiscount>0?'<tr><td colspan="'+discColspan+'" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: Discount (pre-GST)</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−'+f(storedDiscount)+'</td></tr>':'';
+  const hsnSuit=[...new Set(validItems.map(i=>i.hsn||'540754'))].join('/');
   const gstRows=data.isIntra
-    ?'<tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">'+hsnLabel+'</td><td style="padding:3px 8px;">'+f(displayTaxable)+'</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">'+f(displayGST/2)+'</td></tr>'
-     +'<tr><td style="padding:3px 8px;">SGST</td><td style="padding:3px 8px;">'+hsnLabel+'</td><td style="padding:3px 8px;">'+f(displayTaxable)+'</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">'+f(displayGST/2)+'</td></tr>'
-    :'<tr><td style="padding:3px 8px;">IGST</td><td style="padding:3px 8px;">'+hsnLabel+'</td><td style="padding:3px 8px;">'+f(displayTaxable)+'</td><td style="padding:3px 8px;">5%</td><td style="padding:3px 8px;">'+f(displayGST)+'</td></tr>';
+    ?'<tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">'+hsnSuit+'</td><td style="padding:3px 8px;">'+f(displaySuitTaxable)+'</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">'+f(displaySuitGST/2)+'</td></tr>'
+     +'<tr><td style="padding:3px 8px;">SGST</td><td style="padding:3px 8px;">'+hsnSuit+'</td><td style="padding:3px 8px;">'+f(displaySuitTaxable)+'</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">'+f(displaySuitGST/2)+'</td></tr>'
+     +(storedShipping>0?'<tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">9965</td><td style="padding:3px 8px;">'+f(displayShipTaxable)+'</td><td style="padding:3px 8px;">9%</td><td style="padding:3px 8px;">'+f(displayShipGST/2)+'</td></tr>':'')
+     +(storedShipping>0?'<tr><td style="padding:3px 8px;">SGST</td><td style="padding:3px 8px;">9965</td><td style="padding:3px 8px;">'+f(displayShipTaxable)+'</td><td style="padding:3px 8px;">9%</td><td style="padding:3px 8px;">'+f(displayShipGST/2)+'</td></tr>':'')
+    :'<tr><td style="padding:3px 8px;">IGST</td><td style="padding:3px 8px;">'+hsnSuit+'</td><td style="padding:3px 8px;">'+f(displaySuitTaxable)+'</td><td style="padding:3px 8px;">5%</td><td style="padding:3px 8px;">'+f(displaySuitGST)+'</td></tr>'
+     +(storedShipping>0?'<tr><td style="padding:3px 8px;">IGST</td><td style="padding:3px 8px;">9965</td><td style="padding:3px 8px;">'+f(displayShipTaxable)+'</td><td style="padding:3px 8px;">18%</td><td style="padding:3px 8px;">'+f(displayShipGST)+'</td></tr>':'');
   // Build dispatch section before template literal to avoid nested backtick conflicts
   const dispatchMethod2=data.dispatchMethod!=null?data.dispatchMethod:(data.tracking?'indiapost':'');
   const courierLabel={indiapost:'India Post Parcel',courier:data.courierName||'Courier',hand:'Hand Delivery',walkin:'Walk-in / Collected in person','':''}[dispatchMethod2]||dispatchMethod2;
@@ -3818,7 +3881,7 @@ function recalcEditTotal(){
   const shc=parseFloat(document.getElementById('edit-ship-cost')?.value)||0;
   const inv=invoices.find(i=>String(i.id)===editingInvId);if(!inv)return;
   const newGrand=(parseFloat(inv.suitsTotal)||0)+sc-di;
-  const shipPL=parseFloat((sc/1.05).toFixed(2))-shc;
+  const shipPL=parseFloat((sc/1.18).toFixed(2))-shc; // 18% GST on shipping (SAC 9965)
   const el=document.getElementById('edit-total-preview');
   if(el)el.innerHTML=`<strong>Grand Total:</strong> ₹${newGrand.toLocaleString('en-IN',{minimumFractionDigits:2})}${co>0?' · <strong>Cost:</strong> ₹'+co.toLocaleString('en-IN'):''}${shc>0?' · <strong>Ship P&L:</strong> <span style="color:'+(shipPL>=0?'#27ae60':'#c0392b')+'">₹'+shipPL.toFixed(2)+'</span>':''}`;
 }
@@ -4008,9 +4071,16 @@ function saveCreditNote(){
   const refInv=invoices.find(i=>String(i.id)===cnRefInvId);
   if(!refInv){toast('⚠️ Original document not found');return;}
 
-  if(amt>parseFloat(refInv.grandTotal||0)){
-    toast('⚠️ Credit amount cannot exceed original document value of ₹'+parseFloat(refInv.grandTotal).toLocaleString('en-IN'));
-    return;
+  // M2: check net remaining value after prior credit notes on same invoice
+  const priorCredited=creditNotes
+    .filter(cn=>String(cn.refInvId)===cnRefInvId)
+    .reduce((s,cn)=>s+(parseFloat(cn.creditAmount)||0),0);
+  const maxAllowed=parseFloat((parseFloat(refInv.grandTotal||0)-priorCredited).toFixed(2));
+  if(maxAllowed<=0){
+    toast('⚠️ This invoice has already been fully reversed by prior credit notes');return;
+  }
+  if(amt>maxAllowed){
+    toast('⚠️ Max creditable amount is ₹'+maxAllowed.toLocaleString('en-IN')+' (prior CNs already reversed ₹'+priorCredited.toLocaleString('en-IN')+')');return;
   }
 
   const gst=refInv.isGST===true||refInv.isGST==='true';
@@ -4941,15 +5011,14 @@ function renderPLContent(filtInv,filtPur){
   const nonGstInvs    = filtInv.filter(i=>!(i.isGST===true||i.isGST==='true'));
   const anyGST        = gstInvs.length>0;
   const gstOnSuits    = parseFloat(gstInvs.reduce((s,i)=>{
-    const shipGST=parseFloat((parseFloat(i.shipping||0)-parseFloat(i.shipping||0)/1.05).toFixed(2));
+    const shipGST=parseFloat((parseFloat(i.shipping||0)-parseFloat(i.shipping||0)/1.18).toFixed(2));
     const totalGST=parseFloat(i.grandTotal||0)-parseFloat((parseFloat(i.grandTotal||0)/1.05).toFixed(2));
     return s+(totalGST-shipGST);
   },0).toFixed(2));
   const shipCharged   = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.shipping)||0),0).toFixed(2));
-  const gstOnShip     = parseFloat(gstInvs.reduce((s,i)=>{const sh=parseFloat(i.shipping||0);return s+(sh-sh/1.05);},0).toFixed(2));
+  const gstOnShip     = parseFloat(gstInvs.reduce((s,i)=>{const sh=parseFloat(i.shipping||0);return s+(sh-sh/1.18);},0).toFixed(2));
   const totalOutGST   = parseFloat((gstOnSuits+gstOnShip).toFixed(2));
   const shipChargedExcl = parseFloat((shipCharged - gstOnShip).toFixed(2));
-  const gstRevenue    = parseFloat(gstInvs.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0).toFixed(2));
   const nonGstRevenue = parseFloat(nonGstInvs.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0).toFixed(2));
   const suitRevIncl   = parseFloat((grossRev-shipCharged).toFixed(2));
   const suitRevExcl   = parseFloat((suitRevIncl-(anyGST?gstOnSuits:0)).toFixed(2));
@@ -4973,7 +5042,7 @@ function renderPLContent(filtInv,filtPur){
   const cogs          = usePurchReg ? suitCostExcl : invCostExcl;
   const cogsIncl      = usePurchReg ? suitCostIncl : invCostIncl;
   const itcSuits      = usePurchReg ? itcOnSuits : invItcOnCost;
-  const cogsSource    = usePurchReg ? 'From Purchases Register' : invCostIncl>0 ? 'From invoice cost prices (enter in Purchases Register for better accuracy)' : 'Not entered — add cost prices to invoices or use Purchases Register';
+  const cogsSource    = usePurchReg ? 'From Purchases Register' : invCostIncl>0 ? 'From invoice cost prices — assumes 5% GST paid to supplier. If purchased from unregistered dealer, use Purchases Register for accuracy.' : 'Not entered — add cost prices to invoices or use Purchases Register';
 
   const grossProfit   = parseFloat((suitRevExcl-cogs).toFixed(2));
   const grossMargin   = pct(grossProfit,suitRevExcl);
@@ -5057,7 +5126,7 @@ function renderPLContent(filtInv,filtPur){
         '⚠️ Add cost prices to invoices or enter purchases in Purchases Register')}
 
       ${head('🚚 Shipping')}
-      ${row('Shipping charged to customers (incl. 5% GST)',shipCharged)}
+      ${row('Shipping charged to customers (incl. 18% GST)',shipCharged)}
       ${row('Shipping charged to customers (excl. GST)',shipChargedExcl)}
       ${row('Actual shipping paid to India Post (incl. 18% GST)',shipCostUsed,
         null,ipCostIncl>0?'From Purchases Register':'From invoice actual shipping cost field')}
@@ -5077,7 +5146,7 @@ function renderPLContent(filtInv,filtPur){
 
       ${head('📤 Output GST (GST you collected from customers)')}
       ${row('GST on Suit Sales (5% on taxable suit value)',gstOnSuits)}
-      ${row('GST on Shipping charged to customers (5%)',gstOnShip)}
+      ${row('GST on Shipping charged to customers (18% SAC 9965)',gstOnShip)}
       ${row('Total Output GST',totalOutGST)}
 
       ${head('📥 Input Tax Credit — ITC (GST you paid to suppliers)')}
@@ -5328,9 +5397,17 @@ function _doExport(type,from,to,label){
   }
 
   if(type==='gst'){
+    // C1: only Tax Invoices belong in a GST return
+    const gstFiltered=filtered.filter(i=>i.isGST===true||i.isGST==='true');
+    const bosCount=filtered.length-gstFiltered.length;
+    // L1: warn if date range contained mixed document types
+    if(bosCount>0){
+      toast('ℹ️ '+bosCount+' Bill(s) of Supply excluded from GST export — only Tax Invoices included',6000);
+    }
+    if(gstFiltered.length===0){toast('⚠️ No Tax Invoices found for this period',5000);return;}
     const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const byMonth={};
-    filtered.forEach(inv=>{
+    gstFiltered.forEach(inv=>{
       // invDate slice for grouping key (YYYY-MM for sorting)
       const isoMon=inv.invDate?String(inv.invDate).slice(0,7):'Unknown';
       if(!byMonth[isoMon])byMonth[isoMon]={
@@ -5420,7 +5497,7 @@ function _doExport(type,from,to,label){
     if(curFY){allRows.push([curFY+' TOTAL',fyInvCount,...fyAccum.map(v=>+v.toFixed(2))]);}
 
     // Grand total row
-    const totRow=['GRAND TOTAL', filtered.length, 0, 0, 0, 0, 0, 0];
+    const totRow=['GRAND TOTAL', gstFiltered.length, 0, 0, 0, 0, 0, 0];
     sortedMonths.forEach(g=>{totRow[2]+=g.grossRev;totRow[3]+=g.taxable;totRow[4]+=g.cgst;totRow[5]+=g.sgst;totRow[6]+=g.igst;totRow[7]+=g.totalGST;});
     for(let i=2;i<8;i++)totRow[i]=+totRow[i].toFixed(2);
     allRows.push(totRow);
@@ -5429,7 +5506,7 @@ function _doExport(type,from,to,label){
     ws['!cols']=[{wch:16},{wch:14},{wch:20},{wch:16},{wch:14},{wch:14},{wch:14},{wch:14}];
     XLSX.utils.book_append_sheet(wb,ws,'GST Summary');
     XLSX.writeFile(wb,'Vismaad_GST_'+label.replace(/[\s/]/g,'_')+'.xlsx');
-    toast('✅ GST summary — '+filtered.length+' invoices across '+sortedMonths.length+' months');
+    toast('✅ GST summary — '+gstFiltered.length+' Tax Invoice(s) across '+sortedMonths.length+' month(s)'+( bosCount>0?' · '+bosCount+' BOS excluded':'' ));
     return;
   }
 
