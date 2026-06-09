@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.11
+APP: Vismaad Creations v14.12
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 08-Jun-2026 — v14.11: Fixed broken stock/sold counts and Sold To panel. Removed bad v14.10 migration that corrupted qtySold. qtySold now always recomputed as qtyOriginal−qty on init (idempotent, correct). Sold To section now shows whenever linkedInvoices exist, regardless of qtySold value. vc_migration_v14_10 flag cleared so all devices re-normalise.
+LAST_CHANGE: 09-Jun-2026 — v14.12: Fixed invoice costPrice saved without multiplying by qty (per-item cost × qty). Same fix applied to bulk import save (2 places). Bulk import preview totals also fixed (unitPrice × qty). One-time idempotent migration at init recomputes costPrice on all past invoices from itemsArr so exports and P&L are corrected retroactively.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -2175,6 +2175,19 @@ function init(){
       }
     });
     if (_qtyNormFixed > 0) { saveStk(); console.log('v14.11 qtySold normalised for', _qtyNormFixed, 'product(s)'); }
+    // MIGRATION v14.12: recompute invoice costPrice from itemsArr (costPrice × qty per item).
+    // Prior versions saved costPrice without multiplying by qty. Idempotent — safe to run every init.
+    let _costFixed = 0;
+    invoices.forEach(inv => {
+      const arr = expandItems(inv.itemsArr);
+      if (!arr || !arr.length) return;
+      const correct = parseFloat(arr.reduce((s,i)=>s+(parseFloat(i.costPrice)||0)*(parseInt(i.qty)||1),0).toFixed(2));
+      if (correct > 0 && correct !== parseFloat(inv.costPrice||0)) {
+        inv.costPrice = correct;
+        _costFixed++;
+      }
+    });
+    if (_costFixed > 0) { save(); console.log('v14.12 costPrice recomputed for', _costFixed, 'invoice(s)'); }
     // Cleanup: remove any wrongly set Hindu override for Sikh names (Singh/Kaur)
     const _ov=lsGet('vc_religion_overrides',{});
     let _fixed=false;
@@ -2690,7 +2703,7 @@ function generateInvoice(){
 
   const{grandIncl,gstAmt,taxableExcl,suitsTotal}=calcTotals(items,ship,disc);
   const validItems=items.filter(i=>i.unitPrice>0);
-  const itemsCostTotal=parseFloat(validItems.reduce((s,i)=>s+(parseFloat(i.costPrice)||0),0).toFixed(2));
+  const itemsCostTotal=parseFloat(validItems.reduce((s,i)=>s+(parseFloat(i.costPrice)||0)*(parseInt(i.qty)||1),0).toFixed(2));
 
   const saved={
     id:uid(),
@@ -5679,7 +5692,7 @@ function showBulkPreview(rows,skipped=[]){
 
   // Sanity check: warn if any parsed dates look wrong (month > 12 impossible, but check year range)
   const badDates=rows.filter(r=>r.invDate&&(r.invDate<'2020-01-01'||r.invDate>'2030-12-31'));
-  const tot=rows.reduce((s,r)=>s+(r.itemsArr.reduce((ss,it)=>ss+it.unitPrice,0)+r.shipping-r.discount),0);
+  const tot=rows.reduce((s,r)=>s+(r.itemsArr.reduce((ss,it)=>ss+(it.qty||1)*it.unitPrice,0)+r.shipping-r.discount),0);
   let html=`<div class="card">
     <div class="card-title">✅ ${rows.length} orders ready
       <span style="font-size:13px;font-weight:400;color:#888;"> · Total ₹${tot.toLocaleString('en-IN')}</span>
@@ -5692,7 +5705,7 @@ function showBulkPreview(rows,skipped=[]){
     ${rows.map(r=>`<div class="list-row">
       <div><div class="list-main">${r.custName}</div>
       <div class="list-sub">${r.invDate?fmtDate(r.invDate):''} · ${r.custState} · ${r.itemsArr.map(it=>it.desc).join(', ')}</div></div>
-      <div class="list-right"><div class="list-amt">₹${(r.itemsArr.reduce((s,it)=>s+it.unitPrice,0)+r.shipping-r.discount).toLocaleString('en-IN')}</div></div>
+      <div class="list-right"><div class="list-amt">₹${(r.itemsArr.reduce((s,it)=>s+(it.qty||1)*it.unitPrice,0)+r.shipping-r.discount).toLocaleString('en-IN')}</div></div>
     </div>`).join('')}
     </div>
     ${rows.length>5?`<div style="text-align:center;padding:8px;font-size:13px;color:#888;background:var(--goldp);border-radius:8px;margin-top:4px;">...and ${rows.length-5} more rows</div>`:''}
@@ -5746,7 +5759,7 @@ async function bulkSaveOnly(){
         if(r.tracking&&!ex.tracking){ex.tracking=r.tracking;changed=true;}
         if(r.custPhone&&!ex.custPhone){ex.custPhone=r.custPhone;changed=true;}
         if(r.custAddress&&!ex.custAddress){ex.custAddress=r.custAddress;changed=true;}
-        const ct=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0),0);
+        const ct=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0)*(parseInt(i.qty)||1),0);
         if(ct>0&&!ex.costPrice){ex.costPrice=ct;changed=true;}
         if(changed){delete ex.html;toWrite.push(ex);updated++;}
         return;
@@ -5754,7 +5767,7 @@ async function bulkSaveOnly(){
 
       invCtr++;
       const invNo='INV-'+String(invCtr).padStart(3,'0');
-      const ct=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0),0);
+      const ct=r.itemsArr.reduce((s,i)=>s+(i.costPrice||0)*(parseInt(i.qty)||1),0);
       const saved={
         id:Date.now()+ri,invNo,invDate:r.invDate||today(),fy:getFY(r.invDate),
         custName:r.custName,custPhone:r.custPhone,custAddress:r.custAddress,custState:r.custState,isIntra,
