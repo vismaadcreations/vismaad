@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.14.2
+APP: Vismaad Creations v14.14.3
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 11-Jun-2026 — v14.14.2: Bugfix — delivery review popup now fires correctly after CSV import and after every sync; removed blanket vc_review_popup_seen update that was silently suppressing popups for already-handled invoices; seen list now only updated per-action (send/skip/never); checkReviewPopup() added to end of syncAll().
+LAST_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized (e.g. 7d131775299); getCourierInfo() accepts optional dispatchMethod param; getCourierTrackedInvoices() uses dispatchMethod fallback for _courierCode; buildTrackingMessage() passes dispatchMethod; track123Register() accepts courierMap to send correct courier code for unrecognized formats.
 PREV_CHANGE: 11-Jun-2026 — v14.14: DTDC + Blue Dart tracking via Track123 API — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
 PREV_CHANGE: 09-Jun-2026 — v14.13: Audit fixes — C1: GST export now filters to Tax Invoices only (isGST:true), warns if BOS excluded; C2: new INV/YY-YY/NNN format + FY reset activates on first GST enable; C3: shipping taxed at 18% GST (SAC 9965) separately on Tax Invoices — calcTotals returns split suit/ship GST components; H1: invoices added to needsPush sync loop using invUpdatedAt; H2: localStorage overflow now shows visible toast; H3: discount row moved above subtotal on printed invoice; M1: COGS fallback shows 5% GST assumption warning; M2: credit note guards against over-reversal across prior CNs on same invoice; L1: GST export warns when date range contains mixed document types.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
@@ -3506,7 +3506,7 @@ function shareTrackingWhatsApp(){
   const trackRaw=inv.tracking||'';
   if(!trackRaw){toast('⚠️ No tracking number on this invoice');return;}
   const trackNos=trackRaw.split(',').map(t=>t.trim()).filter(Boolean);
-  const msg=buildTrackingMessage(trackNos,inv.custName,inv.dispatchDate);
+  const msg=buildTrackingMessage(trackNos,inv.custName,inv.dispatchDate,inv.dispatchMethod);
   const url='https://wa.me/'+ph+'?text='+encodeURIComponent(msg);
   window.open(url,'_blank');
   closeShareModal();
@@ -3958,7 +3958,7 @@ function saveInvoiceEdit(){
         if(!ph){toast('⚠️ No WhatsApp number on this invoice');return;}
         if(ph.length===10)ph='91'+ph;
         const trackNos=newTracking.split(',').map(function(t){return t.trim();}).filter(Boolean);
-        const msg=buildTrackingMessage(trackNos,inv.custName,inv.dispatchDate);
+        const msg=buildTrackingMessage(trackNos,inv.custName,inv.dispatchDate,inv.dispatchMethod);
         window.open('https://wa.me/'+ph+'?text='+encodeURIComponent(msg),'_blank');
         // Save to sheet after opening WhatsApp
         showLoading('Saving to sheet…');
@@ -10034,12 +10034,13 @@ function detectCourier(trackNo){
   if(/^[A-Z]{2}\d{8}$/.test(t))return 'dtdc';               // e.g. DO12345678
   if(/^[A-Z]\d{8}$/.test(t))return 'dtdc';                  // e.g. Z12345678
   if(/^\d{10,11}$/.test(t))return 'bluedart';               // pure numeric 10-11 digits
-  return null;
+  return null;                                               // unrecognized — caller should use dispatchMethod
 }
 
-// Returns {name, trackUrl, courierCode} for a tracking number
-function getCourierInfo(trackNo){
-  const c=detectCourier(trackNo);
+// Returns {name, trackUrl, courierCode} for a tracking number.
+// dispatchMethod (optional) is used as fallback when regex detection returns null.
+function getCourierInfo(trackNo, dispatchMethod){
+  const c=detectCourier(trackNo)||(dispatchMethod||'');
   if(c==='dtdc')return{name:'DTDC',trackUrl:'https://www.dtdc.in/tracking.asp?TrkType=consignment&strCnno='+encodeURIComponent(trackNo.trim()),courierCode:'dtdc'};
   if(c==='bluedart')return{name:'Blue Dart',trackUrl:'https://www.bluedart.com/tracking?handler=tnt&action=awbview&parcelid='+encodeURIComponent(trackNo.trim()),courierCode:'bluedart'};
   // Default India Post
@@ -10047,10 +10048,10 @@ function getCourierInfo(trackNo){
 }
 
 // Build tracking instruction text for WhatsApp messages
-function buildTrackingMessage(trackNos,custName,dispatchDate){
+function buildTrackingMessage(trackNos,custName,dispatchDate,dispatchMethod){
   const multiPkg=trackNos.length>1;
-  // Detect courier from first tracking number
-  const info=getCourierInfo(trackNos[0]);
+  // Detect courier from first tracking number, fall back to dispatchMethod
+  const info=getCourierInfo(trackNos[0],dispatchMethod);
   const courierName=info.name;
   const trackLines=multiPkg
     ? trackNos.map(function(t,i){return'Package '+(i+1)+': '+t;}).join('\n')
@@ -10134,7 +10135,7 @@ function getCourierTrackedInvoices(){
       inv.tracking.split(',').forEach(function(t){
         t=t.trim();
         if(!t)return;
-        const c=detectCourier(t);
+        const c=detectCourier(t)||(inv.dispatchMethod||'');
         if(c==='dtdc'||c==='bluedart'){
           expanded.push({...inv,_singleTracking:t,_courierCode:c});
         }
@@ -10145,12 +10146,13 @@ function getCourierTrackedInvoices(){
 
 // Register tracking numbers with Track123 (consumes quota — only for new ones)
 // Returns promise resolving to {ok, registered, errors}
-async function track123Register(trackNos){
+async function track123Register(trackNos, courierMap){
   const key=getTrack123Key();
   if(!key)return{ok:false,registered:0,errors:['No Track123 API key set']};
   const payload=trackNos.map(function(t){
-    const info=getCourierInfo(t);
-    return{trackNo:t.trim(),courierCode:info.courierCode};
+    // Use precomputed courierMap first (handles unrecognized formats via dispatchMethod), then regex
+    const code=(courierMap&&courierMap[t.trim().toUpperCase()])||getCourierInfo(t).courierCode;
+    return{trackNo:t.trim(),courierCode:code};
   });
   try{
     const res=await fetch(TRACK123_IMPORT_URL,{
@@ -10250,13 +10252,16 @@ async function refreshCourierTracking(){
 
   // Split: already registered (have data) vs new (never registered)
   const allNos=[...new Set(items.map(i=>i._singleTracking.trim().toUpperCase()))];
+  // Build map of trackNo2192courierCode (respects dispatchMethod fallback via _courierCode)
+  const courierMap={};
+  items.forEach(i=>{ courierMap[i._singleTracking.trim().toUpperCase()]=i._courierCode; });
   const newNos=allNos.filter(t=>!trackingData[t]||!trackingData[t].source);
   const existingNos=allNos.filter(t=>trackingData[t]&&trackingData[t].source==='track123');
 
   let registered=0;
   // Register new numbers (consumes quota)
   if(newNos.length){
-    const reg=await track123Register(newNos);
+    const reg=await track123Register(newNos,courierMap);
     registered=reg.registered;
     if(!reg.ok&&reg.errors.length){
       hideLoading();
