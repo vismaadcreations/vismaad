@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.13
+APP: Vismaad Creations v14.14
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 09-Jun-2026 — v14.13: Audit fixes — C1: GST export now filters to Tax Invoices only (isGST:true), warns if BOS excluded; C2: new INV/YY-YY/NNN format + FY reset activates on first GST enable; C3: shipping taxed at 18% GST (SAC 9965) separately on Tax Invoices — calcTotals returns split suit/ship GST components; H1: invoices added to needsPush sync loop using invUpdatedAt; H2: localStorage overflow now shows visible toast; H3: discount row moved above subtotal on printed invoice; M1: COGS fallback shows 5% GST assumption warning; M2: credit note guards against over-reversal across prior CNs on same invoice; L1: GST export warns when date range contains mixed document types.
+LAST_CHANGE: 11-Jun-2026 — v14.14: DTDC + Blue Dart tracking via Track123 API — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
+PREV_CHANGE: 09-Jun-2026 — v14.13: Audit fixes — C1: GST export now filters to Tax Invoices only (isGST:true), warns if BOS excluded; C2: new INV/YY-YY/NNN format + FY reset activates on first GST enable; C3: shipping taxed at 18% GST (SAC 9965) separately on Tax Invoices — calcTotals returns split suit/ship GST components; H1: invoices added to needsPush sync loop using invUpdatedAt; H2: localStorage overflow now shows visible toast; H3: discount row moved above subtotal on printed invoice; M1: COGS fallback shows 5% GST assumption warning; M2: credit note guards against over-reversal across prior CNs on same invoice; L1: GST export warns when date range contains mixed document types.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
           SCRIPT_URL(Apps Script endpoint), SHEETS(sheet name map),
@@ -522,6 +523,8 @@ body.gst-mode .gst-only{display:block;}
       <select id="dispatch-method" onchange="updateDispatchFields()">
         <option value="">— Select —</option>
         <option value="indiapost">India Post Parcel</option>
+        <option value="dtdc">DTDC</option>
+        <option value="bluedart">Blue Dart</option>
         <option value="courier">Other Courier</option>
         <option value="hand">Hand Delivery</option>
         <option value="walkin">Walk-in / Collected in person</option>
@@ -794,6 +797,18 @@ body.gst-mode .gst-only{display:block;}
         <input id="ms-cat-sheet-id" placeholder="1-rtn3pZsJJ09gbk5llf2rKkk…"/>
         <div style="font-size:11px;color:#888;margin-top:4px;">Create a new blank public Google Sheet → share as Viewer → copy ID from URL. App writes product data here for the live catalogue page.</div></div>
     </div>
+    <div style="background:#f0fff4;border:1px solid #a8e6cf;border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:10px;">📦 Courier Tracking (Track123)</div>
+      <div style="font-size:12px;color:#888;margin-bottom:10px;line-height:1.55;">Used to auto-track DTDC and Blue Dart shipments. India Post is unaffected. Sign up free at track123.com → Developers → API Key. Free plan: 50 shipments/month per account.</div>
+      <div class="fg" style="margin-bottom:10px;"><label>Track123 API Key 1 <span style="font-weight:400;color:#aaa;">(primary)</span></label>
+        <input id="ms-track123-key1" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" type="password"/>
+        <div style="font-size:11px;color:#888;margin-top:4px;">Sign up at track123.com → Developers → API to get your key.</div>
+      </div>
+      <div class="fg" style="margin-bottom:0;"><label>Track123 API Key 2 <span style="font-weight:400;color:#aaa;">(overflow — optional, second account)</span></label>
+        <input id="ms-track123-key2" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" type="password"/>
+        <div style="font-size:11px;color:#888;margin-top:4px;">Create a second account to get 50 more free trackings/month. App switches to this key automatically when Key 1 hits its limit.</div>
+      </div>
+    </div>
     <div class="fg">
       <label>Logo Image</label>
       <div style="display:flex;align-items:center;gap:10px;">
@@ -899,6 +914,8 @@ body.gst-mode .gst-only{display:block;}
       <select id="edit-dispatch">
         <option value="">— Not specified —</option>
         <option value="indiapost">India Post Parcel</option>
+        <option value="dtdc">DTDC</option>
+        <option value="bluedart">Blue Dart</option>
         <option value="courier">Other Courier</option>
         <option value="hand">Hand Delivery</option>
         <option value="walkin">Walk-in / Collected in person</option>
@@ -1485,6 +1502,8 @@ function uid(){return Date.now()*10000+Math.floor(Math.random()*9999);}
 // STATE
 // ═══════════════════════════════════════════
 let S      = lsGet('vc_s',{});
+// Pre-populate Track123 Key1 if not already set
+if(!S.track123Key1)S.track123Key1='f653202d95074bbd98f0f22aa85cc74b';
 let invoices  = lsGet('vc_inv',[]);
 let inventory = lsGet('vc_stk',[]);
 let suppliers = lsGet('vc_sup',[]);
@@ -2322,6 +2341,10 @@ function loadSettings(){
   if(patEl&&S.githubPat)patEl.value=S.githubPat;
   const catEl=document.getElementById('ms-cat-sheet-id');
   if(catEl&&S.catSheetId)catEl.value=S.catSheetId;
+  const t123k1El=document.getElementById('ms-track123-key1');
+  if(t123k1El&&S.track123Key1)t123k1El.value=S.track123Key1;
+  const t123k2El=document.getElementById('ms-track123-key2');
+  if(t123k2El&&S.track123Key2)t123k2El.value=S.track123Key2;
   const upiIdEl=document.getElementById('ms-upi-id');
   if(upiIdEl)upiIdEl.value=S.upiId||'7719683825-2@ybl';
   const upiNameEl=document.getElementById('ms-upi-name');
@@ -2343,6 +2366,8 @@ function saveSettings(){
     waNumber:(document.getElementById('ms-wa-number')?.value||'').trim(),
     githubPat:(document.getElementById('ms-gh-pat')?.value||'').trim(),
     catSheetId:(document.getElementById('ms-cat-sheet-id')?.value||'').trim(),
+    track123Key1:(document.getElementById('ms-track123-key1')?.value||'').trim(),
+    track123Key2:(document.getElementById('ms-track123-key2')?.value||'').trim(),
     upiId:(document.getElementById('ms-upi-id')?.value||'').trim(),
     upiName:(document.getElementById('ms-upi-name')?.value||'').trim(),
     upiPhone:(document.getElementById('ms-upi-phone')?.value||'').trim(),
@@ -3472,28 +3497,7 @@ function shareTrackingWhatsApp(){
   const trackRaw=inv.tracking||'';
   if(!trackRaw){toast('⚠️ No tracking number on this invoice');return;}
   const trackNos=trackRaw.split(',').map(t=>t.trim()).filter(Boolean);
-  const multiPkg=trackNos.length>1;
-  const trackLines=multiPkg
-    ? trackNos.map((t,i)=>'Package '+(i+1)+': '+t).join('\n')
-    : 'Tracking No: '+trackNos[0];
-  const trackInstructions=multiPkg
-    ? 'Track at www.indiapost.gov.in (Track Consignment).'
-    : 'Track at www.indiapost.gov.in (Track Consignment) using number: '+trackNos[0];
-  let expectedDelivery='';
-  try{
-    const base=inv.dispatchDate?new Date(inv.dispatchDate+'T00:00:00'):new Date();
-    base.setDate(base.getDate()+10);
-    expectedDelivery=base.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
-  }catch(e){}
-  const msg=
-    'Dear '+inv.custName+',\n\n'+
-    'Your order has been dispatched.\n\n'+
-    (multiPkg?'Packed in '+trackNos.length+' parcels:\n':'')+
-    trackLines+'\n\n'+
-    trackInstructions+'\n'+
-    (expectedDelivery?'Expected delivery by '+expectedDelivery+'.\n':'')+
-    '\nPlease record a video while opening the package. Refund or exchange requests will not be entertained without an unboxing video.\n\n'+
-    'Vismaad Creations';
+  const msg=buildTrackingMessage(trackNos,inv.custName,inv.dispatchDate);
   const url='https://wa.me/'+ph+'?text='+encodeURIComponent(msg);
   window.open(url,'_blank');
   closeShareModal();
@@ -3945,28 +3949,7 @@ function saveInvoiceEdit(){
         if(!ph){toast('⚠️ No WhatsApp number on this invoice');return;}
         if(ph.length===10)ph='91'+ph;
         const trackNos=newTracking.split(',').map(function(t){return t.trim();}).filter(Boolean);
-        const multiPkg=trackNos.length>1;
-        const trackLines=multiPkg
-          ? trackNos.map(function(t,i){return'Package '+(i+1)+': '+t;}).join('\n')
-          : 'Tracking No: '+trackNos[0];
-        const trackInstructions=multiPkg
-          ? 'Track at www.indiapost.gov.in (Track Consignment).'
-          : 'Track at www.indiapost.gov.in (Track Consignment) using number: '+trackNos[0];
-        let expectedDelivery='';
-        try{
-          const base=inv.dispatchDate?new Date(inv.dispatchDate+'T00:00:00'):new Date();
-          base.setDate(base.getDate()+10);
-          expectedDelivery=base.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
-        }catch(e){}
-        const msg=
-          'Dear '+inv.custName+',\n\n'+
-          'Your order has been dispatched.\n\n'+
-          (multiPkg?'Packed in '+trackNos.length+' parcels:\n':'')+
-          trackLines+'\n\n'+
-          trackInstructions+'\n'+
-          (expectedDelivery?'Expected delivery by '+expectedDelivery+'.\n':'')+
-          '\nPlease record a video while opening the package. Refund or exchange requests will not be entertained without an unboxing video.\n\n'+
-          'Vismaad Creations';
+        const msg=buildTrackingMessage(trackNos,inv.custName,inv.dispatchDate);
         window.open('https://wa.me/'+ph+'?text='+encodeURIComponent(msg),'_blank');
         // Save to sheet after opening WhatsApp
         showLoading('Saving to sheet…');
@@ -4751,6 +4734,8 @@ function buildBulkEditPage(){
             <select id="be-dispatch-${i}">
               <option value="">— Not specified —</option>
               <option value="indiapost" ${inv.dispatchMethod==='indiapost'?'selected':''}>India Post Parcel</option>
+              <option value="dtdc" ${inv.dispatchMethod==='dtdc'?'selected':''}>DTDC</option>
+              <option value="bluedart" ${inv.dispatchMethod==='bluedart'?'selected':''}>Blue Dart</option>
               <option value="courier" ${inv.dispatchMethod==='courier'?'selected':''}>Other Courier</option>
               <option value="hand" ${inv.dispatchMethod==='hand'?'selected':''}>Hand Delivery</option>
               <option value="walkin" ${inv.dispatchMethod==='walkin'?'selected':''}>Walk-in</option>
@@ -5550,7 +5535,7 @@ function _doExport(type,from,to,label){
     const costIncl=parseFloat(inv.costPrice)||0;
     const shipActual=parseFloat(inv.shippingCost)||0;
     const intra=inv.isIntra===true||inv.isIntra==='true'||inv.custState==='Punjab';
-    const dispMap={indiapost:'India Post Parcel',courier:inv.courierName||'Other Courier',hand:'Hand Delivery',walkin:'Walk-in / Collected in person','':(inv.tracking?'India Post Parcel':'Not specified')};
+    const dispMap={indiapost:'India Post Parcel',dtdc:'DTDC',bluedart:'Blue Dart',courier:inv.courierName||'Other Courier',hand:'Hand Delivery',walkin:'Walk-in / Collected in person','':(inv.tracking?'India Post Parcel':'Not specified')};
 
     // GST calculations — only meaningful for Tax Invoices
     const suitIncl=parseFloat((grand-ship+disc).toFixed(2));
@@ -7475,13 +7460,21 @@ function handleTrackingImport(e){
         rows.forEach(function(row){
           const art=(row[colArticle]||'').toString().trim().toUpperCase();
           if(!art){skipped++;return;}
+          const statusVal=colStatus?row[colStatus]||'':'';
+          // Stamp deliveredOn: use today's import date if status is Delivered and no prior deliveredOn
+          const existing=trackingData[art];
+          const wasDelivered=existing&&/^delivered$/i.test(existing.status||'');
+          const isNowDelivered=/^delivered$/i.test(statusVal);
+          const deliveredOn=(isNowDelivered&&existing&&existing.deliveredOn)?existing.deliveredOn
+            :(isNowDelivered&&!wasDelivered)?new Date().toISOString().substring(0,10):null;
           trackingData[art]={
             articleType:colType?row[colType]||'':'',
             bookedAt:colAt?row[colAt]||'':'',
             bookedOn:colOn?row[colOn]||'':'',
             destination:colDest?row[colDest]||'':'',
-            status:colStatus?row[colStatus]||'':'',
+            status:statusVal,
             lastEvent:colEvent?row[colEvent]||'':'',
+            deliveredOn:deliveredOn||(existing&&existing.deliveredOn)||null,
             updatedAt:new Date().toISOString()
           };
           updated++;
@@ -7535,8 +7528,11 @@ function handleTrackingImport(e){
 function buildTrackingPage(){
   const total=Object.keys(trackingData).length;
   const top=getTop1000Tracked();
+  const courierItems=getCourierTrackedInvoices();
+  const courierTotal=[...new Set(courierItems.map(i=>i._singleTracking.trim().toUpperCase()))].length;
+  const key=S.track123Key1||S.track123Key2||'';
   return`<div class="card" style="margin-bottom:14px;">
-    <div class="card-title">📡 Bulk Tracking — India Post</div>
+    <div class="card-title">📡 India Post — Bulk Tracking</div>
     <div style="font-size:13px;color:#888;margin-bottom:14px;line-height:1.7;">
       <strong>Step 1:</strong> Export tracking numbers → upload to indiapost.gov.in bulk tracker<br/>
       <strong>Step 2:</strong> Download the results sheet → import here to update delivery status<br/>
@@ -7549,7 +7545,18 @@ function buildTrackingPage(){
     <input type="file" id="tracking-import" accept=".xlsx,.xls" style="display:none;" onchange="handleTrackingImport(event)"/>
     ${total?'<button class="btn btn-d btn-sm" style="width:100%;margin-bottom:4px;" onclick="showConfirmModal(\'🗑 Clear Tracking\',\'Clear all '+total+' stored tracking records? This cannot be undone.\',clearTrackingData,null)">🗑 Clear All Tracking Data</button>':''}
   </div>
-  <div id="tracking-table-area"></div>`;
+  <div class="card" style="margin-bottom:14px;">
+    <div class="card-title">🚚 DTDC &amp; Blue Dart — Auto Tracking</div>
+    <div style="font-size:13px;color:#888;margin-bottom:12px;line-height:1.7;">
+      Status is fetched automatically via Track123 API. No manual export/import needed.<br/>
+      <strong>${courierTotal}</strong> DTDC/Blue Dart shipment${courierTotal!==1?'s':''} found in invoices
+      ${!key?'<br/><span style="color:#e74c3c;font-weight:600;">⚠️ No Track123 API key set — add it in Settings → Courier Tracking</span>':''}
+    </div>
+    <button class="btn btn-p" style="width:100%;margin-bottom:8px;" onclick="refreshCourierTracking()">🔄 Refresh DTDC / Blue Dart Status</button>
+    ${!key?'<div style="font-size:12px;color:#888;text-align:center;">Get a free key at track123.com → Developers → API</div>':''}
+  </div>
+  <div id="tracking-table-area"></div>`;}
+
 }
 
 function clearTrackingData(){
@@ -9929,6 +9936,8 @@ function backupConfig(){
     upiName:S.upiName||'',
     upiPhone:S.upiPhone||'',
     calKey:S.calKey||'',
+    track123Key1:S.track123Key1||'',
+    track123Key2:S.track123Key2||'',
     logoB64:logoB64||'',
     qrB64:qrB64||''
   };
@@ -9961,6 +9970,8 @@ function handleConfigRestore(e){
       // Restore settings fields
       if(config.githubPat)S.githubPat=config.githubPat;
       if(config.catSheetId)S.catSheetId=config.catSheetId;
+      if(config.track123Key1)S.track123Key1=config.track123Key1;
+      if(config.track123Key2)S.track123Key2=config.track123Key2;
       if(config.tagline)S.tagline=config.tagline;
       if(config.waNumber)S.waNumber=config.waNumber;
       if(config.upiId)S.upiId=config.upiId;
@@ -9994,6 +10005,292 @@ function checkConfigBanner(){
   const missing=!S.githubPat||!S.catSheetId;
   const banner=document.getElementById('config-missing-banner');
   if(banner)banner.style.display=missing?'block':'none';
+}
+
+// ═══════════════════════════════════════════
+// COURIER DETECTION & INFO
+// ═══════════════════════════════════════════
+
+// Strict courier detection from tracking number format
+// Returns 'indiapost' | 'dtdc' | 'bluedart' | null
+function detectCourier(trackNo){
+  if(!trackNo)return null;
+  const t=trackNo.trim().toUpperCase();
+  if(/^[A-Z]{2}\d{8,9}[A-Z]{2}$/.test(t))return 'indiapost'; // UPU format e.g. EE123456789IN
+  if(/^[A-Z]{2}\d{8}$/.test(t))return 'dtdc';               // e.g. DO12345678
+  if(/^[A-Z]\d{8}$/.test(t))return 'dtdc';                  // e.g. Z12345678
+  if(/^\d{10,11}$/.test(t))return 'bluedart';               // pure numeric 10-11 digits
+  return null;
+}
+
+// Returns {name, trackUrl, courierCode} for a tracking number
+function getCourierInfo(trackNo){
+  const c=detectCourier(trackNo);
+  if(c==='dtdc')return{name:'DTDC',trackUrl:'https://www.dtdc.in/tracking.asp?TrkType=consignment&strCnno='+encodeURIComponent(trackNo.trim()),courierCode:'dtdc'};
+  if(c==='bluedart')return{name:'Blue Dart',trackUrl:'https://www.bluedart.com/tracking?handler=tnt&action=awbview&parcelid='+encodeURIComponent(trackNo.trim()),courierCode:'bluedart'};
+  // Default India Post
+  return{name:'India Post',trackUrl:'https://www.indiapost.gov.in/_layouts/15/dop.portal.tracking/trackconsignment.aspx',courierCode:'indiapost'};
+}
+
+// Build tracking instruction text for WhatsApp messages
+function buildTrackingMessage(trackNos,custName,dispatchDate){
+  const multiPkg=trackNos.length>1;
+  // Detect courier from first tracking number
+  const info=getCourierInfo(trackNos[0]);
+  const courierName=info.name;
+  const trackLines=multiPkg
+    ? trackNos.map(function(t,i){return'Package '+(i+1)+': '+t;}).join('\n')
+    : 'Tracking No: '+trackNos[0];
+  let trackInstructions;
+  if(info.courierCode==='indiapost'){
+    trackInstructions=multiPkg
+      ?'Track at www.indiapost.gov.in (Track Consignment).'
+      :'Track at www.indiapost.gov.in (Track Consignment) using number: '+trackNos[0];
+  }else if(info.courierCode==='dtdc'){
+    trackInstructions=multiPkg
+      ?'Track at www.dtdc.in → Track Consignment.'
+      :'Track at www.dtdc.in using number: '+trackNos[0];
+  }else if(info.courierCode==='bluedart'){
+    trackInstructions=multiPkg
+      ?'Track at www.bluedart.com → Track Shipment.'
+      :'Track at www.bluedart.com using waybill number: '+trackNos[0];
+  }else{
+    trackInstructions='Track your shipment using number: '+trackNos[0];
+  }
+  let expectedDelivery='';
+  try{
+    const base=dispatchDate?new Date(dispatchDate+'T00:00:00'):new Date();
+    base.setDate(base.getDate()+10);
+    expectedDelivery=base.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+  }catch(e){}
+  return 'Dear '+custName+',\n\n'
+    +'Your order has been dispatched'+(courierName!=='India Post'?' via '+courierName:'')+'.\\n\\n'
+    +(multiPkg?'Packed in '+trackNos.length+' parcels:\n':'')+trackLines+'\n\n'
+    +trackInstructions+'\n'
+    +(expectedDelivery?'Expected delivery by '+expectedDelivery+'.\n':'')
+    +'\nPlease record a video while opening the package. Refund or exchange requests will not be entertained without an unboxing video.\n\n'
+    +'Vismaad Creations';
+}
+
+// ═══════════════════════════════════════════
+// TRACK123 API — DTDC + BLUE DART AUTO-TRACKING
+// ═══════════════════════════════════════════
+
+const TRACK123_IMPORT_URL='https://api.track123.com/gateway/open-api/tk/v2/track/import';
+const TRACK123_QUERY_URL='https://api.track123.com/gateway/open-api/tk/v2/track/query';
+
+// Returns active Track123 API key — tries key1, falls back to key2
+// Stores which key hit quota limit in localStorage
+function getTrack123Key(){
+  const k1=S.track123Key1||'';
+  const k2=S.track123Key2||'';
+  const k1exhausted=lsGet('vc_t123_k1_exhausted',false);
+  if(k1&&!k1exhausted)return k1;
+  if(k2)return k2;
+  if(k1)return k1; // try k1 even if exhausted if no k2
+  return '';
+}
+
+function markTrack123Key1Exhausted(){
+  lsSet('vc_t123_k1_exhausted',true);
+  // Reset at start of next calendar month
+  const now=new Date();
+  const resetKey='vc_t123_k1_reset_'+now.getFullYear()+'_'+(now.getMonth()+1);
+  if(!lsGet(resetKey,false)){
+    lsSet(resetKey,true);
+  }
+}
+
+// Reset key1-exhausted flag at start of new month
+function checkTrack123MonthReset(){
+  const now=new Date();
+  const resetKey='vc_t123_k1_reset_'+now.getFullYear()+'_'+(now.getMonth()+1);
+  if(!lsGet(resetKey,false)){
+    lsSet('vc_t123_k1_exhausted',false);
+  }
+}
+
+// Get all invoices that have DTDC or Blue Dart tracking numbers (not India Post)
+function getCourierTrackedInvoices(){
+  const expanded=[];
+  [...invoices]
+    .sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1)
+    .forEach(inv=>{
+      if(!inv.tracking)return;
+      inv.tracking.split(',').forEach(function(t){
+        t=t.trim();
+        if(!t)return;
+        const c=detectCourier(t);
+        if(c==='dtdc'||c==='bluedart'){
+          expanded.push({...inv,_singleTracking:t,_courierCode:c});
+        }
+      });
+    });
+  return expanded;
+}
+
+// Register tracking numbers with Track123 (consumes quota — only for new ones)
+// Returns promise resolving to {ok, registered, errors}
+async function track123Register(trackNos){
+  const key=getTrack123Key();
+  if(!key)return{ok:false,registered:0,errors:['No Track123 API key set']};
+  const payload=trackNos.map(function(t){
+    const info=getCourierInfo(t);
+    return{trackNo:t.trim(),courierCode:info.courierCode};
+  });
+  try{
+    const res=await fetch(TRACK123_IMPORT_URL,{
+      method:'POST',
+      headers:{'Track123-Api-Secret':key,'accept':'application/json','content-type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    const data=await res.json();
+    if(res.status===429||(data&&data.code==='A0429')){
+      markTrack123Key1Exhausted();
+      // Retry with key2 if available
+      const k2=S.track123Key2||'';
+      if(k2&&key!==k2){
+        const res2=await fetch(TRACK123_IMPORT_URL,{
+          method:'POST',
+          headers:{'Track123-Api-Secret':k2,'accept':'application/json','content-type':'application/json'},
+          body:JSON.stringify(payload)
+        });
+        const data2=await res2.json();
+        const accepted2=(data2.data&&data2.data.accepted)||[];
+        return{ok:res2.ok,registered:accepted2.length,errors:[]};
+      }
+      return{ok:false,registered:0,errors:['Monthly quota reached on both API keys']};
+    }
+    const accepted=(data.data&&data.data.accepted)||[];
+    return{ok:true,registered:accepted.length,errors:[]};
+  }catch(e){
+    return{ok:false,registered:0,errors:[e.message]};
+  }
+}
+
+// Query current status of tracking numbers from Track123
+// Returns map of trackNo -> {status, lastEvent, deliveredOn, updatedAt}
+async function track123Query(trackNos){
+  const key=getTrack123Key();
+  if(!key)return{};
+  try{
+    const res=await fetch(TRACK123_QUERY_URL,{
+      method:'POST',
+      headers:{'Track123-Api-Secret':key,'accept':'application/json','content-type':'application/json'},
+      body:JSON.stringify({trackNos:trackNos.map(t=>t.trim())})
+    });
+    const data=await res.json();
+    const result={};
+    const trackings=(data.data&&data.data.trackings)||[];
+    trackings.forEach(function(t){
+      const tn=(t.trackNo||'').trim().toUpperCase();
+      if(!tn)return;
+      // Normalise status
+      let status=t.transitStatus||t.status||'';
+      // Track123 statuses: delivered, in_transit, out_for_delivery, pending, exception, expired
+      if(/^delivered$/i.test(status)||status==='3')status='Delivered';
+      else if(status==='out_for_delivery'||status==='2')status='Out for Delivery';
+      else if(status==='in_transit'||status==='1')status='In Transit';
+      else if(status==='pending'||status==='0')status='Pending';
+      else if(status==='exception')status='Exception';
+      else if(status)status=status.charAt(0).toUpperCase()+status.slice(1);
+      // Last checkpoint event
+      const events=t.trackingList||t.events||[];
+      const lastEvt=events.length?events[0]:null;
+      const lastEvent=lastEvt?(lastEvt.context||lastEvt.message||lastEvt.description||''):'';
+      // Delivered date — use last event time if delivered
+      let deliveredOn=null;
+      if(/^delivered$/i.test(status)&&lastEvt&&lastEvt.time){
+        try{deliveredOn=lastEvt.time.substring(0,10);}catch(e){}
+      }
+      result[tn]={
+        status:status,
+        lastEvent:lastEvent,
+        deliveredOn:deliveredOn,
+        updatedAt:new Date().toISOString(),
+        source:'track123'
+      };
+    });
+    return result;
+  }catch(e){
+    console.warn('Track123 query error:',e.message);
+    return{};
+  }
+}
+
+// Main refresh function called from tracking page button
+let _track123Refreshing=false;
+async function refreshCourierTracking(){
+  if(_track123Refreshing){toast('⏳ Refresh already in progress…');return;}
+  checkTrack123MonthReset();
+  const key=getTrack123Key();
+  if(!key){
+    toast('⚠️ No Track123 API key set — add it in Settings → Courier Tracking');
+    return;
+  }
+  const items=getCourierTrackedInvoices();
+  if(!items.length){toast('ℹ️ No DTDC or Blue Dart shipments found in invoices');return;}
+
+  _track123Refreshing=true;
+  showLoading('Refreshing courier tracking…');
+
+  // Split: already registered (have data) vs new (never registered)
+  const allNos=[...new Set(items.map(i=>i._singleTracking.trim().toUpperCase()))];
+  const newNos=allNos.filter(t=>!trackingData[t]||!trackingData[t].source);
+  const existingNos=allNos.filter(t=>trackingData[t]&&trackingData[t].source==='track123');
+
+  let registered=0;
+  // Register new numbers (consumes quota)
+  if(newNos.length){
+    const reg=await track123Register(newNos);
+    registered=reg.registered;
+    if(!reg.ok&&reg.errors.length){
+      hideLoading();
+      _track123Refreshing=false;
+      toast('⚠️ Track123: '+reg.errors[0],5000);
+      return;
+    }
+  }
+
+  // Query all (free — no quota cost)
+  const toQuery=[...new Set([...newNos,...existingNos])];
+  if(!toQuery.length){
+    hideLoading();
+    _track123Refreshing=false;
+    toast('ℹ️ No shipments to query yet');
+    return;
+  }
+
+  // Track123 allows 100 per request
+  const BATCH=100;
+  let updated=0;
+  for(let i=0;i<toQuery.length;i+=BATCH){
+    const batch=toQuery.slice(i,i+BATCH);
+    const results=await track123Query(batch);
+    Object.entries(results).forEach(([tn,td])=>{
+      const existing=trackingData[tn];
+      // Never overwrite a locally-Delivered status
+      if(existing&&/^delivered$/i.test(existing.status||'')&&!/^delivered$/i.test(td.status||''))return;
+      trackingData[tn]=td;
+      updated++;
+    });
+  }
+
+  saveTracking();
+  // Sync updated records to sheet
+  Object.entries(trackingData).filter(([,td])=>td.source==='track123').forEach(([key,td])=>{
+    gsWrite(SHEETS.tracking,{id:key,...td});
+  });
+
+  hideLoading();
+  _track123Refreshing=false;
+  renderTrackingPage();
+  renderSales();
+  const msg=registered>0
+    ?'✅ '+updated+' statuses refreshed · '+registered+' new shipment(s) registered'
+    :'✅ '+updated+' shipment status(es) updated';
+  toast(msg,4000);
+  checkReviewPopup();
 }
 
 init();
