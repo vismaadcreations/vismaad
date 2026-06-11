@@ -6,7 +6,7 @@
 APP: Vismaad Creations v14.14.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 11-Jun-2026 — v14.14.1: Hotfix — removed stray extra } after renderTrackingPage closing brace (caused JS syntax error, app would not load).
+LAST_CHANGE: 11-Jun-2026 — v14.14.2: Bugfix — delivery review popup now fires correctly after CSV import and after every sync; removed blanket vc_review_popup_seen update that was silently suppressing popups for already-handled invoices; seen list now only updated per-action (send/skip/never); checkReviewPopup() added to end of syncAll().
 PREV_CHANGE: 11-Jun-2026 — v14.14: DTDC + Blue Dart tracking via Track123 API — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
 PREV_CHANGE: 09-Jun-2026 — v14.13: Audit fixes — C1: GST export now filters to Tax Invoices only (isGST:true), warns if BOS excluded; C2: new INV/YY-YY/NNN format + FY reset activates on first GST enable; C3: shipping taxed at 18% GST (SAC 9965) separately on Tax Invoices — calcTotals returns split suit/ship GST components; H1: invoices added to needsPush sync loop using invUpdatedAt; H2: localStorage overflow now shows visible toast; H3: discount row moved above subtotal on printed invoice; M1: COGS fallback shows 5% GST assumption warning; M2: credit note guards against over-reversal across prior CNs on same invoice; L1: GST export warns when date range contains mixed document types.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
@@ -2103,6 +2103,8 @@ async function syncAll(){
     renderOutreachWidget();
     renderSyncInfo();
     toast('☁️ Synced — '+invoices.length+' invoices');
+    // Check for newly-delivered parcels pulled from sheet and show review popup
+    setTimeout(()=>checkReviewPopup(),800);
   }catch(e){
     setSyncStatus('err');
     const msg=e.message||'';
@@ -2212,6 +2214,12 @@ function init(){
       }
     });
     if (_qtyNormFixed > 0) { saveStk(); console.log('v14.11 qtySold normalised for', _qtyNormFixed, 'product(s)'); }
+    // MIGRATION v14.14.2: clear stale vc_review_popup_seen that was over-populated by
+    // the blanket-update bug — so any pending delivered invoices surface again correctly.
+    if(!lsGet('vc_review_seen_reset_v14142',null)){
+      lsSet('vc_review_popup_seen',[]);
+      lsSet('vc_review_seen_reset_v14142','1');
+    }
     // MIGRATION v14.12: recompute invoice costPrice from itemsArr (costPrice × qty per item).
     // Prior versions saved costPrice without multiplying by qty. Idempotent — safe to run every init.
     let _costFixed = 0;
@@ -6379,8 +6387,9 @@ function checkReviewPopup(){
     return true;
   });
   if(!actionable.length){
-    // still update seen so we don't check same ones again next time
-    lsSet('vc_review_popup_seen',deliveredNow);
+    // Do NOT blanket-mark all delivered as seen here — that would suppress
+    // future popups for invoices that are already sent/skipped/never'd but
+    // prevents new ones from ever surfacing. Seen is only updated per-action.
     return;
   }
   _reviewPopupQueue=actionable.map(n=>{
@@ -6398,8 +6407,14 @@ function checkReviewPopup(){
 function showReviewPopup(){
   if(_reviewPopupIdx>=_reviewPopupQueue.length){
     document.getElementById('review-popup')?.classList.remove('open');
-    // Mark all currently-delivered as seen
-    lsSet('vc_review_popup_seen',getDeliveredInvNos());
+    // Mark only the queued invNos as seen — not ALL delivered.
+    // Unqueued ones (sent/never'd) are handled by hasSentMsg/isReviewNever,
+    // so new deliveries on future syncs/imports always surface correctly.
+    const seenRaw=lsGet('vc_review_popup_seen',null);
+    const seen=Array.isArray(seenRaw)?seenRaw:[];
+    const queuedInvNos=_reviewPopupQueue.map(e=>e.inv?.invNo||e.invId).filter(Boolean);
+    const updated=[...new Set([...seen,...queuedInvNos])];
+    lsSet('vc_review_popup_seen',updated);
     return;
   }
   // Re-lookup invoice fresh in case sync updated data while popup was open
