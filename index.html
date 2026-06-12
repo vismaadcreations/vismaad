@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.14.9
+APP: Vismaad Creations v14.14.10
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 12-Jun-2026 — v14.14.9: Fixed Track123 location extraction — Track123 uses 'address' field (not eventLocation/eventPlace/eventCity) in trackingDetails[]; now correctly shows e.g. "PATIALA" alongside event detail and timestamp.
-PREV_CHANGE: 12-Jun-2026 — v14.14.7: Fixed Track123 API integration — upgraded to v2.1 endpoints, corrected query request body (trackNoInfos instead of trackNos), fixed response parsing (data.data.accepted.content[] not data.data.trackings), corrected event field (eventDetail), added bookedOn from receiptTime, deliveredOn from deliveredTime.
+LAST_CHANGE: 12-Jun-2026 — v14.14.10: (1) Tracking sync fix — remTrackingMap now preserves all fields (deliveredOn, lastEventDetail, lastEventTime, lastEventLocation, source) so delivered status syncs correctly across devices; (2) Auto-sync — 20s debounced syncAll() fires after any save(), cancelled on manual sync; (3) Track123 key persistence — track123Key1/Key2 now survive syncAll() S-merge (kept local-only like githubPat, never written to sheet).
+PREV_CHANGE: 12-Jun-2026 — v14.14.9: Fixed Track123 location extraction — Track123 uses 'address' field (not eventLocation/eventPlace/eventCity) in trackingDetails[]; now correctly shows e.g. "PATIALA" alongside event detail and timestamp.
 PREV_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
 PREV_CHANGE: 09-Jun-2026 — v14.13: Audit fixes — C1: GST export now filters to Tax Invoices only (isGST:true), warns if BOS excluded; C2: new INV/YY-YY/NNN format + FY reset activates on first GST enable; C3: shipping taxed at 18% GST (SAC 9965) separately on Tax Invoices — calcTotals returns split suit/ship GST components; H1: invoices added to needsPush sync loop using invUpdatedAt; H2: localStorage overflow now shows visible toast; H3: discount row moved above subtotal on printed invoice; M1: COGS fallback shows 5% GST assumption warning; M2: credit note guards against over-reversal across prior CNs on same invoice; L1: GST export warns when date range contains mixed document types.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
@@ -1536,17 +1536,31 @@ let qrB64 =lsGet('vc_qr',null);
 // ═══════════════════════════════════════════
 // PERSIST — strip html before saving
 // ═══════════════════════════════════════════
+// ── AUTO-SYNC ENGINE ──────────────────────────────────────────────
+// Debounced: fires syncAll() 20s after the last local data change.
+// Cancelled if user manually syncs first.
+let _autoSyncTimer=null;
+function scheduleAutoSync(){
+  if(_autoSyncTimer)clearTimeout(_autoSyncTimer);
+  _autoSyncTimer=setTimeout(function(){
+    _autoSyncTimer=null;
+    if(!syncing&&navigator.onLine!==false)syncAll();
+  },20000);
+}
+// ─────────────────────────────────────────────────────────────────
+
 function save(){
   const slim=invoices.map(inv=>{const s={...inv};delete s.html;return s;});
   lsSet('vc_inv',slim);
   lsSet('vc_ctr',invCtr);
+  scheduleAutoSync();
 }
-function saveStk(){lsSet('vc_stk',inventory);}
-function saveSup(){lsSet('vc_sup',suppliers);}
-function saveBills(){lsSet('vc_bills',bills);}
-function saveSupTxns(){lsSet('vc_stxn',supplierTxns);}
-function savePur(){lsSet('vc_pur',purchases);}
-function saveTracking(){lsSet('vc_tracking',trackingData);}
+function saveStk(){lsSet('vc_stk',inventory);scheduleAutoSync();}
+function saveSup(){lsSet('vc_sup',suppliers);scheduleAutoSync();}
+function saveBills(){lsSet('vc_bills',bills);scheduleAutoSync();}
+function saveSupTxns(){lsSet('vc_stxn',supplierTxns);scheduleAutoSync();}
+function savePur(){lsSet('vc_pur',purchases);scheduleAutoSync();}
+function saveTracking(){lsSet('vc_tracking',trackingData);scheduleAutoSync();}
 
 // ═══════════════════════════════════════════
 // UI HELPERS
@@ -1808,6 +1822,7 @@ function parseInventoryRow(r){
 
 async function syncAll(){
   if(syncing)return;syncing=true;setSyncStatus('busy');
+  if(_autoSyncTimer){clearTimeout(_autoSyncTimer);_autoSyncTimer=null;}
   try{
     const cleared=lsGet('vc_inv_cleared',null)==='1';
     // Read sheets sequentially — gives each sheet full timeout
@@ -1994,11 +2009,13 @@ async function syncAll(){
         gstEnabled:rs.gstEnabled!==undefined?(rs.gstEnabled==='true'||rs.gstEnabled===true):
                    (S.gstEnabled!==undefined?S.gstEnabled:true),
         calKey:rs.calKey||S.calKey||'',
-        // Catalogue / GitHub fields — keep local values (not in sheet)
+        // Catalogue / GitHub / courier fields — keep local values (not synced to sheet for privacy)
         githubPat:S.githubPat||'',
         catSheetId:S.catSheetId||'',
         tagline:S.tagline||'',
         waNumber:S.waNumber||'',
+        track123Key1:S.track123Key1||'',
+        track123Key2:S.track123Key2||'',
       };
       lsSet('vc_s',S);
     }
@@ -2023,6 +2040,10 @@ async function syncAll(){
         remTrackingMap[key]={
           articleType:r.articleType||'',bookedAt:r.bookedAt||'',bookedOn:r.bookedOn||'',
           destination:r.destination||'',status:r.status||'',lastEvent:r.lastEvent||'',
+          lastEventDetail:r.lastEventDetail||'',lastEventTime:r.lastEventTime||'',
+          lastEventLocation:r.lastEventLocation||'',
+          deliveredOn:r.deliveredOn||null,
+          source:r.source||'',
           updatedAt:r.updatedAt||new Date().toISOString()
         };
       }
@@ -4023,7 +4044,7 @@ function saveInvoiceEdit(){
 // CREDIT NOTES
 // ═══════════════════════════════════════════
 let creditNotes=lsGet('vc_cn',[]);
-function saveCNs(){lsSet('vc_cn',creditNotes);}
+function saveCNs(){lsSet('vc_cn',creditNotes);scheduleAutoSync();}
 
 let cnRefInvId=null;
 
@@ -6296,7 +6317,7 @@ function getUniqueCustomers(){
 
 // ── MESSAGE LOG ──
 let msgLog=lsGet('vc_msg_log',[]);
-function saveMsgLog(){lsSet('vc_msg_log',msgLog);}
+function saveMsgLog(){lsSet('vc_msg_log',msgLog);scheduleAutoSync();}
 
 function hasSentMsg(phone,type,year){
   return msgLog.some(l=>l.phone===phone&&l.type===type&&l.year===year);
