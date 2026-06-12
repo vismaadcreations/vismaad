@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.14.7
+APP: Vismaad Creations v14.14.8
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 12-Jun-2026 — v14.14.7: Fixed Track123 API integration — upgraded to v2.1 endpoints, corrected query request body (trackNoInfos instead of trackNos), fixed response parsing (data.data.accepted.content[] not data.data.trackings), corrected event field (eventDetail), added bookedOn from receiptTime, deliveredOn from deliveredTime.
-PREV_CHANGE: 12-Jun-2026 — v14.14.6: Tracking page now shows all couriers (India Post + DTDC + Blue Dart) in one unified table; added Customer Name and Delivery Location live search filters; courier badge shown on every row; location (city/state) shown in cards and desktop table.
+LAST_CHANGE: 12-Jun-2026 — v14.14.8: DTDC/Blue Dart last event now shows event detail, location, and timestamp separately — extracts eventLocation/eventPlace/eventCity and eventTime from Track123 trackingDetails[0]; card and desktop table both render rich breakdown instead of bare status text.
+PREV_CHANGE: 12-Jun-2026 — v14.14.7: Fixed Track123 API integration — upgraded to v2.1 endpoints, corrected query request body (trackNoInfos instead of trackNos), fixed response parsing (data.data.accepted.content[] not data.data.trackings), corrected event field (eventDetail), added bookedOn from receiptTime, deliveredOn from deliveredTime.
 PREV_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
 PREV_CHANGE: 09-Jun-2026 — v14.13: Audit fixes — C1: GST export now filters to Tax Invoices only (isGST:true), warns if BOS excluded; C2: new INV/YY-YY/NNN format + FY reset activates on first GST enable; C3: shipping taxed at 18% GST (SAC 9965) separately on Tax Invoices — calcTotals returns split suit/ship GST components; H1: invoices added to needsPush sync loop using invUpdatedAt; H2: localStorage overflow now shows visible toast; H3: discount row moved above subtotal on printed invoice; M1: COGS fallback shows 5% GST assumption warning; M2: credit note guards against over-reversal across prior CNs on same invoice; L1: GST export warns when date range contains mixed document types.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
@@ -7840,7 +7840,13 @@ function renderTrackingPage(){
           ${td&&td.bookedOn?'<span>Booked: '+esc2(td.bookedOn)+'</span>':''}
           ${locLine?'<span>📍 '+esc2(locLine)+'</span>':''}
         </div>
-        ${td&&td.lastEvent?'<div style="font-size:12px;color:#555;margin-top:4px;font-style:italic;">'+esc2(td.lastEvent)+'</div>':''}
+        ${td&&td.source==='track123'&&(td.lastEventDetail||td.lastEvent)?
+          '<div style="font-size:12px;color:#555;margin-top:5px;line-height:1.5;">'
+          +(td.lastEventDetail?'<span style="font-weight:600;">'+esc2(td.lastEventDetail)+'</span>':'')
+          +(td.lastEventLocation?' <span style="color:#888;">📍 '+esc2(td.lastEventLocation)+'</span>':'')
+          +(td.lastEventTime?'<br/><span style="color:#aaa;font-size:11px;">'+esc2(td.lastEventTime)+'</span>':'')
+          +'</div>'
+          :td&&td.lastEvent?'<div style="font-size:12px;color:#555;margin-top:4px;font-style:italic;">'+esc2(td.lastEvent)+'</div>':''}
       </div>`;
     }).join('');
     area.innerHTML=statsHtml+filterBar+cards+`<div style="font-size:11px;color:#aaa;text-align:center;margin-top:8px;padding-bottom:8px;">⚠️ Overdue = &gt;6 days since booked, not yet delivered</div>`;
@@ -7880,7 +7886,13 @@ function renderTrackingPage(){
         <td>${fmtDate(inv.invDate)}</td>
         <td>${esc2(td.bookedOn||'')}</td>
         <td>${stBadge}</td>
-        <td style="font-size:11px;color:#555;max-width:180px;word-break:break-word;">${esc2(td.lastEvent||'')}</td>
+        <td style="font-size:11px;color:#555;max-width:180px;word-break:break-word;">${
+          td.source==='track123'&&(td.lastEventDetail||td.lastEvent)
+            ?('<span style="font-weight:600;">'+(td.lastEventDetail?esc2(td.lastEventDetail):(td.lastEvent?esc2(td.lastEvent):''))+'</span>'
+              +(td.lastEventLocation?'<br/><span style="color:#888;">📍 '+esc2(td.lastEventLocation)+'</span>':'')
+              +(td.lastEventTime?'<br/><span style="color:#aaa;font-size:10px;">'+esc2(td.lastEventTime)+'</span>':''))
+            :esc2(td.lastEvent||'')
+        }</td>
       </tr>`;
     }).join('');
     area.innerHTML=statsHtml+filterBar+`<div class="card" style="padding:0;overflow:hidden;">
@@ -10302,12 +10314,30 @@ async function track123Query(trackNos){
       // Last checkpoint — events are in localLogisticsInfo.trackingDetails[] (reverse chrono, index 0 = latest)
       const details=(t.localLogisticsInfo&&t.localLogisticsInfo.trackingDetails)||[];
       const lastEvt=details.length?details[0]:null;
-      const lastEvent=lastEvt?(lastEvt.eventDetail||''):'';
+      // Extract all available detail fields from the last event
+      const lastEventDetail=lastEvt?(lastEvt.eventDetail||lastEvt.message||lastEvt.description||''):'';
+      const lastEventLocation=lastEvt?(lastEvt.eventLocation||lastEvt.eventPlace||lastEvt.eventCity||lastEvt.location||''):'';
+      let lastEventTime='';
+      if(lastEvt&&lastEvt.eventTime){
+        try{
+          const d=new Date(lastEvt.eventTime);
+          if(!isNaN(d)){
+            lastEventTime=d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})
+              +' '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+          }else{
+            // eventTime may already be a formatted string
+            lastEventTime=String(lastEvt.eventTime).substring(0,16).replace('T',' ');
+          }
+        }catch(e){lastEventTime=String(lastEvt.eventTime||'').substring(0,16);}
+      }
+      // Build composite lastEvent string for legacy display / India Post compatibility
+      const lastEventParts=[lastEventTime,lastEventDetail,lastEventLocation].filter(Boolean);
+      const lastEvent=lastEventParts.join(' · ');
       // Delivered date — use deliveredTime from API, fall back to last event time
       let deliveredOn=null;
       if(/^Delivered$/i.test(status)){
         if(t.deliveredTime){try{deliveredOn=t.deliveredTime.substring(0,10);}catch(e){}}
-        else if(lastEvt&&lastEvt.eventTime){try{deliveredOn=lastEvt.eventTime.substring(0,10);}catch(e){}}
+        else if(lastEvt&&lastEvt.eventTime){try{deliveredOn=new Date(lastEvt.eventTime).toISOString().substring(0,10);}catch(e){}}
       }
       // Booked/receipt date — receiptTime is first-scan time
       let bookedOn='';
@@ -10316,6 +10346,9 @@ async function track123Query(trackNos){
       result[tn]={
         status:status,
         lastEvent:lastEvent,
+        lastEventDetail:lastEventDetail,
+        lastEventTime:lastEventTime,
+        lastEventLocation:lastEventLocation,
         deliveredOn:deliveredOn,
         bookedOn:bookedOn,
         updatedAt:new Date().toISOString(),
