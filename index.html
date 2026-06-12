@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.14.8
+APP: Vismaad Creations v14.14.9
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 12-Jun-2026 — v14.14.8: DTDC/Blue Dart last event now shows event detail, location, and timestamp separately — extracts eventLocation/eventPlace/eventCity and eventTime from Track123 trackingDetails[0]; card and desktop table both render rich breakdown instead of bare status text.
+LAST_CHANGE: 12-Jun-2026 — v14.14.9: Fixed Track123 location extraction — Track123 uses 'address' field (not eventLocation/eventPlace/eventCity) in trackingDetails[]; now correctly shows e.g. "PATIALA" alongside event detail and timestamp.
 PREV_CHANGE: 12-Jun-2026 — v14.14.7: Fixed Track123 API integration — upgraded to v2.1 endpoints, corrected query request body (trackNoInfos instead of trackNos), fixed response parsing (data.data.accepted.content[] not data.data.trackings), corrected event field (eventDetail), added bookedOn from receiptTime, deliveredOn from deliveredTime.
 PREV_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
 PREV_CHANGE: 09-Jun-2026 — v14.13: Audit fixes — C1: GST export now filters to Tax Invoices only (isGST:true), warns if BOS excluded; C2: new INV/YY-YY/NNN format + FY reset activates on first GST enable; C3: shipping taxed at 18% GST (SAC 9965) separately on Tax Invoices — calcTotals returns split suit/ship GST components; H1: invoices added to needsPush sync loop using invUpdatedAt; H2: localStorage overflow now shows visible toast; H3: discount row moved above subtotal on printed invoice; M1: COGS fallback shows 5% GST assumption warning; M2: credit note guards against over-reversal across prior CNs on same invoice; L1: GST export warns when date range contains mixed document types.
@@ -10316,7 +10316,7 @@ async function track123Query(trackNos){
       const lastEvt=details.length?details[0]:null;
       // Extract all available detail fields from the last event
       const lastEventDetail=lastEvt?(lastEvt.eventDetail||lastEvt.message||lastEvt.description||''):'';
-      const lastEventLocation=lastEvt?(lastEvt.eventLocation||lastEvt.eventPlace||lastEvt.eventCity||lastEvt.location||''):'';
+      const lastEventLocation=lastEvt?(lastEvt.address||lastEvt.eventLocation||lastEvt.eventPlace||lastEvt.eventCity||lastEvt.location||''):'';
       let lastEventTime='';
       if(lastEvt&&lastEvt.eventTime){
         try{
