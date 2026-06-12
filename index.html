@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.14.6
+APP: Vismaad Creations v14.14.7
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 12-Jun-2026 — v14.14.6: Tracking page now shows all couriers (India Post + DTDC + Blue Dart) in one unified table; added Customer Name and Delivery Location live search filters; courier badge shown on every row; location (city/state) shown in cards and desktop table.
-PREV_CHANGE: 12-Jun-2026 — v14.14.5: Dashboard Recent Orders now shows all orders from today+yesterday sorted by invoice number desc (was last 5 by date); DTDC/Track123 'Pending' status badge now shows 'Not Delivered' to distinguish from unshipped orders; Sales page default sort changed to invoice number desc (most recent on top).
+LAST_CHANGE: 12-Jun-2026 — v14.14.7: Fixed Track123 API integration — upgraded to v2.1 endpoints, corrected query request body (trackNoInfos instead of trackNos), fixed response parsing (data.data.accepted.content[] not data.data.trackings), corrected event field (eventDetail), added bookedOn from receiptTime, deliveredOn from deliveredTime.
+PREV_CHANGE: 12-Jun-2026 — v14.14.6: Tracking page now shows all couriers (India Post + DTDC + Blue Dart) in one unified table; added Customer Name and Delivery Location live search filters; courier badge shown on every row; location (city/state) shown in cards and desktop table.
 PREV_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
 PREV_CHANGE: 09-Jun-2026 — v14.13: Audit fixes — C1: GST export now filters to Tax Invoices only (isGST:true), warns if BOS excluded; C2: new INV/YY-YY/NNN format + FY reset activates on first GST enable; C3: shipping taxed at 18% GST (SAC 9965) separately on Tax Invoices — calcTotals returns split suit/ship GST components; H1: invoices added to needsPush sync loop using invUpdatedAt; H2: localStorage overflow now shows visible toast; H3: discount row moved above subtotal on printed invoice; M1: COGS fallback shows 5% GST assumption warning; M2: credit note guards against over-reversal across prior CNs on same invoice; L1: GST export warns when date range contains mixed document types.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
@@ -10178,8 +10178,8 @@ function buildTrackingMessage(trackNos,custName,dispatchDate,dispatchMethod){
 // TRACK123 API — DTDC + BLUE DART AUTO-TRACKING
 // ═══════════════════════════════════════════
 
-const TRACK123_IMPORT_URL='https://api.track123.com/gateway/open-api/tk/v2/track/import';
-const TRACK123_QUERY_URL='https://api.track123.com/gateway/open-api/tk/v2/track/query';
+const TRACK123_IMPORT_URL='https://api.track123.com/gateway/open-api/tk/v2.1/track/import';
+const TRACK123_QUERY_URL='https://api.track123.com/gateway/open-api/tk/v2.1/track/query';
 
 // Returns active Track123 API key — tries key1, falls back to key2
 // Stores which key hit quota limit in localStorage
@@ -10272,44 +10272,52 @@ async function track123Register(trackNos, courierMap){
 }
 
 // Query current status of tracking numbers from Track123
-// Returns map of trackNo -> {status, lastEvent, deliveredOn, updatedAt}
+// Returns map of trackNo -> {status, lastEvent, deliveredOn, bookedOn, updatedAt}
 async function track123Query(trackNos){
   const key=getTrack123Key();
   if(!key)return{};
   try{
+    // v2.1 API: request uses trackNoInfos array of objects
     const res=await fetch(TRACK123_QUERY_URL,{
       method:'POST',
       headers:{'Track123-Api-Secret':key,'accept':'application/json','content-type':'application/json'},
-      body:JSON.stringify({trackNos:trackNos.map(t=>t.trim())})
+      body:JSON.stringify({trackNoInfos:trackNos.map(t=>({trackNo:t.trim()}))})
     });
     const data=await res.json();
     const result={};
-    const trackings=(data.data&&data.data.trackings)||[];
+    // v2.1 response: data.data.accepted.content[] (not data.data.trackings)
+    const trackings=(data.data&&data.data.accepted&&data.data.accepted.content)||[];
     trackings.forEach(function(t){
       const tn=(t.trackNo||'').trim().toUpperCase();
       if(!tn)return;
-      // Normalise status
-      let status=t.transitStatus||t.status||'';
-      // Track123 statuses: delivered, in_transit, out_for_delivery, pending, exception, expired
-      if(/^delivered$/i.test(status)||status==='3')status='Delivered';
-      else if(status==='out_for_delivery'||status==='2')status='Out for Delivery';
-      else if(status==='in_transit'||status==='1')status='In Transit';
-      else if(status==='pending'||status==='0')status='Pending';
-      else if(status==='exception')status='Exception';
-      else if(status)status=status.charAt(0).toUpperCase()+status.slice(1);
-      // Last checkpoint event
-      const events=t.trackingList||t.events||[];
-      const lastEvt=events.length?events[0]:null;
-      const lastEvent=lastEvt?(lastEvt.context||lastEvt.message||lastEvt.description||''):'';
-      // Delivered date — use last event time if delivered
+      // Normalise transitStatus — v2.1 uses string like "DELIVERED", "IN_TRANSIT", "OUT_FOR_DELIVERY" etc.
+      let status=t.transitStatus||'';
+      if(/^DELIVERED$/i.test(status))status='Delivered';
+      else if(/^OUT_FOR_DELIVERY$/i.test(status))status='Out for Delivery';
+      else if(/^IN_TRANSIT$/i.test(status))status='In Transit';
+      else if(/^PENDING$/i.test(status)||/^INFO_RECEIVED$/i.test(status))status='Pending';
+      else if(/^EXCEPTION$/i.test(status)||/^FAILED_ATTEMPT$/i.test(status))status='Exception';
+      else if(/^EXPIRED$/i.test(status))status='Expired';
+      else if(status)status=status.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+      // Last checkpoint — events are in localLogisticsInfo.trackingDetails[] (reverse chrono, index 0 = latest)
+      const details=(t.localLogisticsInfo&&t.localLogisticsInfo.trackingDetails)||[];
+      const lastEvt=details.length?details[0]:null;
+      const lastEvent=lastEvt?(lastEvt.eventDetail||''):'';
+      // Delivered date — use deliveredTime from API, fall back to last event time
       let deliveredOn=null;
-      if(/^delivered$/i.test(status)&&lastEvt&&lastEvt.time){
-        try{deliveredOn=lastEvt.time.substring(0,10);}catch(e){}
+      if(/^Delivered$/i.test(status)){
+        if(t.deliveredTime){try{deliveredOn=t.deliveredTime.substring(0,10);}catch(e){}}
+        else if(lastEvt&&lastEvt.eventTime){try{deliveredOn=lastEvt.eventTime.substring(0,10);}catch(e){}}
       }
+      // Booked/receipt date — receiptTime is first-scan time
+      let bookedOn='';
+      if(t.receiptTime){try{bookedOn=t.receiptTime.substring(0,10);}catch(e){}}
+      else if(t.shipTime){try{bookedOn=t.shipTime.substring(0,10);}catch(e){}}
       result[tn]={
         status:status,
         lastEvent:lastEvent,
         deliveredOn:deliveredOn,
+        bookedOn:bookedOn,
         updatedAt:new Date().toISOString(),
         source:'track123'
       };
