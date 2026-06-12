@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.14.3
+APP: Vismaad Creations v14.14.4
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized (e.g. 7d131775299); getCourierInfo() accepts optional dispatchMethod param; getCourierTrackedInvoices() uses dispatchMethod fallback for _courierCode; buildTrackingMessage() passes dispatchMethod; track123Register() accepts courierMap to send correct courier code for unrecognized formats.
-PREV_CHANGE: 11-Jun-2026 — v14.14: DTDC + Blue Dart tracking via Track123 API — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
+LAST_CHANGE: 12-Jun-2026 — v14.14.4: Paste Details address parser overhauled — (1) PIN→state map expanded with 38 three-digit overrides fixing Bihar/Jharkhand (841-848=Bihar), Uttarakhand vs UP (246-249,261-263), Chandigarh (160), Andhra Pradesh vs Telangana (512-518), all NE states (Sikkim/Arunachal/Meghalaya/Manipur/Mizoram/Nagaland/Tripura/Andaman), and Puducherry enclaves; (2) cleanAddressForLabel name-removal changed from unsafe prefix+word-boundary regex to exact whole-line-only match, preventing city names prefixed by detected name (e.g. Madhu→Madhubani) from being mangled.
+PREV_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
 PREV_CHANGE: 09-Jun-2026 — v14.13: Audit fixes — C1: GST export now filters to Tax Invoices only (isGST:true), warns if BOS excluded; C2: new INV/YY-YY/NNN format + FY reset activates on first GST enable; C3: shipping taxed at 18% GST (SAC 9965) separately on Tax Invoices — calcTotals returns split suit/ship GST components; H1: invoices added to needsPush sync loop using invUpdatedAt; H2: localStorage overflow now shows visible toast; H3: discount row moved above subtotal on printed invoice; M1: COGS fallback shows 5% GST assumption warning; M2: credit note guards against over-reversal across prior CNs on same invoice; L1: GST export warns when date range contains mixed document types.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
           suppliers(vc_sup), bills(vc_bills), supplierTxns(vc_stxn),
@@ -3518,6 +3518,7 @@ function shareTrackingWhatsApp(){
 
 // PIN code → state mapping (first 2-3 digits)
 const PIN_STATE={
+  // ── 2-digit fallback prefixes ──
   '11':'Delhi','12':'Haryana','13':'Haryana',
   '14':'Punjab','15':'Punjab','16':'Punjab',
   '17':'Himachal Pradesh',
@@ -3542,6 +3543,31 @@ const PIN_STATE={
   '78':'Assam','79':'Assam',
   '80':'Bihar','81':'Bihar','85':'Bihar',
   '82':'Jharkhand','83':'Jharkhand','84':'Jharkhand',
+  // ── 3-digit overrides (take priority over 2-digit fallback) ──
+  // Chandigarh (16x defaults to Punjab — 160 is Chandigarh)
+  '160':'Chandigarh',
+  // Uttarakhand (24x/26x default to UP — Uttarakhand carved out of UP in 2000)
+  '246':'Uttarakhand','247':'Uttarakhand','248':'Uttarakhand','249':'Uttarakhand',
+  '261':'Uttarakhand','262':'Uttarakhand','263':'Uttarakhand',
+  // Andhra Pradesh vs Telangana (51x defaults to Telangana — but 512-518 are AP districts)
+  '512':'Andhra Pradesh','513':'Andhra Pradesh','514':'Andhra Pradesh',
+  '515':'Andhra Pradesh','516':'Andhra Pradesh','517':'Andhra Pradesh','518':'Andhra Pradesh',
+  // Puducherry enclaves inside Tamil Nadu (60x/61x default to TN)
+  '605':'Puducherry','607':'Puducherry','608':'Puducherry',
+  // Bihar vs Jharkhand (84x defaults to Jharkhand — but 841-848 are Bihar districts)
+  // Bihar: Muzaffarpur, Vaishali, Champaran, Darbhanga, Madhubani, Sitamarhi, Samastipur etc.
+  '841':'Bihar','842':'Bihar','843':'Bihar','844':'Bihar',
+  '845':'Bihar','846':'Bihar','847':'Bihar','848':'Bihar',
+  // North-East states (79x defaults to Assam, 73x/74x to West Bengal)
+  '737':'Sikkim',
+  '744':'Andaman & Nicobar',
+  '790':'Arunachal Pradesh','791':'Arunachal Pradesh','792':'Arunachal Pradesh',
+  '793':'Meghalaya','794':'Meghalaya',
+  '795':'Manipur',
+  '796':'Mizoram',
+  '797':'Nagaland','798':'Nagaland',
+  '799':'Tripura',
+  // ── Standalone entries with no 2-digit fallback ──
   '403':'Goa',
 };
 
@@ -3808,10 +3834,13 @@ function cleanAddressForLabel(raw,name,phone,whatsapp,pin){
   addr=addr.replace(/^ps\s*[:–\-].*/gim,'');
 
   // ── REMOVE DETECTED NAME ──
+  // Only remove lines that are EXACTLY the name (whole-line match).
+  // Prefix/word-boundary removal is intentionally avoided: Indian names often
+  // prefix city names (Sita→Sitamarhi, Madhu→Madhubani, Ram→Rampur etc.) and
+  // would silently mangle city names in the address.
   if(name){
     const escaped=name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    addr=addr.replace(new RegExp('^'+escaped+'\\s*[,\\n]?','gim'),'');
-    addr=addr.replace(new RegExp('\\b'+escaped+'\\b','gi'),'');
+    addr=addr.replace(new RegExp('^'+escaped+'\\s*,?\\s*$','gim'),'');
   }
 
   // ── REMOVE DETECTED PHONES ──
