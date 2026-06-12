@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.14.4
+APP: Vismaad Creations v14.14.5
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 12-Jun-2026 — v14.14.4: Paste Details address parser overhauled — (1) PIN→state map expanded with 38 three-digit overrides fixing Bihar/Jharkhand (841-848=Bihar), Uttarakhand vs UP (246-249,261-263), Chandigarh (160), Andhra Pradesh vs Telangana (512-518), all NE states (Sikkim/Arunachal/Meghalaya/Manipur/Mizoram/Nagaland/Tripura/Andaman), and Puducherry enclaves; (2) cleanAddressForLabel name-removal changed from unsafe prefix+word-boundary regex to exact whole-line-only match, preventing city names prefixed by detected name (e.g. Madhu→Madhubani) from being mangled.
+LAST_CHANGE: 12-Jun-2026 — v14.14.5: Dashboard Recent Orders now shows all orders from today+yesterday sorted by invoice number desc (was last 5 by date); DTDC/Track123 'Pending' status badge now shows 'Not Delivered' to distinguish from unshipped orders; Sales page default sort changed to invoice number desc (most recent on top).
+PREV_CHANGE: 12-Jun-2026 — v14.14.4: Paste Details address parser overhauled — PIN→state map expanded with 38 three-digit overrides; cleanAddressForLabel name-removal fixed to exact whole-line-only match.
 PREV_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
 PREV_CHANGE: 09-Jun-2026 — v14.13: Audit fixes — C1: GST export now filters to Tax Invoices only (isGST:true), warns if BOS excluded; C2: new INV/YY-YY/NNN format + FY reset activates on first GST enable; C3: shipping taxed at 18% GST (SAC 9965) separately on Tax Invoices — calcTotals returns split suit/ship GST components; H1: invoices added to needsPush sync loop using invUpdatedAt; H2: localStorage overflow now shows visible toast; H3: discount row moved above subtotal on printed invoice; M1: COGS fallback shows 5% GST assumption warning; M2: credit note guards against over-reversal across prior CNs on same invoice; L1: GST export warns when date range contains mixed document types.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
@@ -3058,7 +3059,7 @@ function buildInvoiceHTML(data){
 // SALES LIST
 // ═══════════════════════════════════════════
 let salesFiltered=[];
-let currentSort='date-desc';
+let currentSort='invno-desc';
 
 function setSort(btn,sort){
   currentSort=sort;
@@ -4262,22 +4263,32 @@ function renderDashboard(){
   const stk=inventory.reduce((s,p)=>s+(parseInt(p.qty)||0),0);
   const dstk=document.getElementById('ds-stock');if(dstk)dstk.textContent=stk;
   const dprod=document.getElementById('ds-products');if(dprod)dprod.textContent=inventory.length;
-  const recent=[...invoices].sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1).slice(0,5);
+  const _today=new Date();
+  const _todayStr=_today.toISOString().slice(0,10);
+  const _yday=new Date(_today);_yday.setDate(_yday.getDate()-1);
+  const _ydayStr=_yday.toISOString().slice(0,10);
+  const recent=[...invoices]
+    .filter(inv=>(inv.invDate||'').slice(0,10)===_todayStr||(inv.invDate||'').slice(0,10)===_ydayStr)
+    .sort((a,b)=>{const na=parseInt((a.invNo||'').replace(/\D/g,''))||0,nb=parseInt((b.invNo||'').replace(/\D/g,''))||0;return nb-na;});
   const dord=document.getElementById('dash-orders');
   if(dord)dord.innerHTML=recent.length?recent.map(inv=>{
     const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
     let dashStatus='Pending';
     if(trackNos.length>0){
       const statuses=trackNos.map(t=>trackingData[t]?.status||'');
+      const hasTrackData=trackNos.some(t=>trackingData[t]&&trackingData[t].status);
       if(statuses.every(s=>/^delivered$/i.test(s)))dashStatus='Delivered';
       else if(statuses.some(s=>/^delivered$/i.test(s))&&trackNos.length>1)dashStatus='Part Delivered';
-      else if(statuses.some(s=>s&&!/^delivered$/i.test(s)))dashStatus=statuses.find(s=>s&&!/^delivered$/i.test(s))||'In Transit';
-      else{const m=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';dashStatus=m?'Shipped':'Pending';}
+      else if(hasTrackData){
+        // Tracking data exists — show actual status; map Track123 'Pending' to 'Not Delivered'
+        const activeStatus=statuses.find(s=>s&&!/^delivered$/i.test(s))||'';
+        dashStatus=activeStatus==='Pending'?'Not Delivered':activeStatus||'Not Delivered';
+      }else{const m=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';dashStatus=m?'Shipped':'Pending';}
     }else{
       const m=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
       dashStatus=m?'Shipped':'Pending';
     }
-    const dBadgeClass=dashStatus==='Delivered'||dashStatus==='Shipped'?'b-green':dashStatus==='Pending'?'b-yellow':'b-blue';
+    const dBadgeClass=dashStatus==='Delivered'||dashStatus==='Shipped'?'b-green':dashStatus==='Pending'?'b-yellow':dashStatus==='Not Delivered'?'b-yellow':'b-blue';
     const dBadgeIcon=dashStatus==='Delivered'?'✅ ':dashStatus==='Part Delivered'?'📦 ':'';
     return`<div class="list-row" style="cursor:pointer;" onclick="openInvoiceFromDash('${inv.id}')">
       <div><div class="list-main">${inv.custName}</div>
@@ -4287,7 +4298,7 @@ function renderDashboard(){
         <span class="badge ${dBadgeClass}">${dBadgeIcon}${dashStatus}</span>
       </div>
     </div>`;
-  }).join(''):'<div style="color:#aaa;font-size:13px;text-align:center;padding:16px;">No orders yet</div>';
+  }).join(''):'<div style="color:#aaa;font-size:13px;text-align:center;padding:16px;">No orders today or yesterday</div>';
   const agingAll=inventory.filter(p=>(parseInt(p.qty)||0)>0).sort((a,b)=>getAgeDays(b.dateAdded)-getAgeDays(a.dateAdded));
   const dag=document.getElementById('dash-aging');
   if(dag)dag.innerHTML=agingAll.length?agingAll.slice(0,8).map(p=>{
