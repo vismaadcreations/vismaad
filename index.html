@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.14.5
+APP: Vismaad Creations v14.14.6
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 12-Jun-2026 — v14.14.5: Dashboard Recent Orders now shows all orders from today+yesterday sorted by invoice number desc (was last 5 by date); DTDC/Track123 'Pending' status badge now shows 'Not Delivered' to distinguish from unshipped orders; Sales page default sort changed to invoice number desc (most recent on top).
-PREV_CHANGE: 12-Jun-2026 — v14.14.4: Paste Details address parser overhauled — PIN→state map expanded with 38 three-digit overrides; cleanAddressForLabel name-removal fixed to exact whole-line-only match.
+LAST_CHANGE: 12-Jun-2026 — v14.14.6: Tracking page now shows all couriers (India Post + DTDC + Blue Dart) in one unified table; added Customer Name and Delivery Location live search filters; courier badge shown on every row; location (city/state) shown in cards and desktop table.
+PREV_CHANGE: 12-Jun-2026 — v14.14.5: Dashboard Recent Orders now shows all orders from today+yesterday sorted by invoice number desc (was last 5 by date); DTDC/Track123 'Pending' status badge now shows 'Not Delivered' to distinguish from unshipped orders; Sales page default sort changed to invoice number desc (most recent on top).
 PREV_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
 PREV_CHANGE: 09-Jun-2026 — v14.13: Audit fixes — C1: GST export now filters to Tax Invoices only (isGST:true), warns if BOS excluded; C2: new INV/YY-YY/NNN format + FY reset activates on first GST enable; C3: shipping taxed at 18% GST (SAC 9965) separately on Tax Invoices — calcTotals returns split suit/ship GST components; H1: invoices added to needsPush sync loop using invUpdatedAt; H2: localStorage overflow now shows visible toast; H3: discount row moved above subtotal on printed invoice; M1: COGS fallback shows 5% GST assumption warning; M2: credit note guards against over-reversal across prior CNs on same invoice; L1: GST export warns when date range contains mixed document types.
 KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(vc_tracking),
@@ -7625,14 +7625,21 @@ function clearTrackingData(){
 let _trackFilterStatus='all'; // all|delivered|intransit|overdue|nodata
 let _trackSortBy='invdate_desc'; // invdate_desc|invdate_asc|bookeddate_desc|bookeddate_asc|status
 let _trackDateFilter='all'; // all|30|60|90
+let _trackSearchName=''; // customer name substring search
+let _trackSearchLoc='';  // delivery location (state/address) substring search
 
 // Render the tracking results table into the sub-page
 function renderTrackingPage(){
   const area=document.getElementById('tracking-table-area');
   if(!area)return;
-  let top=getTop1000Tracked();
+  // Merge India Post + DTDC/Blue Dart into one list, deduplicate by tracking number
+  const ipItems=getTop1000Tracked().map(inv=>({...inv,_courierCode:inv._courierCode||'indiapost'}));
+  const courierItems=getCourierTrackedInvoices();
+  const seenKeys=new Set(ipItems.map(inv=>(inv._singleTracking||'').trim().toUpperCase()));
+  const mergedExtra=courierItems.filter(inv=>!seenKeys.has((inv._singleTracking||'').trim().toUpperCase()));
+  const top=[...ipItems,...mergedExtra];
   if(!top.length){
-    area.innerHTML='<div style="color:#aaa;text-align:center;padding:24px;font-size:13px;">No India Post tracking numbers found.<br/>Add tracking numbers to your invoices first.</div>';
+    area.innerHTML='<div style="color:#aaa;text-align:center;padding:24px;font-size:13px;">No tracked shipments found.<br/>Add tracking numbers to your invoices first.</div>';
     return;
   }
 
@@ -7663,6 +7670,21 @@ function renderTrackingPage(){
   // Status filter
   if(_trackFilterStatus!=='all'){
     filtered=filtered.filter(({cat})=>cat===_trackFilterStatus);
+  }
+
+  // Customer name search
+  if(_trackSearchName.trim()){
+    const q=_trackSearchName.trim().toLowerCase();
+    filtered=filtered.filter(({inv})=>(inv.custName||'').toLowerCase().includes(q));
+  }
+
+  // Delivery location search (state + address)
+  if(_trackSearchLoc.trim()){
+    const q=_trackSearchLoc.trim().toLowerCase();
+    filtered=filtered.filter(({inv})=>
+      (inv.custState||'').toLowerCase().includes(q)||
+      (inv.custAddress||'').toLowerCase().includes(q)
+    );
   }
 
   // Sort
@@ -7756,10 +7778,24 @@ function renderTrackingPage(){
           ${sortOptions.map(o=>`<option value="${o.v}" ${_trackSortBy===o.v?'selected':''}>${o.l}</option>`).join('')}
         </select>
       </div>
-      ${(_trackFilterStatus!=='all'||_trackDateFilter!=='all')?
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:10px;">
+      <div style="flex:1;min-width:150px;">
+        <div style="font-size:11px;color:#888;margin-bottom:4px;font-weight:600;">CUSTOMER NAME</div>
+        <input type="search" placeholder="Search customer…" value="${_trackSearchName.replace(/"/g,'&quot;')}"
+          oninput="setTrackSearchName(this.value)"
+          style="width:100%;padding:7px 8px;border-radius:8px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;box-sizing:border-box;"/>
+      </div>
+      <div style="flex:1;min-width:150px;">
+        <div style="font-size:11px;color:#888;margin-bottom:4px;font-weight:600;">DELIVERY LOCATION</div>
+        <input type="search" placeholder="City, state or PIN…" value="${_trackSearchLoc.replace(/"/g,'&quot;')}"
+          oninput="setTrackSearchLoc(this.value)"
+          style="width:100%;padding:7px 8px;border-radius:8px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;box-sizing:border-box;"/>
+      </div>
+      ${(_trackFilterStatus!=='all'||_trackDateFilter!=='all'||_trackSearchName||_trackSearchLoc)?
         `<button class="btn btn-o btn-sm" style="height:36px;margin-bottom:1px;" onclick="clearTrackFilters()">✕ Clear</button>`:''}
     </div>
-    <div style="font-size:12px;color:#888;margin-top:8px;">Showing ${filtered.length} of ${annotated.length} shipments${_trackFilterStatus!=='all'||_trackDateFilter!=='all'?' (filtered)':''}</div>
+    <div style="font-size:12px;color:#888;margin-top:8px;">Showing ${filtered.length} of ${annotated.length} shipments${(_trackFilterStatus!=='all'||_trackDateFilter!=='all'||_trackSearchName||_trackSearchLoc)?' (filtered)':''}</div>
   </div>`;
 
   const esc2=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -7786,12 +7822,15 @@ function renderTrackingPage(){
       // Show parcel label if multi-tracking invoice
       const multiNos=(inv.tracking||'').split(',').filter(t=>t.trim()).length;
       const parcelNote=multiNos>1?`<span style="font-size:11px;color:var(--gold);margin-left:6px;">pkg ${(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean).indexOf(inv._singleTracking)+1}/${multiNos}</span>`:'';
+      const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||'indiapost';
+      const courierBadge=courierCode==='dtdc'?'<span style="font-size:10px;background:#fff3cd;color:#856404;border-radius:4px;padding:1px 5px;margin-left:5px;">DTDC</span>':courierCode==='bluedart'?'<span style="font-size:10px;background:#cfe2ff;color:#084298;border-radius:4px;padding:1px 5px;margin-left:5px;">Blue Dart</span>':'<span style="font-size:10px;background:#e8e8e8;color:#555;border-radius:4px;padding:1px 5px;margin-left:5px;">India Post</span>';
+      const locLine=inv.custState?(inv.custAddress?inv.custAddress.split(/[\n,]/)[0].trim()+', ':'')+inv.custState:'';
       return`<div class="card" style="margin-bottom:10px;padding:12px;${cardBg}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
           <div>
             <span style="font-weight:700;color:var(--brown);font-size:14px;">${esc2(inv.invNo)}</span>
-            ${parcelNote}
-            <span style="margin-left:8px;font-size:13px;">${esc2(inv.custName)}</span>
+            ${parcelNote}${courierBadge}
+            <span style="margin-left:6px;font-size:13px;">${esc2(inv.custName)}</span>
           </div>
           ${stBadge}
         </div>
@@ -7799,6 +7838,7 @@ function renderTrackingPage(){
         <div style="font-size:12px;color:#888;display:flex;gap:14px;flex-wrap:wrap;">
           <span>Inv: ${fmtDate(inv.invDate)}</span>
           ${td&&td.bookedOn?'<span>Booked: '+esc2(td.bookedOn)+'</span>':''}
+          ${locLine?'<span>📍 '+esc2(locLine)+'</span>':''}
         </div>
         ${td&&td.lastEvent?'<div style="font-size:12px;color:#555;margin-top:4px;font-style:italic;">'+esc2(td.lastEvent)+'</div>':''}
       </div>`;
@@ -7812,11 +7852,15 @@ function renderTrackingPage(){
       const trackDisplay=inv._singleTracking||inv.tracking;
       const multiNos=(inv.tracking||'').split(',').filter(t=>t.trim()).length;
       const pkgLabel=multiNos>1?` <span style="font-size:10px;color:var(--gold);">pkg ${(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean).indexOf(inv._singleTracking)+1}/${multiNos}</span>`:'';
+      const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||'indiapost';
+      const courierBadge=courierCode==='dtdc'?'<span style="font-size:10px;background:#fff3cd;color:#856404;border-radius:4px;padding:1px 5px;margin-left:4px;">DTDC</span>':courierCode==='bluedart'?'<span style="font-size:10px;background:#cfe2ff;color:#084298;border-radius:4px;padding:1px 5px;margin-left:4px;">Blue Dart</span>':'<span style="font-size:10px;background:#e8e8e8;color:#555;border-radius:4px;padding:1px 5px;margin-left:4px;">IP</span>';
+      const locCell=inv.custState?esc2((inv.custAddress?inv.custAddress.split(/[\n,]/)[0].trim()+', ':'')+inv.custState):'—';
       if(!td){
         return`<tr>
           <td style="font-weight:600;color:var(--brown);">${i+1}</td>
-          <td>${esc2(inv.invNo)}${pkgLabel}</td>
+          <td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}</td>
           <td style="font-size:12px;">${esc2(inv.custName)}</td>
+          <td style="font-size:11px;color:#666;">${locCell}</td>
           <td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td>
           <td>${fmtDate(inv.invDate)}</td>
           <td colspan="3" style="color:#aaa;font-size:12px;">— no data yet —</td>
@@ -7829,8 +7873,9 @@ function renderTrackingPage(){
           :'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
       return`<tr style="${rowBg}">
         <td style="font-weight:600;color:var(--brown);">${i+1}</td>
-        <td>${esc2(inv.invNo)}${pkgLabel}</td>
+        <td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}</td>
         <td style="font-size:12px;">${esc2(inv.custName)}</td>
+        <td style="font-size:11px;color:#666;">${locCell}</td>
         <td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td>
         <td>${fmtDate(inv.invDate)}</td>
         <td>${esc2(td.bookedOn||'')}</td>
@@ -7842,7 +7887,7 @@ function renderTrackingPage(){
       <div class="tbl-wrap">
         <table style="min-width:700px;">
           <thead><tr>
-            <th>#</th><th>Invoice</th><th>Customer</th><th>Tracking No.</th>
+            <th>#</th><th>Invoice</th><th>Customer</th><th>Location</th><th>Tracking No.</th>
             <th>Inv. Date</th><th>Booked On</th><th>Status</th><th>Last Event</th>
           </tr></thead>
           <tbody>${rows}</tbody>
@@ -7858,7 +7903,9 @@ function renderTrackingPage(){
 function setTrackFilter(v){_trackFilterStatus=v;renderTrackingPage();}
 function setTrackDateFilter(v){_trackDateFilter=v;renderTrackingPage();}
 function setTrackSort(v){_trackSortBy=v;renderTrackingPage();}
-function clearTrackFilters(){_trackFilterStatus='all';_trackDateFilter='all';renderTrackingPage();}
+function setTrackSearchName(v){_trackSearchName=v;renderTrackingPage();}
+function setTrackSearchLoc(v){_trackSearchLoc=v;renderTrackingPage();}
+function clearTrackFilters(){_trackFilterStatus='all';_trackDateFilter='all';_trackSearchName='';_trackSearchLoc='';renderTrackingPage();}
 
 // ═══════════════════════════════════════════
 // PULL-TO-REFRESH — main scroll area + sub-page scroll area
