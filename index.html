@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.14.10
+APP: Vismaad Creations v14.14.11
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 12-Jun-2026 — v14.14.10: (1) Tracking sync fix — remTrackingMap now preserves all fields (deliveredOn, lastEventDetail, lastEventTime, lastEventLocation, source) so delivered status syncs correctly across devices; (2) Auto-sync — 20s debounced syncAll() fires after any save(), cancelled on manual sync; (3) Track123 key persistence — track123Key1/Key2 now survive syncAll() S-merge (kept local-only like githubPat, never written to sheet).
+LAST_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
 PREV_CHANGE: 12-Jun-2026 — v14.14.9: Fixed Track123 location extraction — Track123 uses 'address' field (not eventLocation/eventPlace/eventCity) in trackingDetails[]; now correctly shows e.g. "PATIALA" alongside event detail and timestamp.
 PREV_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
 PREV_CHANGE: 09-Jun-2026 — v14.13: Audit fixes — C1: GST export now filters to Tax Invoices only (isGST:true), warns if BOS excluded; C2: new INV/YY-YY/NNN format + FY reset activates on first GST enable; C3: shipping taxed at 18% GST (SAC 9965) separately on Tax Invoices — calcTotals returns split suit/ship GST components; H1: invoices added to needsPush sync loop using invUpdatedAt; H2: localStorage overflow now shows visible toast; H3: discount row moved above subtotal on printed invoice; M1: COGS fallback shows 5% GST assumption warning; M2: credit note guards against over-reversal across prior CNs on same invoice; L1: GST export warns when date range contains mixed document types.
@@ -2089,6 +2089,50 @@ async function syncAll(){
       }
     }catch(e){console.warn('MessageLog sync failed:',e.message);}
 
+    // POPUP STATE — sync review_popup_seen, review_skipped, followup_shown_date across devices
+    // so popups already actioned on one device don't re-appear on another
+    try{
+      const remPS=await gsRead('PopupState');
+      const localSeen=lsGet('vc_review_popup_seen',[]);
+      const localSkipped=lsGet('vc_review_skipped',{});
+      const localFollowupDate=lsGet('vc_followup_shown_date','')||'';
+      const localUpdatedAt=lsGet('vc_popup_state_updatedAt','')||'';
+      if(remPS&&remPS.length){
+        const rs=remPS[0];
+        const remTime=rs.updatedAt?new Date(rs.updatedAt).getTime():0;
+        const locTime=localUpdatedAt?new Date(localUpdatedAt).getTime():0;
+        if(remTime>locTime){
+          // Remote is newer — pull remote state, merge seen arrays (union)
+          try{
+            const remSeen=rs.reviewPopupSeen?JSON.parse(rs.reviewPopupSeen):[];
+            const merged=[...new Set([...localSeen,...remSeen])];
+            lsSet('vc_review_popup_seen',merged);
+          }catch(e){}
+          try{
+            const remSkipped=rs.reviewSkipped?JSON.parse(rs.reviewSkipped):{};
+            // Merge skipped: keep whichever per-invNo timestamp is newer
+            const merged={...localSkipped};
+            Object.entries(remSkipped).forEach(([k,v])=>{if(!merged[k]||v>merged[k])merged[k]=v;});
+            lsSet('vc_review_skipped',merged);
+          }catch(e){}
+          if(rs.followupShownDate&&rs.followupShownDate>localFollowupDate){
+            lsSet('vc_followup_shown_date',rs.followupShownDate);
+          }
+          lsSet('vc_popup_state_updatedAt',rs.updatedAt);
+        }
+      }
+      // Push local state to sheet (always push so other devices get latest)
+      const nowIso=new Date().toISOString();
+      gsWrite('PopupState',{
+        id:'popup_state',
+        reviewPopupSeen:JSON.stringify(lsGet('vc_review_popup_seen',[])),
+        reviewSkipped:JSON.stringify(lsGet('vc_review_skipped',{})),
+        followupShownDate:lsGet('vc_followup_shown_date','')||'',
+        updatedAt:nowIso
+      });
+      lsSet('vc_popup_state_updatedAt',nowIso);
+    }catch(e){console.warn('PopupState sync failed:',e.message);}
+
     save();saveStk();savePur();saveSup();saveBills();
 
     // Push back only records modified since last successful sync — avoids race condition
@@ -2323,7 +2367,7 @@ function setGSTMode(on){
   lsSet('vc_s',S);
   if(!on){invoices.forEach(inv=>{if(inv.isGST===undefined)inv.isGST=false;});save();}
   applyGSTMode();
-  gsWrite(SHEETS.settings,{id:'settings',...S});
+  gsWriteConfirmed(SHEETS.settings,{id:'settings',...S}).then(ok=>{if(!ok)toast('⚠️ Settings saved locally but sheet sync failed — tap sync to retry');});
   toast(on?'✅ GST Mode ON — issuing Tax Invoices':'✅ GST Mode OFF — issuing Bills of Supply');
 }
 
@@ -2351,7 +2395,7 @@ function completeSetup(){
     S={gstin:'',address,phone:(document.getElementById('setup-phone')?.value||'').trim(),email:(document.getElementById('setup-email')?.value||'').trim(),gstEnabled:false};
     invoices.forEach(inv=>{if(inv.isGST===undefined)inv.isGST=false;});save();
   }
-  lsSet('vc_s',S);gsWrite(SHEETS.settings,{id:'settings',...S});
+  lsSet('vc_s',S);gsWriteConfirmed(SHEETS.settings,{id:'settings',...S}).then(ok=>{if(!ok)toast('⚠️ Settings saved locally but sheet sync failed — tap sync to retry');});
   const el=document.getElementById('setup-screen');if(el)el.style.display='none';
   applyGSTMode();loadSettings();setInvNumber();setDates();addItem();renderDashboard();loadAssetThumbs();
   setTimeout(()=>syncAll(),1000);
@@ -2405,7 +2449,7 @@ function saveSettings(){
   };
   lsSet('vc_s',S);
   // Note: githubPat, catSheetId, tagline, waNumber intentionally NOT synced to sheet (privacy)
-  gsWrite(SHEETS.settings,{id:'settings',gstin:S.gstin,address:S.address,phone:S.phone,email:S.email,gstEnabled:S.gstEnabled,calKey:S.calKey});
+  gsWriteConfirmed(SHEETS.settings,{id:'settings',gstin:S.gstin,address:S.address,phone:S.phone,email:S.email,gstEnabled:S.gstEnabled,calKey:S.calKey}).then(ok=>{if(!ok)toast('⚠️ Settings saved locally but sheet sync failed — tap sync to retry');});
   applyGSTMode();toast('✅ Settings saved!');loadSettings();
   if(S.calKey)fetchFestivals(true);
 }
@@ -2855,7 +2899,7 @@ function generateInvoice(){
     prod.updatedAt=new Date().toISOString();
   });
   saveStk();
-  gsWrite(SHEETS.invoices,flattenInvoice(saved));
+  gsWriteConfirmed(SHEETS.invoices,flattenInvoice(saved)).then(ok=>{if(!ok)toast('⚠️ Invoice saved locally but sheet sync failed — tap sync to retry');});
   inventory.forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
 
   currentInv=saved;
@@ -4381,12 +4425,12 @@ function saveProduct(){
     if(lp){
       if(!lp.linkedProducts)lp.linkedProducts=[];
       if(!lp.linkedProducts.includes(prodNo))lp.linkedProducts.push(prodNo);
-      saveStk();gsWrite(SHEETS.inventory,flattenProduct(lp));
+      saveStk();gsWriteConfirmed(SHEETS.inventory,flattenProduct(lp)).then(ok=>{if(!ok)toast('⚠️ Product saved locally but sheet sync failed — tap sync to retry');});
     }
   });
   _pendingLinks=[];
   inventory.push(prod);inventory.sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
-  saveStk();gsWrite(SHEETS.inventory,flattenProduct(prod));
+  saveStk();gsWriteConfirmed(SHEETS.inventory,flattenProduct(prod)).then(ok=>{if(!ok)toast('⚠️ Product saved locally but sheet sync failed — tap sync to retry');});
   renderInventory();renderAgingGrid();updateInventoryStats();renderPostingQueue();
   ['ip-num','ip-name','ip-fabric','ip-cost','ip-sell','ip-notes'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   const iq=document.getElementById('ip-qty');if(iq)iq.value='1';
@@ -4402,7 +4446,7 @@ function adjustStock(prodNo){
   p.qty=Math.max(0,parseInt(v)||0);
   p.qtyOriginal=Math.max(parseInt(p.qtyOriginal)||0,p.qty+(parseInt(p.qtySold)||0));
   p.updatedAt=new Date().toISOString();
-  saveStk();gsWrite(SHEETS.inventory,flattenProduct(p));
+  saveStk();gsWriteConfirmed(SHEETS.inventory,flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Stock saved locally but sheet sync failed — tap sync to retry');});
   renderInventory();renderAgingGrid();updateInventoryStats();toast('📦 Stock updated for #'+prodNo);
 }
 function renderAgingGrid(){
@@ -4922,7 +4966,6 @@ function saveBulkEdits(){
     }
 
     delete stored.html;
-    gsWrite(SHEETS.invoices,flattenInvoice(stored));
     changed++;
   });
 
@@ -4933,6 +4976,16 @@ function saveBulkEdits(){
   const content=document.getElementById('sub-page-content');
   if(content)content.innerHTML=buildBulkEditPage();
   toast('✅ Saved '+changed+' invoice'+(changed!==1?'s':''));
+  // Batch-write all changed invoices to sheet with confirmation
+  if(changed>0){
+    const changedInvs=salesFiltered.filter(inv=>inv&&inv.invUpdatedAt&&inv.id).map(inv=>{
+      const stored=invoices.find(i=>String(i.id)===String(inv.id));
+      return stored?flattenInvoice(stored):null;
+    }).filter(Boolean);
+    gsWriteBatch(SHEETS.invoices,changedInvs,(done,failed,total)=>{
+      if(done+failed===total&&failed>0)toast('⚠️ '+failed+' invoice(s) not synced to sheet — tap sync to retry');
+    });
+  }
 }
 
 function buildPurchasesPage(){
@@ -5006,7 +5059,8 @@ function savePurchaseEntry(){
     amount:amt,gstRate:document.getElementById('pp-gst')?.value,gstAmt:parseFloat(document.getElementById('pp-itc')?.value)||0,
     supGstin:(document.getElementById('pp-gstin')?.value||'').toUpperCase(),billNo:document.getElementById('pp-billno')?.value||'',
     updatedAt:new Date().toISOString()};
-  purchases.push(entry);savePur();gsWrite(SHEETS.purchases,entry);
+  purchases.push(entry);savePur();
+  gsWriteConfirmed(SHEETS.purchases,entry).then(ok=>{if(!ok)toast('⚠️ Purchase saved locally but sheet sync failed — tap sync to retry');});
   toast('✅ Purchase saved!');showSubPage('purchases');
 }
 function deletePurchase(id){
@@ -7210,7 +7264,7 @@ function confirmMarkPosted(){
   const isToday=chosen===today();
   p[_mpField]=chosen;
   p.updatedAt=new Date().toISOString();
-  saveStk();gsWrite(SHEETS.inventory,flattenProduct(p));
+  saveStk();gsWriteConfirmed(SHEETS.inventory,flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Product saved locally but sheet sync failed — tap sync to retry');});
   renderAgingGrid();renderPostingQueue();
   closeMarkPostedModal();
   toast('✅ '+labels[_mpField]+' marked as posted'+(isToday?' today':' on '+fmtDate(chosen))+' for #'+_mpProdNo);
@@ -7400,10 +7454,15 @@ function applyBatchShipping(){
     if(stored){stored.shippingCost=each;delete stored.html;}
   });
   save();
-  sel.forEach(inv=>{
+  const changedRecords=sel.map(inv=>{
     const stored=invoices.find(i=>String(i.id)===String(inv.id));
-    if(stored)gsWrite(SHEETS.invoices,flattenInvoice(stored));
-  });
+    return stored?flattenInvoice(stored):null;
+  }).filter(Boolean);
+  if(changedRecords.length){
+    gsWriteBatch(SHEETS.invoices,changedRecords,(done,failed,total)=>{
+      if(done+failed===total&&failed>0)toast('⚠️ '+failed+' invoice(s) not synced to sheet — tap sync to retry');
+    });
+  }
   document.getElementById('batch-ship-modal').classList.remove('open');
   toast('✅ Shipping cost ₹'+each+' applied to '+sel.length+' orders');
 }
@@ -7584,16 +7643,22 @@ function handleTrackingImport(e){
         });
         if(dispUpdated>0){save();}
         saveTracking();
-        // Push each updated article as its own sheet row — no URL length limit
+        // Push each updated article as its own sheet row using confirmed batch write
         const updatedArts=rows.map(r=>(r[colArticle]||'').toString().trim().toUpperCase()).filter(Boolean);
-        updatedArts.forEach(art=>{
-          if(trackingData[art])gsWrite(SHEETS.tracking,{id:art,...trackingData[art]});
-        });
+        const trackRecords=updatedArts.filter(art=>trackingData[art]).map(art=>({id:art,...trackingData[art]}));
         renderTrackingPage();
         renderSales(); // refresh badges
         // Check for newly-delivered items and show review popup if any
         setTimeout(()=>checkReviewPopup(),800);
-        toast('✅ '+updated+' tracking records imported'+(skipped?' ('+skipped+' skipped)':''));
+        toast('✅ '+updated+' tracking records imported'+(skipped?' ('+skipped+' skipped)':'')+' — saving to sheet…');
+        if(trackRecords.length){
+          gsWriteBatch(SHEETS.tracking,trackRecords,(done,failed,total)=>{
+            if(done+failed===total){
+              if(failed>0)toast('⚠️ '+failed+' tracking record(s) not synced to sheet — tap sync to retry');
+              else toast('☁️ Tracking synced to sheet ('+done+' records)');
+            }
+          });
+        }
       }catch(err){toast('❌ Import error: '+err.message,6000);}
     };
     reader.onerror=function(){hideLoading();toast('❌ Could not read file');};
@@ -8157,7 +8222,7 @@ function saveInvEdit() {
   // variants already saved live into p.variants by renderVariantsList/addVariant
   p.updatedAt = new Date().toISOString();
   saveStk();
-  gsWrite(SHEETS.inventory, flattenProduct(p));
+  gsWriteConfirmed(SHEETS.inventory, flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Product saved locally but sheet sync failed — tap sync to retry');});
   // Push to catalogue sheet if configured
   pushProductToCatalogueSheet(p);
   closeInvEditModal();
@@ -8278,7 +8343,7 @@ function _doMarkSoldStandalone(prodNoArg, variantId){
   }
   p.qtySold = (parseInt(p.qtySold) || 0) + 1;
   p.updatedAt = new Date().toISOString();
-  saveStk(); gsWrite(SHEETS.inventory, flattenProduct(p));
+  saveStk(); gsWriteConfirmed(SHEETS.inventory, flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Product saved locally but sheet sync failed — tap sync to retry');});
   closeInvEditModal();
   renderInventory(); renderAgingGrid(); updateInventoryStats();
   toast('✅ Marked as sold (1 unit)');
@@ -8307,7 +8372,7 @@ function _doLinkToInvoice(prodNoArg, invId, variantId){
   p.linkedInvoices.push(String(inv.id));
   p.updatedAt = new Date().toISOString();
   _pendingVariantId = null; _pendingVariantLabel = null;
-  saveStk(); gsWrite(SHEETS.inventory, flattenProduct(p));
+  saveStk(); gsWriteConfirmed(SHEETS.inventory, flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Product saved locally but sheet sync failed — tap sync to retry');});
   closeInvEditModal();
   renderInventory(); renderAgingGrid(); updateInventoryStats();
   toast('✅ Linked to ' + (inv.invNo||inv.id) + ' and stock deducted');
@@ -9439,7 +9504,7 @@ async function deleteVariantPhoto(variantId, photoId) {
     if (ph.githubPath) await deletePhotoFromGithub(ph.githubPath, ph.thumbPath || '').catch(() => {});
     v.photos = v.photos.filter(x => x.id !== photoId);
     saveStk();
-    gsWrite(SHEETS.inventory, flattenProduct(p));
+    gsWriteConfirmed(SHEETS.inventory, flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Product saved locally but sheet sync failed — tap sync to retry');});
     renderVariantsList(p);
     toast('🗑 Photo deleted');
   }, null);
@@ -10445,10 +10510,13 @@ async function refreshCourierTracking(){
   }
 
   saveTracking();
-  // Sync updated records to sheet
-  Object.entries(trackingData).filter(([,td])=>td.source==='track123').forEach(([key,td])=>{
-    gsWrite(SHEETS.tracking,{id:key,...td});
-  });
+  // Sync updated records to sheet using confirmed batch write
+  const track123Records=Object.entries(trackingData).filter(([,td])=>td.source==='track123').map(([key,td])=>({id:key,...td}));
+  if(track123Records.length){
+    gsWriteBatch(SHEETS.tracking,track123Records,(done,failed,total)=>{
+      if(done+failed===total&&failed>0)toast('⚠️ '+failed+' tracking record(s) not synced to sheet — tap sync to retry');
+    });
+  }
 
   hideLoading();
   _track123Refreshing=false;
