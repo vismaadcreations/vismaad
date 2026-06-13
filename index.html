@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.15.0
+APP: Vismaad Creations v14.15.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 13-Jun-2026 — v14.15.0: (1) Mixed-courier dispatch message groups packages by courier with separate tracking URLs; followup message when tracking added to existing invoice; delivery ack per tracking number with Package X of Y prefix; (2) Mohali 160xxx pins correctly mapped to Punjab; city text state fallback added; (3) Tracking search inputs no longer lose focus on keystroke; (4) Skip popup no longer reappears after sync; (5) Unboxing video message updated.
+LAST_CHANGE: 13-Jun-2026 — v14.15.1: Bug fix — two JS syntax errors introduced in v14.14.3: (1) literal newline inside regex character class /[\n,]/ in renderTrackingResults() (locLine and locCell) replaced with escape sequence; (2) reverted bad <script> tag escaping in catalogue and PDF print template literals that was incorrectly applied during diagnosis.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
 PREV_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
@@ -8136,8 +8136,7 @@ function renderTrackingResults(){
       const parcelNote=multiNos>1?`<span style="font-size:11px;color:var(--gold);margin-left:6px;">pkg ${(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean).indexOf(inv._singleTracking)+1}/${multiNos}</span>`:'';
       const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||'indiapost';
       const courierBadge=courierCode==='dtdc'?'<span style="font-size:10px;background:#fff3cd;color:#856404;border-radius:4px;padding:1px 5px;margin-left:5px;">DTDC</span>':courierCode==='bluedart'?'<span style="font-size:10px;background:#cfe2ff;color:#084298;border-radius:4px;padding:1px 5px;margin-left:5px;">Blue Dart</span>':'<span style="font-size:10px;background:#e8e8e8;color:#555;border-radius:4px;padding:1px 5px;margin-left:5px;">India Post</span>';
-      const locLine=inv.custState?(inv.custAddress?inv.custAddress.split(/[
-,]/)[0].trim()+', ':'')+inv.custState:'';
+      const locLine=inv.custState?(inv.custAddress?inv.custAddress.split(/[\n,]/)[0].trim()+', ':'')+inv.custState:'';
       return`<div class="card" style="margin-bottom:10px;padding:12px;${cardBg}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
           <div><span style="font-weight:700;color:var(--brown);font-size:14px;">${esc2(inv.invNo)}</span>${parcelNote}${courierBadge}<span style="margin-left:6px;font-size:13px;">${esc2(inv.custName)}</span></div>
@@ -8162,8 +8161,7 @@ function renderTrackingResults(){
       const pkgLabel=multiNos>1?` <span style="font-size:10px;color:var(--gold);">pkg ${(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean).indexOf(inv._singleTracking)+1}/${multiNos}</span>`:'';
       const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||'indiapost';
       const courierBadge=courierCode==='dtdc'?'<span style="font-size:10px;background:#fff3cd;color:#856404;border-radius:4px;padding:1px 5px;margin-left:4px;">DTDC</span>':courierCode==='bluedart'?'<span style="font-size:10px;background:#cfe2ff;color:#084298;border-radius:4px;padding:1px 5px;margin-left:4px;">Blue Dart</span>':'<span style="font-size:10px;background:#e8e8e8;color:#555;border-radius:4px;padding:1px 5px;margin-left:4px;">IP</span>';
-      const locCell=inv.custState?esc2((inv.custAddress?inv.custAddress.split(/[
-,]/)[0].trim()+', ':'')+inv.custState):'—';
+      const locCell=inv.custState?esc2((inv.custAddress?inv.custAddress.split(/[\n,]/)[0].trim()+', ':'')+inv.custState):'—';
       if(!td)return`<tr><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td><td>${fmtDate(inv.invDate)}</td><td colspan="3" style="color:#aaa;font-size:12px;">— no data yet —</td></tr>`;
       const stBadge=isDelivered?'<span class="badge b-green">Delivered</span>':isOD?'<span class="badge b-red">⚠️ Overdue</span>':'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
       return`<tr style="${rowBg}"><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td><td>${fmtDate(inv.invDate)}</td><td>${esc2(td.bookedOn||'')}</td><td>${stBadge}</td><td style="font-size:11px;color:#555;max-width:180px;word-break:break-word;">${td.source==='track123'&&(td.lastEventDetail||td.lastEvent)?('<span style="font-weight:600;">'+(td.lastEventDetail?esc2(td.lastEventDetail):(td.lastEvent?esc2(td.lastEvent):''))+'</span>'+(td.lastEventLocation?'<br/><span style="color:#888;">📍 '+esc2(td.lastEventLocation)+'</span>':'')+(td.lastEventTime?'<br/><span style="color:#aaa;font-size:10px;">'+esc2(td.lastEventTime)+'</span>':'')):esc2(td.lastEvent||'')}</td></tr>`;
@@ -10016,7 +10014,6 @@ footer strong{color:#fff;}
   <strong>${esc(bizName)}</strong>${S.phone?`<br/>${esc(S.phone)}`:''}
 </footer>
 <script>
-function goTo(id,idx){
   const el=document.querySelector('[data-carousel="'+id+'"]');if(!el)return;
   const total=parseInt(el.dataset.total)||1;
   idx=Math.max(0,Math.min(total-1,idx));
