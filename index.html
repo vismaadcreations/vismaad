@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.15.1
+APP: Vismaad Creations v14.15.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 13-Jun-2026 — v14.15.1: Bug fix — two JS syntax errors introduced in v14.14.3: (1) literal newline inside regex character class /[\n,]/ in renderTrackingResults() (locLine and locCell) replaced with escape sequence; (2) reverted bad <script> tag escaping in catalogue and PDF print template literals that was incorrectly applied during diagnosis.
+LAST_CHANGE: 14-Jun-2026 — v14.15.2: (1) Address parser: retain titles (Mr/Mrs/Ms/Dr/Prof) in customer name; (2) Address parser: PIN-derived state no longer overridden by abbreviation text scan (fixes RAJ matching Raj in customer name); (3) Popup sync fix: review and followup popups now only fire post-sync inside syncAll so remote seen-list is always loaded first — removed premature t=3s init triggers; (4) PopupState write upgraded from gsWrite to gsWriteConfirmed; (5) Removed v14.14.2 migration wipe of vc_review_popup_seen.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
 PREV_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
@@ -2124,7 +2124,7 @@ async function syncAll(){
       }
       // Push local state to sheet (always push so other devices get latest)
       const nowIso=new Date().toISOString();
-      gsWrite('PopupState',{
+      await gsWriteConfirmed('PopupState',{
         id:'popup_state',
         reviewPopupSeen:JSON.stringify(lsGet('vc_review_popup_seen',[])),
         reviewSkipped:JSON.stringify(lsGet('vc_review_skipped',{})),
@@ -2170,8 +2170,9 @@ async function syncAll(){
     renderOutreachWidget();
     renderSyncInfo();
     toast('☁️ Synced — '+invoices.length+' invoices');
-    // Check for newly-delivered parcels pulled from sheet and show review popup
-    setTimeout(()=>checkReviewPopup(),800);
+    // Check for newly-delivered parcels pulled from sheet and show review/followup popups
+    // (fires here — after remote PopupState is merged — so seen-list is always up to date)
+    setTimeout(()=>{checkFollowupPopup();checkReviewPopup();},800);
   }catch(e){
     setSyncStatus('err');
     const msg=e.message||'';
@@ -2281,12 +2282,6 @@ function init(){
       }
     });
     if (_qtyNormFixed > 0) { saveStk(); console.log('v14.11 qtySold normalised for', _qtyNormFixed, 'product(s)'); }
-    // MIGRATION v14.14.2: clear stale vc_review_popup_seen that was over-populated by
-    // the blanket-update bug — so any pending delivered invoices surface again correctly.
-    if(!lsGet('vc_review_seen_reset_v14142',null)){
-      lsSet('vc_review_popup_seen',[]);
-      lsSet('vc_review_seen_reset_v14142','1');
-    }
     // MIGRATION v14.12: recompute invoice costPrice from itemsArr (costPrice × qty per item).
     // Prior versions saved costPrice without multiplying by qty. Idempotent — safe to run every init.
     let _costFixed = 0;
@@ -2323,13 +2318,11 @@ function init(){
     loadAssetThumbs();
     checkConfigBanner();
     setTimeout(()=>syncAll(),1000);
-    // Outreach — check follow-up popup after sync settles
+    // Outreach — popups fire inside syncAll() after remote PopupState is merged
     setTimeout(()=>{
       purgeOptOutsOnce();
       renderOutreachWidget();
       renderPostingQueue();
-      checkFollowupPopup();
-      checkReviewPopup();
     },3000);
   }catch(e){
     console.error('Init error:',e);
@@ -3825,7 +3818,9 @@ function parsePastedDetails(){
   if(!result.state){
     const cityGuess=getStateFromCityText(raw);
     if(cityGuess)result.state=cityGuess;
-  }else{
+  }
+  // Text abbreviation/name scan: only run if state is still unknown (never override PIN-derived state)
+  if(!result.state){
     // Try state abbreviations first (word boundaries)
     const abbrRe=new RegExp('\\b('+Object.keys(STATE_ABBR).join('|')+')\\b','i');
     const abbrMatch=cleanedRaw.match(abbrRe);
@@ -3878,8 +3873,6 @@ function parsePastedDetails(){
 
     // Clean up the name
     let name=stripped;
-    // Strip titles: Mr, Mrs, Ms, Dr, Prof
-    name=name.replace(/^(mr\.?|mrs\.?|ms\.?|dr\.?|prof\.?)\s+/i,'').trim();
     // Strip trailing "ji"
     name=name.replace(/\s+ji\s*$/i,'').trim();
     // Convert ALL CAPS to Title Case
