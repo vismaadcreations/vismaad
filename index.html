@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.16.1
+APP: Vismaad Creations v14.16.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 15-Jun-2026 — v14.16.1: Config backup/restore now includes geminiKey (Stitch Insert / Gemini API key).
+LAST_CHANGE: 15-Jun-2026 — v14.16.2: Stitch sketches now auto-generate on product modal open (not only on save); thumbnail refreshes in-place after generation; sketches uploaded to GitHub and URL synced via StitchCache sheet so other devices get sketch on next sync without regenerating.
 PREV_CHANGE: 14-Jun-2026 — v14.15.2: (1) Address parser: retain titles (Mr/Mrs/Ms/Dr/Prof) in customer name; (2) Address parser: PIN-derived state no longer overridden by abbreviation text scan (fixes RAJ matching Raj in customer name); (3) Popup sync fix: review and followup popups now only fire post-sync inside syncAll so remote seen-list is always loaded first — removed premature t=3s init triggers; (4) PopupState write upgraded from gsWrite to gsWriteConfirmed; (5) Removed v14.14.2 migration wipe of vc_review_popup_seen.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -1533,7 +1533,7 @@ function getStateCode(state){return STATE_CODES[state]||'';}
 // SAFE STORAGE — never crash on bad data
 // ═══════════════════════════════════════════
 const SCRIPT_URL='https://script.google.com/macros/s/AKfycbwpfwN3NXnsxyOnYUyiMvEYCLJJaqzFqzuIWMSJ2XLucP6LEHZ4nLhGuuew2HtDmEIgbQ/exec';
-const SHEETS={invoices:'Invoices',inventory:'Inventory',purchases:'Purchases',settings:'Settings',tracking:'Tracking',suppliers:'Suppliers',bills:'Bills',supplierTxns:'SupplierTxns'};
+const SHEETS={invoices:'Invoices',inventory:'Inventory',purchases:'Purchases',settings:'Settings',tracking:'Tracking',suppliers:'Suppliers',bills:'Bills',supplierTxns:'SupplierTxns',stitchCache:'StitchCache'};
 const GITHUB_OWNER='vismaadcreations';
 const GITHUB_REPO='vismaad';
 const GITHUB_BRANCH='main';
@@ -2176,6 +2176,25 @@ async function syncAll(){
       });
       lsSet('vc_popup_state_updatedAt',nowIso);
     }catch(e){console.warn('PopupState sync failed:',e.message);}
+
+    // STITCH CACHE — pull sketch URLs from sheet; merge missing keys into local cache
+    // Only URLs are stored in sheet (not base64); local cache holds the image src
+    try{
+      const remSC=await gsRead(SHEETS.stitchCache);
+      if(remSC&&remSC.length){
+        const localCache=getStitchCache();
+        let changed=false;
+        remSC.forEach(r=>{
+          if(!r.key||!r.url)return;
+          if(!localCache[r.key]){
+            // Missing locally — store GitHub URL as img src
+            localCache[r.key]={img:r.url,githubUrl:r.url,ts:r.updatedAt?new Date(r.updatedAt).getTime():Date.now()};
+            changed=true;
+          }
+        });
+        if(changed)saveStitchCache(localCache);
+      }
+    }catch(e){console.warn('StitchCache sync failed:',e.message);}
 
     save();saveStk();savePur();saveSup();saveBills();
 
@@ -8292,6 +8311,8 @@ function openInvEdit(prodNo) {
   renderVariantsList(p);
   renderStitchSlots(p);
   document.getElementById('inv-edit-modal').classList.add('open');
+  // Auto-generate missing sketches when modal opens (background, non-blocking)
+  setTimeout(() => autoGenerateStitchSketches(p), 300);
 }
 
 function closeInvEditModal() {
@@ -10946,10 +10967,32 @@ function stitchCacheKey(style, neckline, length, sleeves, buttons, embellishment
 function getStitchCache() { return lsGet('vc_stitch_cache', {}); }
 function saveStitchCache(c) { lsSet('vc_stitch_cache', c); }
 function getCachedSketch(key) { const c = getStitchCache(); return c[key] ? c[key].img : null; }
-function setCachedSketch(key, base64img) {
+function setCachedSketch(key, img, githubUrl) {
+  // img = base64 data URL (local display) or github URL (from remote sync)
+  // githubUrl = raw.githubusercontent URL if already uploaded
   const c = getStitchCache();
-  c[key] = { img: base64img, ts: Date.now() };
+  c[key] = { img, githubUrl: githubUrl || null, ts: Date.now() };
   saveStitchCache(c);
+}
+
+// Upload sketch base64 to GitHub and return raw URL; returns null if GitHub not configured
+async function uploadSketchToGithub(key, base64dataUrl) {
+  if (!S.githubPat) return null;
+  try {
+    // Strip data URL prefix to get raw base64
+    const b64 = base64dataUrl.split(',')[1];
+    if (!b64) return null;
+    const path = `assets/sketches/${key}.png`;
+    await githubRequest('PUT', path, {
+      message: `Add stitch sketch ${key}`,
+      content: b64,
+      branch: GITHUB_BRANCH,
+    });
+    return `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${path}`;
+  } catch(e) {
+    console.warn('Sketch GitHub upload failed:', e.message);
+    return null;
+  }
 }
 
 function renderStitchCacheStats() {
@@ -11037,8 +11080,8 @@ function renderStitchSlots(p) {
     const cacheKey = slot.cacheKey || '';
     const cached = cacheKey ? getCachedSketch(cacheKey) : null;
     const thumbHtml = cached
-      ? `<img src="${cached}" style="width:100%;height:120px;object-fit:contain;border-radius:6px;border:1px solid var(--border);background:#fafafa;"/>`
-      : `<div style="width:100%;height:60px;border:1.5px dashed var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#bbb;background:#fafafa;">${slot.style?'⏳ Pending generation':'No style set'}</div>`;
+      ? `<img id="iem-stitch-thumb-${i}" src="${cached}" style="width:100%;height:120px;object-fit:contain;border-radius:6px;border:1px solid var(--border);background:#fafafa;"/>`
+      : `<div id="iem-stitch-thumb-${i}" style="width:100%;height:60px;border:1.5px dashed var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#bbb;background:#fafafa;">${slot.style?'⏳ Pending generation':'No style set'}</div>`;
 
     return `<div style="background:#fffdf8;border:1px solid #e8c98a;border-radius:10px;padding:12px;margin-bottom:10px;">
       <div style="font-size:12px;font-weight:700;color:var(--brown);margin-bottom:8px;">Style ${i+1}
@@ -11100,10 +11143,33 @@ async function autoGenerateStitchSketches(p) {
     }
     const statusEl = document.getElementById(`iem-stitch-status-${i}`);
     if (statusEl) statusEl.textContent = '⏳ Generating…';
-    const img = await generateSketchViaGemini(slot, p.fabric || '');
-    if (img) {
-      setCachedSketch(slot.cacheKey, img);
+    const imgDataUrl = await generateSketchViaGemini(slot, p.fabric || '');
+    if (imgDataUrl) {
+      // Upload to GitHub in background; store base64 locally immediately for display
+      setCachedSketch(slot.cacheKey, imgDataUrl, null);
+      // Refresh thumbnail in-place
+      const thumbEl = document.getElementById(`iem-stitch-thumb-${i}`);
+      if (thumbEl) {
+        thumbEl.outerHTML = `<img id="iem-stitch-thumb-${i}" src="${imgDataUrl}" style="width:100%;height:120px;object-fit:contain;border-radius:6px;border:1px solid var(--border);background:#fafafa;"/>`;
+      }
       if (statusEl) statusEl.textContent = '✅ Ready';
+      // Upload to GitHub and sync URL to Sheets (non-blocking)
+      uploadSketchToGithub(slot.cacheKey, imgDataUrl).then(ghUrl => {
+        if (ghUrl) {
+          // Store GitHub URL so other devices can load from CDN, not regenerate
+          setCachedSketch(slot.cacheKey, ghUrl, ghUrl);
+          // Update thumbnail src to GitHub URL
+          const el = document.getElementById(`iem-stitch-thumb-${i}`);
+          if (el && el.tagName === 'IMG') el.src = ghUrl;
+          // Push to StitchCache sheet
+          gsWriteConfirmed(SHEETS.stitchCache, {
+            id: slot.cacheKey,
+            key: slot.cacheKey,
+            url: ghUrl,
+            updatedAt: new Date().toISOString()
+          }).catch(() => {});
+        }
+      });
     } else {
       if (statusEl) statusEl.textContent = '⚠️ Failed — check Gemini key';
     }
