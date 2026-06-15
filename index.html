@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.15.2
+APP: Vismaad Creations v14.16.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 14-Jun-2026 — v14.15.2: (1) Address parser: retain titles (Mr/Mrs/Ms/Dr/Prof) in customer name; (2) Address parser: PIN-derived state no longer overridden by abbreviation text scan (fixes RAJ matching Raj in customer name); (3) Popup sync fix: review and followup popups now only fire post-sync inside syncAll so remote seen-list is always loaded first — removed premature t=3s init triggers; (4) PopupState write upgraded from gsWrite to gsWriteConfirmed; (5) Removed v14.14.2 migration wipe of vc_review_popup_seen.
+LAST_CHANGE: 15-Jun-2026 — v14.16.0: Stitch Insert system — A4 insert per product with "Stitching Ideas for Your [Product]" header; Gemini AI sketch generation (gemini-2.0-flash-preview-image-generation); SVG annotation overlay with Caveat handwriting font, gold arrow lines, dot anchors at anatomical positions; per-product 2-slot stitch config (style/neckline/length/sleeves/buttons/embellishment/bottom); auto-length from style; auto-generate on product save; shared cache by keyword key; Print Stitch Insert modal on invoice with product selector.
+PREV_CHANGE: 14-Jun-2026 — v14.15.2: (1) Address parser: retain titles (Mr/Mrs/Ms/Dr/Prof) in customer name; (2) Address parser: PIN-derived state no longer overridden by abbreviation text scan (fixes RAJ matching Raj in customer name); (3) Popup sync fix: review and followup popups now only fire post-sync inside syncAll so remote seen-list is always loaded first — removed premature t=3s init triggers; (4) PopupState write upgraded from gsWrite to gsWriteConfirmed; (5) Removed v14.14.2 migration wipe of vc_review_popup_seen.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
 PREV_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
@@ -22,7 +23,7 @@ KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(v
 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 <title>Vismaad Creations</title>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=Great+Vibes&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=Great+Vibes&family=Caveat:wght@400;600&display=swap" rel="stylesheet"/>
 <style>
 :root{
   --cream:#fdf8f2;--warm:#fffdf9;--ink:#1a1208;--brown:#5c3d1e;
@@ -572,6 +573,7 @@ body.gst-mode .gst-only{display:block;}
       <div id="inv-preview-html"></div>
     </div>
     <button class="btn btn-g" onclick="printCurrentInvoice()" style="margin-bottom:10px;">🖨️ Print Invoice</button>
+    <button class="btn btn-o" onclick="openStitchInsertModal()" style="margin-bottom:10px;">✂️ Stitch Insert</button>
     <button class="btn btn-p" onclick="openShareModal(currentInv)" style="margin-bottom:10px;">📤 Share Invoice</button>
     <button class="btn btn-o" onclick="goToLabel()" style="margin-bottom:10px;">📦 Create Shipping Label</button>
     <button id="new-invoice-btn" class="btn btn-p" onclick="resetInvoiceForm()" style="margin-bottom:4px;background:var(--green);border-color:var(--green);">+ New Invoice</button>
@@ -831,6 +833,26 @@ body.gst-mode .gst-only{display:block;}
       <div class="fg" style="margin-bottom:0;"><label>UPI Phone Number</label>
         <input id="ms-upi-phone" placeholder="e.g. 7719683825" type="tel" inputmode="numeric"/></div>
     </div>
+    <!-- ✂️ STITCH INSERT SETTINGS -->
+    <div style="background:#fff8f0;border:1px solid #e8c98a;border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:6px;">✂️ Stitch Insert</div>
+      <div style="font-size:12px;color:#888;margin-bottom:12px;">AI-powered fashion sketch generation for customer inserts. Sketches cached after first use.</div>
+      <div class="fg" style="margin-bottom:10px;">
+        <label>Gemini API Key</label>
+        <input id="ms-gemini-key" type="password" placeholder="AIzaSy..."/>
+        <div style="font-size:11px;color:#888;margin-top:4px;">Get free key at aistudio.google.com → Get API key. Uses gemini-2.0-flash-preview-image-generation.</div>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:8px;">Keyword Lists</div>
+      <div id="stitch-keyword-lists"></div>
+      <div style="font-size:12px;font-weight:600;color:var(--brown);margin:12px 0 8px;">Style → Default Shirt Length</div>
+      <div id="stitch-style-lengths"></div>
+      <button class="btn btn-o btn-sm" style="margin-top:10px;width:100%;" onclick="saveStitchSettings()">💾 Save Stitch Settings</button>
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid #e8c98a;">
+        <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:6px;">Sketch Cache</div>
+        <div id="stitch-cache-stats" style="font-size:12px;color:#888;margin-bottom:8px;"></div>
+        <button class="btn btn-o btn-sm" onclick="clearStitchCache()" style="background:#fff0f0;border-color:#e74c3c;color:#e74c3c;">🗑 Clear Unused Cache</button>
+      </div>
+    </div>
     <button class="btn btn-p" onclick="saveSettings()">💾 Save Settings</button>
     <!-- Config Backup / Restore -->
     <div style="background:#f5f0ff;border:1px solid #c9aff7;border-radius:10px;padding:12px 14px;margin-top:16px;">
@@ -1063,6 +1085,12 @@ body.gst-mode .gst-only{display:block;}
           <select id="iem-inv-select"><option value="">select invoice</option></select></div>
         <button class="btn btn-p btn-sm" style="margin-top:8px;" onclick="confirmMarkSoldLinked()">Confirm Link & Mark Sold</button>
       </div>
+    </div>
+    <!-- ✂️ STITCH IDEAS -->
+    <div style="background:#fff8f0;border:1px solid #e8c98a;border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:4px;">✂️ Stitch Ideas</div>
+      <div style="font-size:12px;color:#888;margin-bottom:12px;">Two style suggestions for the customer insert. Sketches are AI-generated and cached automatically on save.</div>
+      <div id="iem-stitch-slots"></div>
     </div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="saveInvEdit()">Save Changes</button>
@@ -1452,6 +1480,21 @@ body.gst-mode .gst-only{display:block;}
 
 <div class="toast" id="toast"></div>
 
+
+<!-- ════ STITCH INSERT PRODUCT SELECTOR MODAL ════ -->
+<div class="modal-bg" id="stitch-insert-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeStitchInsertModal()">✕</button>
+    <div class="modal-title">✂️ Stitch Insert</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px;">Select products to include. One A4 insert per product.</div>
+    <div id="stitch-insert-product-list" style="margin-bottom:16px;"></div>
+    <div id="stitch-insert-gen-status" style="font-size:12px;color:var(--brown);margin-bottom:10px;min-height:18px;"></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="generateStitchInserts()">✂️ Generate &amp; Print</button>
+      <button class="btn btn-o" onclick="closeStitchInsertModal()" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <script>
 'use strict';
@@ -2421,6 +2464,7 @@ function loadSettings(){
   const upiPhoneEl=document.getElementById('ms-upi-phone');
   if(upiPhoneEl)upiPhoneEl.value=S.upiPhone||'7719683825';
   applyGSTMode();
+  renderStitchSettingsUI();
 }
 
 function saveSettings(){
@@ -8246,6 +8290,7 @@ function openInvEdit(prodNo) {
   document.getElementById('iem-sold-link').style.display = 'none';
   renderSoldToSection(p);
   renderVariantsList(p);
+  renderStitchSlots(p);
   document.getElementById('inv-edit-modal').classList.add('open');
 }
 
@@ -8385,9 +8430,13 @@ function saveInvEdit() {
     p.qtyOriginal = Math.max(parseInt(p.qtyOriginal) || 0, p.qty + (parseInt(p.qtySold) || 0));
   }
   // variants already saved live into p.variants by renderVariantsList/addVariant
+  // Save stitch slots
+  p.stitchSlots = readStitchSlots();
   p.updatedAt = new Date().toISOString();
   saveStk();
   gsWriteConfirmed(SHEETS.inventory, flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Product saved locally but sheet sync failed — tap sync to retry');});
+  // Auto-generate stitch sketches in background
+  autoGenerateStitchSketches(p);
   // Push to catalogue sheet if configured
   pushProductToCatalogueSheet(p);
   closeInvEditModal();
@@ -10746,6 +10795,572 @@ async function refreshCourierTracking(){
   toast(msg,4000);
   checkReviewPopup();
 }
+
+
+// ═══════════════════════════════════════════════════════════
+// STITCH INSERT SYSTEM — v14.16.0
+// ═══════════════════════════════════════════════════════════
+
+const STITCH_DEFAULT_KEYWORDS = {
+  styles:         ['Anarkali','Patiala Salwar Suit','Straight Cut Suit','A-Line Suit','Sharara Suit','Palazzo Suit','Dhoti Suit','Jacket Suit','Cape Suit','Indo-Western Coord Set'],
+  necklines:      ['Round Neck','V-Neck','Square Neck','Sweetheart Neck','Boat Neck','Mandarin Collar','U-Neck','Keyhole Neck'],
+  lengths:        ['Floor Length','Ankle Length','Mid-Calf','Knee Length','Mid-Thigh','Hip Length'],
+  sleeves:        ['3/4 Sleeves','Full Sleeves','Bell Sleeves','Sleeveless','Cap Sleeves','Puff Sleeves','Bishop Sleeves'],
+  buttons:        ['Potli Buttons','Fabric Buttons','Pearl Buttons','Metal Buttons','No Buttons'],
+  embellishments: ['Gota Patti Border','Lace Border','Mirror Work','Thread Embroidery','Sequin Work','Plain','Zari Border','Resham Work'],
+  bottoms:        ['Churidar','Palazzo','Sharara','Straight Pants','Dhoti Pants','Salwar','Patiala']
+};
+
+const STITCH_DEFAULT_STYLE_LENGTHS = {
+  'Anarkali':               'Floor Length',
+  'Patiala Salwar Suit':    'Mid-Thigh',
+  'Straight Cut Suit':      'Knee Length',
+  'A-Line Suit':            'Knee Length',
+  'Sharara Suit':           'Hip Length',
+  'Palazzo Suit':           'Hip Length',
+  'Dhoti Suit':             'Hip Length',
+  'Jacket Suit':            'Knee Length',
+  'Cape Suit':              'Knee Length',
+  'Indo-Western Coord Set': 'Hip Length'
+};
+
+// Anatomical annotation positions as % of image [x%, y%] + label side
+// Each entry: { ax, ay, side } — ax/ay = arrow tip on figure, side = 'left'|'right'
+const STITCH_ANNOTATIONS = {
+  neckline:      { ax: 50, ay: 17, side: 'right' },
+  sleeves:       { ax: 18, ay: 32, side: 'left'  },
+  buttons:       { ax: 52, ay: 38, side: 'right' },
+  length:        { ax: 72, ay: 56, side: 'right' },
+  embellishment: { ax: 28, ay: 80, side: 'left'  },
+  bottom:        { ax: 60, ay: 88, side: 'right' }
+};
+
+// ── LOAD / SAVE ───────────────────────────────────────────
+function getStitchSettings() {
+  const def = {
+    geminiKey: '',
+    keywords: JSON.parse(JSON.stringify(STITCH_DEFAULT_KEYWORDS)),
+    styleLengths: JSON.parse(JSON.stringify(STITCH_DEFAULT_STYLE_LENGTHS))
+  };
+  const saved = lsGet('vc_stitch_settings', def);
+  // Ensure all keyword categories exist
+  Object.keys(STITCH_DEFAULT_KEYWORDS).forEach(cat => {
+    if (!saved.keywords[cat]) saved.keywords[cat] = STITCH_DEFAULT_KEYWORDS[cat];
+  });
+  if (!saved.styleLengths) saved.styleLengths = JSON.parse(JSON.stringify(STITCH_DEFAULT_STYLE_LENGTHS));
+  return saved;
+}
+
+function saveStitchSettings() {
+  const ss = getStitchSettings();
+  const keyEl = document.getElementById('ms-gemini-key');
+  if (keyEl) ss.geminiKey = keyEl.value.trim();
+  Object.keys(STITCH_DEFAULT_KEYWORDS).forEach(cat => {
+    const container = document.getElementById('stitch-kw-' + cat);
+    if (!container) return;
+    const inputs = container.querySelectorAll('input[data-kw]');
+    const vals = [];
+    inputs.forEach(inp => { const v = inp.value.trim(); if (v) vals.push(v); });
+    ss.keywords[cat] = vals;
+  });
+  const slContainer = document.getElementById('stitch-style-lengths');
+  if (slContainer) {
+    slContainer.querySelectorAll('[data-style-len]').forEach(row => {
+      const style = row.dataset.styleName;
+      const sel = row.querySelector('select');
+      if (style && sel) ss.styleLengths[style] = sel.value;
+    });
+  }
+  lsSet('vc_stitch_settings', ss);
+  toast('✅ Stitch settings saved');
+  renderStitchCacheStats();
+}
+
+// ── SETTINGS UI ───────────────────────────────────────────
+function renderStitchSettingsUI() {
+  const ss = getStitchSettings();
+  const keyEl = document.getElementById('ms-gemini-key');
+  if (keyEl) keyEl.value = ss.geminiKey || '';
+
+  const catLabels = {
+    styles:'Styles', necklines:'Necklines', lengths:'Shirt Lengths',
+    sleeves:'Sleeves', buttons:'Buttons', embellishments:'Embellishments', bottoms:'Bottoms'
+  };
+  const kwContainer = document.getElementById('stitch-keyword-lists');
+  if (kwContainer) {
+    kwContainer.innerHTML = Object.keys(STITCH_DEFAULT_KEYWORDS).map(cat => `
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:1px;">${catLabels[cat]||cat}</div>
+          <button class="btn btn-o btn-sm" style="padding:3px 10px;font-size:11px;" onclick="addStitchKeyword('${cat}')">+ Add</button>
+        </div>
+        <div id="stitch-kw-${cat}" style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${(ss.keywords[cat]||[]).map(kw => `
+            <div style="display:flex;align-items:center;gap:2px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:4px 8px;">
+              <input data-kw="1" value="${esc(kw)}" style="border:none;outline:none;font-size:12px;width:${Math.max(60,kw.length*7)}px;background:transparent;"/>
+              <button onclick="this.parentElement.remove()" style="border:none;background:none;color:#aaa;cursor:pointer;font-size:13px;padding:0 2px;">✕</button>
+            </div>`).join('')}
+        </div>
+      </div>`).join('');
+  }
+
+  const slContainer = document.getElementById('stitch-style-lengths');
+  if (slContainer) {
+    const lenOpts = ss.keywords.lengths || STITCH_DEFAULT_KEYWORDS.lengths;
+    slContainer.innerHTML = (ss.keywords.styles || STITCH_DEFAULT_KEYWORDS.styles).map(style => `
+      <div data-style-len="1" data-style-name="${esc(style)}" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;">
+        <div style="font-size:12px;color:var(--ink);flex:1;">${esc(style)}</div>
+        <select style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);">
+          ${lenOpts.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('')}
+        </select>
+      </div>`).join('');
+    slContainer.querySelectorAll('[data-style-len]').forEach(row => {
+      const style = row.dataset.styleName;
+      const saved = ss.styleLengths[style];
+      if (saved) { const sel = row.querySelector('select'); if (sel) sel.value = saved; }
+    });
+  }
+  renderStitchCacheStats();
+}
+
+function addStitchKeyword(cat) {
+  const container = document.getElementById('stitch-kw-' + cat);
+  if (!container) return;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;align-items:center;gap:2px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:4px 8px;';
+  div.innerHTML = `<input data-kw="1" placeholder="New keyword" style="border:none;outline:none;font-size:12px;width:110px;background:transparent;"/>
+    <button onclick="this.parentElement.remove()" style="border:none;background:none;color:#aaa;cursor:pointer;font-size:13px;padding:0 2px;">✕</button>`;
+  container.appendChild(div);
+  div.querySelector('input').focus();
+}
+
+// ── CACHE ─────────────────────────────────────────────────
+function stitchCacheKey(style, neckline, length, sleeves, buttons, embellishment, bottom) {
+  return [style, neckline, length, sleeves, buttons, embellishment, bottom]
+    .map(s => (s||'').toLowerCase().replace(/[^a-z0-9]/g,'_')).join('|');
+}
+
+function getStitchCache() { return lsGet('vc_stitch_cache', {}); }
+function saveStitchCache(c) { lsSet('vc_stitch_cache', c); }
+function getCachedSketch(key) { const c = getStitchCache(); return c[key] ? c[key].img : null; }
+function setCachedSketch(key, base64img) {
+  const c = getStitchCache();
+  c[key] = { img: base64img, ts: Date.now() };
+  saveStitchCache(c);
+}
+
+function renderStitchCacheStats() {
+  const el = document.getElementById('stitch-cache-stats');
+  if (!el) return;
+  const cache = getStitchCache();
+  const keys = Object.keys(cache);
+  let totalChars = 0;
+  keys.forEach(k => { totalChars += (cache[k].img||'').length; });
+  const mb = (totalChars * 0.75 / 1024 / 1024).toFixed(1);
+  el.textContent = `${keys.length} sketch${keys.length===1?'':'es'} cached · ~${mb} MB used`;
+}
+
+function clearStitchCache() {
+  const cache = getStitchCache();
+  const usedKeys = new Set();
+  inventory.forEach(p => {
+    (p.stitchSlots||[]).forEach(slot => { if (slot.cacheKey) usedKeys.add(slot.cacheKey); });
+  });
+  let removed = 0;
+  Object.keys(cache).forEach(k => { if (!usedKeys.has(k)) { delete cache[k]; removed++; } });
+  saveStitchCache(cache);
+  renderStitchCacheStats();
+  toast(`🗑 Cleared ${removed} unused sketch${removed===1?'':'es'}`);
+}
+
+// ── GEMINI API ────────────────────────────────────────────
+async function generateSketchViaGemini(slot, fabric) {
+  const ss = getStitchSettings();
+  if (!ss.geminiKey) { toast('⚠️ Gemini API key not set in Settings → Stitch Insert'); return null; }
+
+  const prompt = `A single, full-body fashion croquis illustration on a clean white background. Rendered in loose, expressive pencil strokes with faint gestural construction lines — the style of a confident fashion design student's sketchbook. One figure only — no multiples, no back views, no side panels, no text, no borders, no spiral binding, no background texture.
+
+The figure is elongated (9-head fashion proportion), standing in a relaxed front-facing pose with a subtle weight shift. Face has gentle almond-shaped eyes with soft lashes, a small nose, and soft lips — drawn in minimal fashion illustration style, not realistic. Long flowing hair falls naturally past the shoulders with loose movement.
+
+The garment is a ${slot.style}${fabric ? ' in ' + fabric + ' fabric' : ''} — this is the sole focus of the illustration. Design details: ${slot.neckline} neckline, ${slot.length} kurta length, ${slot.buttons} along the placket, ${slot.sleeves} with visible cuff detail, ${slot.embellishment} along the hem, ${slot.bottom} as the bottom wear. The garment should flow naturally around the figure. Legs are completely hidden within the garment. Only the very tips of pointed heels peek below the hem.
+
+Sketch is clean, minimal, centred on the page. No colour. No shading blocks. Line work only. Single final sketch only, one complete standing figure centred on white background.`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${ss.geminiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseModalities: ['IMAGE'] }
+        })
+      }
+    );
+    const data = await res.json();
+    if (data.error) { console.error('Gemini error:', data.error.message); return null; }
+    const parts = (data.candidates?.[0]?.content?.parts) || [];
+    for (const part of parts) {
+      if (part.inlineData?.mimeType?.startsWith('image/')) {
+        return 'data:' + part.inlineData.mimeType + ';base64,' + part.inlineData.data;
+      }
+    }
+    return null;
+  } catch(e) {
+    console.error('Gemini error:', e);
+    return null;
+  }
+}
+
+// ── PRODUCT EDIT: STITCH SLOTS UI ────────────────────────
+function renderStitchSlots(p) {
+  const el = document.getElementById('iem-stitch-slots');
+  if (!el) return;
+  const ss = getStitchSettings();
+  const slots = (p.stitchSlots && p.stitchSlots.length >= 2)
+    ? p.stitchSlots : [{}, {}];
+
+  const kwSel = (cat, val, id, onChange) => {
+    const opts = ss.keywords[cat] || STITCH_DEFAULT_KEYWORDS[cat] || [];
+    return `<select id="${id}" style="width:100%;padding:7px 8px;border-radius:8px;border:1.5px solid var(--border);font-size:12px;background:var(--cream);"${onChange?' onchange="'+onChange+'"':''}>
+      <option value="">— select —</option>
+      ${opts.map(o=>`<option value="${esc(o)}"${val===o?' selected':''}>${esc(o)}</option>`).join('')}
+    </select>`;
+  };
+
+  el.innerHTML = [0,1].map(i => {
+    const slot = slots[i] || {};
+    const cacheKey = slot.cacheKey || '';
+    const cached = cacheKey ? getCachedSketch(cacheKey) : null;
+    const thumbHtml = cached
+      ? `<img src="${cached}" style="width:100%;height:120px;object-fit:contain;border-radius:6px;border:1px solid var(--border);background:#fafafa;"/>`
+      : `<div style="width:100%;height:60px;border:1.5px dashed var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#bbb;background:#fafafa;">${slot.style?'⏳ Pending generation':'No style set'}</div>`;
+
+    return `<div style="background:#fffdf8;border:1px solid #e8c98a;border-radius:10px;padding:12px;margin-bottom:10px;">
+      <div style="font-size:12px;font-weight:700;color:var(--brown);margin-bottom:8px;">Style ${i+1}
+        <span id="iem-stitch-status-${i}" style="font-size:10px;font-weight:400;color:#888;margin-left:6px;"></span>
+      </div>
+      ${thumbHtml}
+      <div class="row2" style="margin-top:8px;">
+        <div class="fg" style="margin-bottom:8px;"><label style="font-size:10px;">Style *</label>${kwSel('styles', slot.style||'', `iem-s${i}-style`, `onStitchStyleChange(${i})`)}</div>
+        <div class="fg" style="margin-bottom:8px;"><label style="font-size:10px;">Neckline</label>${kwSel('necklines', slot.neckline||'', `iem-s${i}-neckline`, '')}</div>
+      </div>
+      <div class="row2">
+        <div class="fg" style="margin-bottom:8px;"><label style="font-size:10px;">Shirt Length</label>${kwSel('lengths', slot.length||'', `iem-s${i}-length`, '')}</div>
+        <div class="fg" style="margin-bottom:8px;"><label style="font-size:10px;">Sleeves</label>${kwSel('sleeves', slot.sleeves||'', `iem-s${i}-sleeves`, '')}</div>
+      </div>
+      <div class="row2">
+        <div class="fg" style="margin-bottom:8px;"><label style="font-size:10px;">Buttons</label>${kwSel('buttons', slot.buttons||'', `iem-s${i}-buttons`, '')}</div>
+        <div class="fg" style="margin-bottom:0;"><label style="font-size:10px;">Embellishments</label>${kwSel('embellishments', slot.embellishment||'', `iem-s${i}-embellishment`, '')}</div>
+      </div>
+      <div class="fg" style="margin-top:8px;margin-bottom:0;"><label style="font-size:10px;">Bottom Wear</label>${kwSel('bottoms', slot.bottom||'', `iem-s${i}-bottom`, '')}</div>
+    </div>`;
+  }).join('');
+}
+
+function onStitchStyleChange(i) {
+  const styleSel = document.getElementById(`iem-s${i}-style`);
+  const lenSel   = document.getElementById(`iem-s${i}-length`);
+  if (!styleSel || !lenSel) return;
+  const ss = getStitchSettings();
+  const defaultLen = (ss.styleLengths || STITCH_DEFAULT_STYLE_LENGTHS)[styleSel.value];
+  if (defaultLen) lenSel.value = defaultLen;
+}
+
+function readStitchSlots() {
+  return [0,1].map(i => {
+    const g = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    const style         = g(`iem-s${i}-style`);
+    const neckline      = g(`iem-s${i}-neckline`);
+    const length        = g(`iem-s${i}-length`);
+    const sleeves       = g(`iem-s${i}-sleeves`);
+    const buttons       = g(`iem-s${i}-buttons`);
+    const embellishment = g(`iem-s${i}-embellishment`);
+    const bottom        = g(`iem-s${i}-bottom`);
+    const cacheKey = style ? stitchCacheKey(style, neckline, length, sleeves, buttons, embellishment, bottom) : '';
+    return { style, neckline, length, sleeves, buttons, embellishment, bottom, cacheKey };
+  });
+}
+
+async function autoGenerateStitchSketches(p) {
+  const ss = getStitchSettings();
+  if (!ss.geminiKey) return;
+  const slots = p.stitchSlots || [];
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    if (!slot.style || !slot.cacheKey) continue;
+    if (getCachedSketch(slot.cacheKey)) {
+      const el = document.getElementById(`iem-stitch-status-${i}`);
+      if (el) el.textContent = '✅ Cached';
+      continue;
+    }
+    const statusEl = document.getElementById(`iem-stitch-status-${i}`);
+    if (statusEl) statusEl.textContent = '⏳ Generating…';
+    const img = await generateSketchViaGemini(slot, p.fabric || '');
+    if (img) {
+      setCachedSketch(slot.cacheKey, img);
+      if (statusEl) statusEl.textContent = '✅ Ready';
+    } else {
+      if (statusEl) statusEl.textContent = '⚠️ Failed — check Gemini key';
+    }
+  }
+}
+
+// ── INVOICE: OPEN MODAL ───────────────────────────────────
+function openStitchInsertModal() {
+  if (!currentInv) { toast('⚠️ No invoice selected'); return; }
+  const modal = document.getElementById('stitch-insert-modal');
+  if (!modal) return;
+  const items = currentInv.items || currentInv.itemsArr || [];
+  const seen = new Set();
+  const products = [];
+  items.forEach(item => {
+    const prodNo = item.prodNo || item.articleNo;
+    if (!prodNo || seen.has(String(prodNo))) return;
+    seen.add(String(prodNo));
+    const p = inventory.find(x => parseInt(x.prodNo) === parseInt(prodNo));
+    products.push({ prodNo: parseInt(prodNo), name: item.name || (p && p.name) || ('#'+prodNo), p });
+  });
+  if (!products.length) { toast('⚠️ No products linked to this invoice'); return; }
+
+  const listEl = document.getElementById('stitch-insert-product-list');
+  listEl.innerHTML = products.map(({ prodNo, name, p }) => {
+    const slots = (p && p.stitchSlots) || [];
+    const hasConfig = slots.some(s => s && s.style);
+    const summary = hasConfig
+      ? slots.filter(s=>s&&s.style).map(s=>s.style).join(' · ')
+      : '<span style="color:#e67e22;">No stitch config — set in Inventory first</span>';
+    return `<label style="display:flex;align-items:flex-start;gap:10px;padding:10px;background:var(--cream);border-radius:8px;margin-bottom:8px;border:1px solid var(--border);cursor:pointer;">
+      <input type="checkbox" value="${prodNo}" checked style="width:18px;height:18px;margin-top:2px;accent-color:var(--gold);flex-shrink:0;"/>
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--brown);">#${prodNo} ${esc(name)}</div>
+        <div style="font-size:11px;color:#888;margin-top:2px;">${summary}</div>
+      </div>
+    </label>`;
+  }).join('');
+
+  document.getElementById('stitch-insert-gen-status').textContent = '';
+  modal.classList.add('open');
+}
+
+function closeStitchInsertModal() {
+  const m = document.getElementById('stitch-insert-modal');
+  if (m) m.classList.remove('open');
+}
+
+async function generateStitchInserts() {
+  if (!currentInv) return;
+  const ss = getStitchSettings();
+  const checked = [];
+  document.querySelectorAll('#stitch-insert-product-list input[type=checkbox]:checked')
+    .forEach(cb => checked.push(parseInt(cb.value)));
+  if (!checked.length) { toast('⚠️ Select at least one product'); return; }
+
+  const statusEl = document.getElementById('stitch-insert-gen-status');
+
+  for (const prodNo of checked) {
+    const p = inventory.find(x => parseInt(x.prodNo) === prodNo);
+    if (!p) continue;
+    const slots = p.stitchSlots || [];
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      if (!slot || !slot.style || !slot.cacheKey) continue;
+      if (getCachedSketch(slot.cacheKey)) continue;
+      if (!ss.geminiKey) { statusEl.textContent = '⚠️ Gemini API key not set in Settings'; return; }
+      statusEl.textContent = `⏳ Generating sketch ${i+1} for #${prodNo}…`;
+      const img = await generateSketchViaGemini(slot, p.fabric || '');
+      if (img) setCachedSketch(slot.cacheKey, img);
+    }
+  }
+
+  statusEl.textContent = 'Opening print preview…';
+  closeStitchInsertModal();
+  printStitchInserts(checked);
+}
+
+// ── SVG ANNOTATION OVERLAY ────────────────────────────────
+// Returns an SVG string to overlay on top of the sketch image.
+// W/H = rendered image dimensions in mm (for print).
+function buildAnnotationSVG(slot, wMm, hMm) {
+  const annotations = [
+    { key: 'neckline',      label: slot.neckline      },
+    { key: 'sleeves',       label: slot.sleeves        },
+    { key: 'buttons',       label: slot.buttons        },
+    { key: 'length',        label: slot.length         },
+    { key: 'embellishment', label: slot.embellishment  },
+    { key: 'bottom',        label: slot.bottom         }
+  ].filter(a => a.label);
+
+  if (!annotations.length) return '';
+
+  const lines = annotations.map(({ key, label }) => {
+    const pos = STITCH_ANNOTATIONS[key];
+    if (!pos) return '';
+
+    // Dot on figure (as % of image)
+    const dx = (pos.ax / 100) * wMm;
+    const dy = (pos.ay / 100) * hMm;
+
+    // Label position: offset to left or right of figure
+    const isRight = pos.side === 'right';
+    const lx = isRight ? wMm * 0.92 : wMm * 0.08;
+    const ly = dy;
+
+    // Line from dot to label
+    const linePath = `M${dx.toFixed(1)},${dy.toFixed(1)} L${lx.toFixed(1)},${ly.toFixed(1)}`;
+
+    // Text anchor
+    const anchor = isRight ? 'end' : 'start';
+    const textX = isRight ? (lx - 1).toFixed(1) : (lx + 1).toFixed(1);
+
+    return `
+      <circle cx="${dx.toFixed(1)}" cy="${dy.toFixed(1)}" r="0.8" fill="#c9a84c"/>
+      <path d="${linePath}" stroke="#c9a84c" stroke-width="0.4" fill="none" stroke-dasharray="1.5,1"/>
+      <text x="${textX}" y="${(ly+1.2).toFixed(1)}" font-family="Caveat, cursive" font-size="4.5" fill="#2a2a2a" text-anchor="${anchor}">${esc(label)}</text>`;
+  }).join('');
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${wMm} ${hMm}"
+    style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">${lines}</svg>`;
+}
+
+// ── PRINT A4 INSERT ───────────────────────────────────────
+function printStitchInserts(prodNos) {
+  const inv = currentInv;
+  const custName = inv.customer || inv.name || '';
+  const invNo    = inv.invNo || inv.id || '';
+  const logoSrc  = logoB64 || '';
+  // Image area dimensions in mm (A4 = 210mm wide, usable ~170mm after margins, split 2 cols)
+  const imgW = 72; const imgH = 180;
+
+  const pages = prodNos.map(prodNo => {
+    const p = inventory.find(x => parseInt(x.prodNo) === prodNo);
+    if (!p) return '';
+    const slots = ((p.stitchSlots||[]).length >= 2 ? p.stitchSlots : [{},{}]).slice(0,2);
+    const fabric = p.fabric || '';
+
+    const sketchCols = slots.map(slot => {
+      if (!slot || !slot.style) {
+        return `<div class="sketch-col"><div class="sketch-empty">Style not configured<br/><span style="font-size:9px;color:#ccc;">Set up in Inventory</span></div></div>`;
+      }
+      const imgSrc = slot.cacheKey ? getCachedSketch(slot.cacheKey) : null;
+      const sketchHtml = imgSrc
+        ? `<div style="position:relative;width:100%;flex:1;">
+             <img src="${imgSrc}" style="width:100%;height:100%;object-fit:contain;object-position:bottom center;display:block;"/>
+             ${buildAnnotationSVG(slot, imgW, imgH)}
+           </div>`
+        : `<div class="sketch-empty">✂️ ${esc(slot.style)}<br/><span style="font-size:9px;color:#ccc;">Sketch not generated</span></div>`;
+
+      return `<div class="sketch-col">
+        <div class="slot-style-name">${esc(slot.style)}</div>
+        ${sketchHtml}
+      </div>`;
+    }).join('');
+
+    return `<div class="insert-page">
+      <div class="corner tl"></div><div class="corner tr"></div>
+      <div class="corner bl"></div><div class="corner br"></div>
+
+      <div class="insert-header">
+        <div class="gold-rule"></div>
+        <div class="brand-row">
+          ${logoSrc?`<img src="${logoSrc}" style="height:22px;width:auto;object-fit:contain;"/>` : ''}
+          <span class="diamond">◆</span>
+          <span class="brand-name">Vismaad Creations</span>
+          <span class="diamond">◆</span>
+        </div>
+        <div class="gold-rule"></div>
+      </div>
+
+      <div class="title-section">
+        <div class="insert-title">Stitching Ideas for Your</div>
+        <div class="product-name">${esc(p.name)}${fabric?' <span class="fabric-tag">'+esc(fabric)+'</span>':''}</div>
+        <div class="customer-ref">${esc(custName)} &nbsp;·&nbsp; Order ${esc(invNo)}</div>
+      </div>
+
+      <div class="divider-row">
+        <div class="divider-line"></div>
+        <div class="divider-dot">◆</div>
+        <div class="divider-line"></div>
+      </div>
+
+      <div class="sketches-row">${sketchCols}</div>
+
+      <div class="insert-footer">
+        <div class="gold-rule-light"></div>
+        <div class="tagline">Crafted with love from Punjab — wear it your way</div>
+        <div class="contact">@vismaadcreations</div>
+      </div>
+    </div>`;
+  }).filter(Boolean).join('');
+
+  if (!pages) { toast('⚠️ No valid products to print'); return; }
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<title>Stitch Insert</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@300;400;500&family=Caveat:wght@400;600&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#e8e4dc;font-family:'DM Sans',sans-serif;}
+@media print{
+  body{background:#fff;}
+  .insert-page{page-break-after:always;box-shadow:none;margin:0;border:none;}
+}
+.insert-page{
+  width:210mm;min-height:297mm;background:#fff;
+  margin:16px auto;box-shadow:0 8px 40px rgba(0,0,0,.14);
+  padding:14mm 14mm 10mm;
+  display:flex;flex-direction:column;
+  position:relative;
+}
+/* Corners */
+.corner{position:absolute;width:14px;height:14px;}
+.corner.tl{top:7mm;left:7mm;border-top:1px solid #c9a84c;border-left:1px solid #c9a84c;}
+.corner.tr{top:7mm;right:7mm;border-top:1px solid #c9a84c;border-right:1px solid #c9a84c;}
+.corner.bl{bottom:7mm;left:7mm;border-bottom:1px solid #c9a84c;border-left:1px solid #c9a84c;}
+.corner.br{bottom:7mm;right:7mm;border-bottom:1px solid #c9a84c;border-right:1px solid #c9a84c;}
+/* Header */
+.insert-header{text-align:center;margin-bottom:5mm;}
+.gold-rule{width:100%;height:1px;background:#c9a84c;}
+.gold-rule-light{width:100%;height:1px;background:#e8d9b8;}
+.brand-row{display:flex;align-items:center;justify-content:center;gap:10px;padding:5px 0;}
+.brand-name{font-family:'Playfair Display',serif;font-size:11px;letter-spacing:5px;text-transform:uppercase;color:#c9a84c;}
+.diamond{color:#c9a84c;font-size:7px;}
+/* Title */
+.title-section{text-align:center;margin-bottom:4mm;}
+.insert-title{font-family:'Playfair Display',serif;font-size:14px;font-style:italic;color:#888;font-weight:400;letter-spacing:1px;}
+.product-name{font-family:'Playfair Display',serif;font-size:22px;font-weight:600;color:#1a1208;margin-top:2px;line-height:1.2;}
+.fabric-tag{font-size:14px;font-weight:400;color:#c9a84c;}
+.customer-ref{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#bbb;margin-top:4px;}
+/* Divider */
+.divider-row{display:flex;align-items:center;gap:8px;margin-bottom:5mm;}
+.divider-line{flex:1;height:1px;background:#f0e8d4;}
+.divider-dot{font-size:7px;color:#c9a84c;}
+/* Sketches */
+.sketches-row{display:flex;gap:6mm;flex:1;margin-bottom:5mm;min-height:170mm;}
+.sketch-col{flex:1;display:flex;flex-direction:column;align-items:center;}
+.slot-style-name{font-family:'Playfair Display',serif;font-size:12px;color:#5c3d1e;font-weight:600;margin-bottom:3mm;letter-spacing:0.5px;text-align:center;}
+.sketch-empty{width:100%;flex:1;border:1.5px dashed #e0d4bc;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;color:#ccc;text-align:center;padding:16px;min-height:140mm;}
+/* Footer */
+.insert-footer{text-align:center;padding-top:3mm;}
+.tagline{font-family:'Playfair Display',serif;font-size:10px;font-style:italic;color:#bbb;margin-top:5px;}
+.contact{font-size:8px;letter-spacing:3px;text-transform:uppercase;color:#c9a84c;margin-top:3px;}
+</style>
+</head>
+<body>
+${pages}
+<script>window.onload=function(){window.print();}<\/script>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); }
+  else toast('⚠️ Allow popups to open print preview');
+}
+
 
 init();
 </script>
