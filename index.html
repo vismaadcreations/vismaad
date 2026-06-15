@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.16.0
+APP: Vismaad Creations v14.16.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 15-Jun-2026 — v14.16.0: Stitch Insert system — A4 insert per product with "Stitching Ideas for Your [Product]" header; Gemini AI sketch generation (gemini-2.0-flash-preview-image-generation); SVG annotation overlay with Caveat handwriting font, gold arrow lines, dot anchors at anatomical positions; per-product 2-slot stitch config (style/neckline/length/sleeves/buttons/embellishment/bottom); auto-length from style; auto-generate on product save; shared cache by keyword key; Print Stitch Insert modal on invoice with product selector.
+LAST_CHANGE: 15-Jun-2026 — v14.16.1: Config backup/restore now includes geminiKey (Stitch Insert / Gemini API key).
 PREV_CHANGE: 14-Jun-2026 — v14.15.2: (1) Address parser: retain titles (Mr/Mrs/Ms/Dr/Prof) in customer name; (2) Address parser: PIN-derived state no longer overridden by abbreviation text scan (fixes RAJ matching Raj in customer name); (3) Popup sync fix: review and followup popups now only fire post-sync inside syncAll so remote seen-list is always loaded first — removed premature t=3s init triggers; (4) PopupState write upgraded from gsWrite to gsWriteConfirmed; (5) Removed v14.14.2 migration wipe of vc_review_popup_seen.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -10350,6 +10350,7 @@ function backupConfig(){
     calKey:S.calKey||'',
     track123Key1:S.track123Key1||'',
     track123Key2:S.track123Key2||'',
+    geminiKey:getStitchSettings().geminiKey||'',
     logoB64:logoB64||'',
     qrB64:qrB64||''
   };
@@ -10391,6 +10392,8 @@ function handleConfigRestore(e){
       if(config.upiPhone)S.upiPhone=config.upiPhone;
       if(config.calKey)S.calKey=config.calKey;
       lsSet('vc_s',S);
+      // Restore stitch settings (gemini key)
+      if(config.geminiKey){const ss=getStitchSettings();ss.geminiKey=config.geminiKey;lsSet('vc_stitch_settings',ss);}
       // Restore images
       if(config.logoB64){logoB64=config.logoB64;lsSet('vc_logo',logoB64);}
       if(config.qrB64){qrB64=config.qrB64;lsSet('vc_qr',qrB64);}
