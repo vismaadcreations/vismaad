@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.17.0
+APP: Vismaad Creations v14.17.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 17-Jun-2026 — v14.17.0: Split "Pending" status into 📭 No Tracking (tracking field empty) and ⏳ Awaiting Update (tracking added but no data yet) across Dashboard, Sales page, and Tracking page; Tracking page now also shows invoices with no tracking number as a filterable "No Tracking" category with its own stat card.
+LAST_CHANGE: 17-Jun-2026 — v14.17.1: Fix parseBookedOn fallback new Date() path not guarding against bogus India Post ghost dates (e.g. '01/01/1' parsed by JS as year 2001) — add <=2001 year check to fallback so ghost records no longer show as overdue.
 PREV_CHANGE: 14-Jun-2026 — v14.15.2: (1) Address parser: retain titles (Mr/Mrs/Ms/Dr/Prof) in customer name; (2) Address parser: PIN-derived state no longer overridden by abbreviation text scan (fixes RAJ matching Raj in customer name); (3) Popup sync fix: review and followup popups now only fire post-sync inside syncAll so remote seen-list is always loaded first — removed premature t=3s init triggers; (4) PopupState write upgraded from gsWrite to gsWriteConfirmed; (5) Removed v14.14.2 migration wipe of vc_review_popup_seen.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -7614,7 +7614,9 @@ function parseBookedOn(str){
   const mm=str.match(/^(\d{1,2})[- ]([a-zA-Z]{3})[- ](\d{4})$/);
   if(mm){const yr=parseInt(mm[3]);if(yr<=2001)return null;return new Date(yr,MONTHS[mm[2].toLowerCase()]||0,parseInt(mm[1]));}
   const d=new Date(str);
-  return isNaN(d)?null:d;
+  if(isNaN(d))return null;
+  if(d.getFullYear()<=2001)return null; // reject bogus India Post ghost dates (e.g. 01/01/1 parsed as 2001)
+  return d;
 }
 
 // Returns true if this tracking record is a ghost/placeholder from India Post
