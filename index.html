@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.18.0
+APP: Vismaad Creations v14.18.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 17-Jun-2026 — v14.18.0: Dropship (DS) feature — per-article DS toggle on invoice new/edit with supplier selector and date (defaults to invoice date); DS Report sub-page with date-range filter, supplier filter, profit toggle (incl/excl shipping), bulk mark-paid, upfront-paid flag, shipping shortfall alerts, courier breakdown with tracking ID export; expandItems updated to carry DS fields; flattenForSheet handles DS fields transparently.
+LAST_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
 PREV_CHANGE: 14-Jun-2026 — v14.15.2: (1) Address parser: retain titles (Mr/Mrs/Ms/Dr/Prof) in customer name; (2) Address parser: PIN-derived state no longer overridden by abbreviation text scan (fixes RAJ matching Raj in customer name); (3) Popup sync fix: review and followup popups now only fire post-sync inside syncAll so remote seen-list is always loaded first — removed premature t=3s init triggers; (4) PopupState write upgraded from gsWrite to gsWriteConfirmed; (5) Removed v14.14.2 migration wipe of vc_review_popup_seen.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -712,6 +712,7 @@ body.gst-mode .gst-only{display:block;}
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-g btn-sm" onclick="bulkMarkShipped(true)">🚚 Shipped</button>
         <button class="btn btn-o btn-sm" onclick="bulkMarkShipped(false)">↩ Pending</button>
+        <button class="btn btn-o btn-sm" onclick="bulkMarkDropshipped()">📦 Dropship</button>
         <button class="btn btn-o btn-sm" onclick="bulkPrint()">🖨️ Print</button>
         <button class="btn btn-o btn-sm" onclick="bulkPrintLabels()">📦 Labels</button>
         <button class="btn btn-o btn-sm" onclick="showBatchShipping()">💰 Batch Ship Cost</button>
@@ -3359,6 +3360,55 @@ function bulkMarkShipped(shipped){
     }
     toast(ok+'/'+sel.length+' status updates confirmed in Google Sheets');
   })();
+}
+function bulkMarkDropshipped(){
+  const sel=getSelectedInvoices();if(!sel.length){toast('⚠️ Select at least one invoice');return;}
+  const supNames=[...new Set(suppliers.map(s=>s.name).filter(Boolean))];
+  const lastUsed=lsGet('vc_last_ds_sup_name')||'';
+  const datalistOpts=supNames.map(n=>`<option value="${esc(n)}">`).join('');
+  const bodyHtml=`<div style="margin-bottom:10px;font-size:13px;color:#555;">Tag all articles in <strong>${sel.length} invoice(s)</strong> as dropshipped. Date defaults to each invoice's own date.</div>
+<datalist id="bds-sup-dl">${datalistOpts}</datalist>
+<input id="bds-sup-input" list="bds-sup-dl" placeholder="Supplier name" value="${esc(lastUsed)}"
+  style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);font-family:'DM Sans',sans-serif;font-size:15px;background:var(--cream);margin-bottom:4px;"/>
+<div style="font-size:11px;color:#aaa;">Articles already DS-tagged will not be changed.</div>`;
+  showConfirmModal('📦 Bulk Mark as Dropshipped',bodyHtml,function(){
+    const rawName=(document.getElementById('bds-sup-input')||{}).value||'';
+    const supName=rawName.trim();
+    if(!supName){toast('⚠️ Enter a supplier name');return;}
+    lsSet('vc_last_ds_sup_name',supName);
+    let sup=suppliers.find(s=>s.name&&s.name.trim().toLowerCase()===supName.toLowerCase());
+    let supId=sup?String(sup.id):('ds_'+Date.now());
+    if(!sup){
+      const newSup={id:supId,name:supName,phone:'',gstin:'',address:'',updatedAt:new Date().toISOString()};
+      suppliers.push(newSup);
+      lsSet('vc_sup',JSON.stringify(suppliers));
+      gsWriteConfirmed(SHEETS.suppliers,newSup);
+    }
+    sel.forEach(inv=>{
+      const arr=expandItems(inv.itemsArr);
+      arr.forEach(it=>{
+        if(it.dsSupId)return;
+        it.dsSupId=supId;
+        it.dsSupName=supName;
+        it.dsDate=inv.invDate||new Date().toISOString().slice(0,10);
+        it.dsPaid=false;it.dsPaidDate='';it.dsUpfront=false;
+      });
+      inv.itemsArr=arr;
+      inv.invUpdatedAt=new Date().toISOString();
+    });
+    save();renderSales();
+    toast('📦 Marking '+sel.length+' invoice(s) as dropshipped…');
+    (async()=>{
+      let ok=0;
+      for(const inv of sel){
+        const success=await gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv));
+        if(success)ok++;
+        await new Promise(r=>setTimeout(r,300));
+      }
+      toast(ok+'/'+sel.length+' DS updates confirmed in Google Sheets');
+    })();
+  },null);
+  setTimeout(()=>{const el=document.getElementById('bds-sup-input');if(el){el.focus();el.select();}},100);
 }
 function bulkPrint(){
   const sel=getSelectedInvoices();
