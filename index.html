@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.17.1
+APP: Vismaad Creations v14.18.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 17-Jun-2026 — v14.17.1: Fix parseBookedOn fallback new Date() path not guarding against bogus India Post ghost dates (e.g. '01/01/1' parsed by JS as year 2001) — add <=2001 year check to fallback so ghost records no longer show as overdue.
+LAST_CHANGE: 17-Jun-2026 — v14.18.0: Dropship (DS) feature — per-article DS toggle on invoice new/edit with supplier selector and date (defaults to invoice date); DS Report sub-page with date-range filter, supplier filter, profit toggle (incl/excl shipping), bulk mark-paid, upfront-paid flag, shipping shortfall alerts, courier breakdown with tracking ID export; expandItems updated to carry DS fields; flattenForSheet handles DS fields transparently.
 PREV_CHANGE: 14-Jun-2026 — v14.15.2: (1) Address parser: retain titles (Mr/Mrs/Ms/Dr/Prof) in customer name; (2) Address parser: PIN-derived state no longer overridden by abbreviation text scan (fixes RAJ matching Raj in customer name); (3) Popup sync fix: review and followup popups now only fire post-sync inside syncAll so remote seen-list is always loaded first — removed premature t=3s init triggers; (4) PopupState write upgraded from gsWrite to gsWriteConfirmed; (5) Removed v14.14.2 migration wipe of vc_review_popup_seen.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -762,6 +762,7 @@ body.gst-mode .gst-only{display:block;}
       <button class="btn btn-o btn-sm" onclick="showSubPage('export')">⬇️ Export to Excel</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('bulkedit')">✏️ Bulk Invoice Editor</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('tracking')">📡 Tracking Status</button>
+      <button class="btn btn-o btn-sm" onclick="showSubPage('dsreport')">📦 DS Report</button>
       <button class="btn btn-o btn-sm" onclick="toggleSettings()">⚙️ Settings</button>
     </div>
   </div>
@@ -943,6 +944,10 @@ body.gst-mode .gst-only{display:block;}
 
     <div style="background:var(--goldp);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--brown);margin-bottom:14px;" id="edit-total-preview"></div>
 
+    <div id="edit-ds-section" style="display:none;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:#e67e22;margin-bottom:8px;">📦 Dropship Articles</div>
+      <div id="edit-ds-items-list"></div>
+    </div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="saveInvoiceEdit()">💾 Save Changes</button>
       <button class="btn btn-o" onclick="closeEditModal()" style="width:auto;padding:13px 16px;">Cancel</button>
@@ -1639,11 +1644,17 @@ function expandItems(arr){
   const a=tryParse(arr)||[];
   return a.map(i=>({
     desc:i.desc||i.d||'Unstitched Suit',
-    unitPrice:parseFloat(i.unitPrice??i.p)|| 0,
+    unitPrice:parseFloat(i.unitPrice??i.p)||0,
     qty:parseInt(i.qty??i.q)||1,
     prodNo:i.prodNo||i.n||'',
     hsn:i.hsn||'540754',
     costPrice:parseFloat(i.costPrice??i.c)||0,
+    dsSupId:i.dsSupId||'',
+    dsSupName:i.dsSupName||'',
+    dsDate:i.dsDate||'',
+    dsPaid:i.dsPaid||false,
+    dsPaidDate:i.dsPaidDate||'',
+    dsUpfront:i.dsUpfront||false,
   }));
 }
 function numberToWords(n){
@@ -2221,7 +2232,8 @@ function showSubPage(id){
     bulkedit:'✏️ Bulk Invoice Editor',
     outreach:'📬 Outreach Centre',
     tracking:'📡 Tracking Status',
-    suppliers:'🏭 Suppliers & Bills'
+    suppliers:'🏭 Suppliers & Bills',
+    dsreport:'📦 Dropship Report'
   };
   if(titleEl)titleEl.textContent=titles[id]||id;
   content.innerHTML=buildSubPage(id);
@@ -2231,6 +2243,7 @@ function showSubPage(id){
   if(id==='labels')loadLabelDefaults();
   if(id==='outreach')renderOutreachPage();
   if(id==='tracking')renderTrackingPage();
+  if(id==='dsreport')renderDSReport();
 }
 function closeSubPage(){
   const c=document.getElementById('sub-page-container');
@@ -2582,9 +2595,47 @@ function renderItems(){
         <input type="number" id="icost-${it.id}" value="${it.costPrice||''}" placeholder="0 (optional)"
           oninput="updateItem(${it.id},'costPrice',this.value)" style="padding:11px 12px;${it.costPrice?'background:#f0faf4;':''}"/>
       </div>
+      <div style="margin-top:10px;">
+        <button type="button" onclick="toggleDSItem(${it.id})" style="background:${it.dsSupId?'#fff3e0':'#f5f5f5'};border:1.5px solid ${it.dsSupId?'#e67e22':'#ddd'};border-radius:${it.dsSupId?'8px 8px 0 0':'8px'};padding:7px 12px;font-size:12px;font-weight:600;color:${it.dsSupId?'#e67e22':'#999'};cursor:pointer;width:100%;text-align:left;">
+          📦 ${it.dsSupId?'Dropship: '+(it.dsSupName||'Supplier'):'Mark as Dropship (DS)'}
+        </button>
+        ${it.dsSupId?`<div style="background:#fff8ee;border:1px solid #ffe0b2;border-radius:0 0 8px 8px;padding:8px 10px;margin-top:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <select onchange="updateItemDS(${it.id},'dsSupId',this.value,this.options[this.selectedIndex]?.text)" style="flex:1;min-width:120px;padding:7px 8px;border-radius:6px;border:1px solid #ddd;font-size:12px;">
+            <option value="">— Select Supplier —</option>
+            ${suppliers.map(s=>`<option value="${s.id}" ${s.id===it.dsSupId?'selected':''}>${s.name}</option>`).join('')}
+          </select>
+          <input type="date" value="${it.dsDate||''}" onchange="updateItemDS(${it.id},'dsDate',this.value)" style="padding:7px 8px;border-radius:6px;border:1px solid #ddd;font-size:12px;flex:1;min-width:110px;"/>
+        </div>`:''}
+      </div>
     </div>`).join('');
   recalc();
 }
+// DS item helpers
+function toggleDSItem(id){
+  const it=items.find(i=>i.id===id);if(!it)return;
+  if(it.dsSupId){
+    // Clear DS
+    it.dsSupId='';it.dsSupName='';it.dsDate='';it.dsPaid=false;it.dsPaidDate='';it.dsUpfront=false;
+  }else{
+    // Enable DS — default date to invoice date
+    it.dsSupId='__pending__';it.dsSupName='';
+    const invDateEl=document.getElementById('inv-date');
+    it.dsDate=invDateEl?invDateEl.value:today();
+  }
+  renderItems();
+}
+function updateItemDS(id,field,val,optText){
+  const it=items.find(i=>i.id===id);if(!it)return;
+  if(field==='dsSupId'){
+    it.dsSupId=val;
+    // Get supplier name from suppliers array
+    const sup=suppliers.find(s=>String(s.id)===String(val));
+    it.dsSupName=sup?sup.name:(optText&&optText!=='— Select Supplier —'?optText:'');
+  }else{
+    it[field]=val;
+  }
+}
+
 function updateItem(id,f,v){
   const it=items.find(i=>i.id===id);if(!it)return;
   if(f==='qty'||f==='unitPrice'||f==='costPrice')it[f]=parseFloat(v)||0;
@@ -3464,8 +3515,89 @@ function editInvoiceByIdx(idx){
   document.getElementById('edit-channel').value=inv.channel||'';
   // Notes
   document.getElementById('edit-notes').value=inv.notes||'';
+  // Render DS items section
+  renderEditDSItems(inv);
   recalcEditTotal();
   document.getElementById('edit-modal').classList.add('open');
+}
+
+function renderEditDSItems(inv){
+  const sec=document.getElementById('edit-ds-section');
+  const list=document.getElementById('edit-ds-items-list');
+  if(!sec||!list)return;
+  const arr=expandItems(inv.itemsArr);
+  const supOpts='<option value="">— Select Supplier —</option>'+suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  const rows=arr.map((it,idx)=>{
+    const isDS=!!(it.dsSupId&&it.dsSupId!=='__pending__');
+    const dsDate=it.dsDate||inv.invDate||today();
+    return `<div style="background:${isDS?'#fff8ee':'#fafafa'};border:1px solid ${isDS?'#ffe0b2':'#eee'};border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${isDS?'8px':'0'};">
+        <div style="font-size:13px;font-weight:600;color:#444;">${it.prodNo?'#'+it.prodNo+' — ':''}${it.desc}</div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:600;color:#e67e22;">
+          <input type="checkbox" ${isDS?'checked':''} onchange="toggleEditDSItem('${inv.id}',${idx},this.checked)" style="width:16px;height:16px;accent-color:#e67e22;"/>
+          DS
+        </label>
+      </div>
+      ${isDS?`<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <select onchange="updateEditDSItem('${inv.id}',${idx},'dsSupId',this.value,this.options[this.selectedIndex]?.text)" style="flex:1;min-width:120px;padding:7px 8px;border-radius:6px;border:1px solid #ddd;font-size:12px;">
+          ${suppliers.map(s=>`<option value="${s.id}" ${s.id===it.dsSupId?'selected':''}>${s.name}</option>`).join('')||supOpts}
+        </select>
+        <input type="date" value="${dsDate}" onchange="updateEditDSItem('${inv.id}',${idx},'dsDate',this.value)" style="padding:7px 8px;border-radius:6px;border:1px solid #ddd;font-size:12px;flex:1;min-width:110px;"/>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#888;white-space:nowrap;">
+          <input type="checkbox" ${it.dsPaid||it.dsUpfront?'checked':''} onchange="updateEditDSItem('${inv.id}',${idx},'dsPaid',this.checked)" style="accent-color:#27ae60;"/> Paid
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#888;white-space:nowrap;">
+          <input type="checkbox" ${it.dsUpfront?'checked':''} onchange="updateEditDSItem('${inv.id}',${idx},'dsUpfront',this.checked)" style="accent-color:#2980b9;"/> Upfront
+        </label>
+      </div>`:''}
+    </div>`;
+  });
+  if(rows.length){
+    sec.style.display='block';
+    list.innerHTML=rows.join('');
+  }else{
+    sec.style.display='none';
+    list.innerHTML='';
+  }
+}
+
+function toggleEditDSItem(invId,itemIdx,checked){
+  const inv=invoices.find(i=>String(i.id)===String(invId));if(!inv)return;
+  const arr=expandItems(inv.itemsArr);
+  if(!arr[itemIdx])return;
+  if(checked){
+    arr[itemIdx].dsSupId='__pending__';
+    arr[itemIdx].dsSupName='';
+    arr[itemIdx].dsDate=inv.invDate||today();
+    arr[itemIdx].dsPaid=false;
+    arr[itemIdx].dsUpfront=false;
+  }else{
+    arr[itemIdx].dsSupId='';
+    arr[itemIdx].dsSupName='';
+    arr[itemIdx].dsDate='';
+    arr[itemIdx].dsPaid=false;
+    arr[itemIdx].dsPaidDate='';
+    arr[itemIdx].dsUpfront=false;
+  }
+  inv.itemsArr=arr;
+  renderEditDSItems(inv);
+}
+
+function updateEditDSItem(invId,itemIdx,field,val,optText){
+  const inv=invoices.find(i=>String(i.id)===String(invId));if(!inv)return;
+  const arr=expandItems(inv.itemsArr);
+  if(!arr[itemIdx])return;
+  if(field==='dsSupId'){
+    arr[itemIdx].dsSupId=val;
+    const sup=suppliers.find(s=>String(s.id)===String(val));
+    arr[itemIdx].dsSupName=sup?sup.name:(optText&&optText!=='— Select Supplier —'?optText:'');
+  }else if(field==='dsPaid'||field==='dsUpfront'){
+    arr[itemIdx][field]=val;
+    if(field==='dsPaid'&&val)arr[itemIdx].dsPaidDate=today();
+  }else{
+    arr[itemIdx][field]=val;
+  }
+  inv.itemsArr=arr;
 }
 function closeEditModal(){document.getElementById('edit-modal').classList.remove('open');editingInvId=null;}
 
@@ -4850,6 +4982,7 @@ function buildSubPage(id){
   if(id==='outreach')return'<div id="outreach-page-content"><div style="text-align:center;padding:30px;color:#aaa;">Loading outreach data...</div></div>';
   if(id==='tracking')return buildTrackingPage();
   if(id==='suppliers')return buildSuppliersPage();
+  if(id==='dsreport')return buildDSReportPage();
   return '<p>Coming soon</p>';
 }
 // ═══════════════════════════════════════════
@@ -9205,6 +9338,354 @@ function setSupTab(supId, tab) {
   _supTab[supId] = tab;
   renderSuppliersPage2();
 }
+
+// ═══════════════════════════════════════════
+// DROPSHIP (DS) REPORT
+// ═══════════════════════════════════════════
+
+let _dsDateFrom='',_dsDateTo='',_dsSupFilter='all',_dsShipToggle=false,_dsSelectMode=false,_dsSelected=new Set();
+
+function buildDSReportPage(){
+  return `<div id="ds-report-content">
+    <div style="text-align:center;padding:30px;color:#aaa;">Loading DS report…</div>
+  </div>`;
+}
+
+function renderDSReport(){
+  const el=document.getElementById('ds-report-content');
+  if(!el)return;
+  // Collect all DS article rows across all invoices
+  const rows=[];
+  invoices.forEach(inv=>{
+    const arr=expandItems(inv.itemsArr);
+    const totalArticles=arr.length||1;
+    const shipCollected=parseFloat(inv.shipping)||0;
+    const shipCourier=parseFloat(inv.shippingCost)||0;
+    const perArticleCollected=parseFloat((shipCollected/totalArticles).toFixed(2));
+    const perArticleCourier=shipCourier>0?parseFloat((shipCourier/totalArticles).toFixed(2)):null;
+    arr.forEach((it,idx)=>{
+      if(!it.dsSupId||it.dsSupId==='__pending__')return;
+      rows.push({
+        inv,idx,
+        desc:it.desc,prodNo:it.prodNo,
+        dsSupId:it.dsSupId,dsSupName:it.dsSupName,dsDate:it.dsDate||inv.invDate,
+        dsPaid:it.dsPaid||false,dsPaidDate:it.dsPaidDate||'',dsUpfront:it.dsUpfront||false,
+        unitPrice:parseFloat(it.unitPrice)||0,
+        qty:parseInt(it.qty)||1,
+        costPrice:parseFloat(it.costPrice)||0,
+        hasCost:!!(parseFloat(it.costPrice)||0),
+        perArticleCollected,perArticleCourier,
+        totalArticles,
+      });
+    });
+  });
+
+  // Apply date filter
+  const from=_dsDateFrom;const to=_dsDateTo;
+  const filtered=rows.filter(r=>{
+    if(from&&(r.dsDate||'').slice(0,10)<from)return false;
+    if(to&&(r.dsDate||'').slice(0,10)>to)return false;
+    if(_dsSupFilter!=='all'&&r.dsSupId!==_dsSupFilter)return false;
+    return true;
+  });
+
+  // Supplier options
+  const supIds=[...new Set(rows.map(r=>r.dsSupId))];
+  const supOpts='<option value="all">All Suppliers</option>'+supIds.map(id=>{
+    const r=rows.find(x=>x.dsSupId===id);
+    return `<option value="${id}" ${id===_dsSupFilter?'selected':''}>${r?r.dsSupName||id:id}</option>`;
+  }).join('');
+
+  // Summary per supplier
+  const bySup={};
+  filtered.forEach(r=>{
+    if(!bySup[r.dsSupId])bySup[r.dsSupId]={name:r.dsSupName,articles:0,saleTotal:0,shipCollected:0,shipCourier:0,owedBase:0,owedWithShip:0,paid:0,paidWithShip:0,unpaid:0,unpaidWithShip:0,missingCost:0,shortfall:0};
+    const b=bySup[r.dsSupId];
+    const saleAmt=r.unitPrice*r.qty;
+    const shipC=r.perArticleCollected*r.qty;
+    const courierC=r.perArticleCourier!==null?r.perArticleCourier*r.qty:0;
+    b.articles+=r.qty;
+    b.saleTotal+=saleAmt;
+    b.shipCollected+=shipC;
+    if(r.perArticleCourier!==null)b.shipCourier+=courierC;
+    if(r.hasCost){
+      b.owedBase+=r.costPrice*r.qty;
+      b.owedWithShip+=(r.costPrice*r.qty)+shipC;
+      if(r.dsPaid||r.dsUpfront){b.paid+=r.costPrice*r.qty;b.paidWithShip+=(r.costPrice*r.qty)+shipC;}
+      else{b.unpaid+=r.costPrice*r.qty;b.unpaidWithShip+=(r.costPrice*r.qty)+shipC;}
+      const sf=courierC-shipC;
+      if(sf>0)b.shortfall+=sf;
+    }else{
+      b.missingCost+=r.qty;
+    }
+  });
+
+  const f=v=>'₹'+parseFloat(v).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const shLabel=_dsShipToggle?'incl. shipping':'excl. shipping';
+
+  // Summary cards
+  let summaryHtml='';
+  Object.entries(bySup).forEach(([sid,b])=>{
+    const owedShow=_dsShipToggle?b.owedWithShip:b.owedBase;
+    const unpaidShow=_dsShipToggle?b.unpaidWithShip:b.unpaid;
+    const paidShow=_dsShipToggle?b.paidWithShip:b.paid;
+    summaryHtml+=`<div style="background:#fff8ee;border:1.5px solid #ffe0b2;border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+      <div style="font-size:14px;font-weight:700;color:#e67e22;margin-bottom:8px;">🏭 ${b.name||sid}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;font-size:13px;">
+        <div>Articles: <strong>${b.articles}</strong></div>
+        <div>Total Sale: <strong>${f(b.saleTotal)}</strong></div>
+        <div>Ship Collected: <strong>${f(b.shipCollected)}</strong></div>
+        <div>Courier Cost: <strong>${b.shipCourier>0?f(b.shipCourier):'<span style="color:#aaa;">not entered</span>'}</strong></div>
+        <div>Total Owed (${shLabel}): <strong style="color:#c0392b;">${b.missingCost&&!b.articles-b.missingCost?'—':f(owedShow)}</strong></div>
+        <div>Still to Pay: <strong style="color:#c0392b;">${f(unpaidShow)}</strong></div>
+        <div>Already Paid: <strong style="color:#27ae60;">${f(paidShow)}</strong></div>
+        ${b.shortfall>0?`<div style="grid-column:1/-1;background:#fde8e8;border-radius:6px;padding:6px 8px;color:#c0392b;font-weight:600;">⚠️ Shipping shortfall: ${f(b.shortfall)} (courier cost > collected)</div>`:''}
+        ${b.missingCost>0?`<div style="grid-column:1/-1;color:#e67e22;">⚠️ ${b.missingCost} article(s) missing cost price — excluded from owed totals</div>`:''}
+      </div>
+    </div>`;
+  });
+
+  // Courier breakdown
+  const courierBreakdown={};
+  filtered.forEach(r=>{
+    if(!r.inv.tracking)return;
+    const courier=r.inv.dispatchMethod||detectCourier(r.inv.tracking.split(',')[0]?.trim()||'')||'Unknown';
+    const key=r.dsSupName+'||'+courier;
+    if(!courierBreakdown[key])courierBreakdown[key]={sup:r.dsSupName,courier,articles:0,trackingNos:[]};
+    courierBreakdown[key].articles+=r.qty;
+    r.inv.tracking.split(',').forEach(t=>{t=t.trim();if(t&&!courierBreakdown[key].trackingNos.includes(t))courierBreakdown[key].trackingNos.push(t);});
+  });
+  let courierHtml='';
+  Object.values(courierBreakdown).forEach(cb=>{
+    const isMixed=(filtered.filter(r=>r.inv.tracking&&r.dsSupName===cb.sup).some(r=>{
+      const arr2=expandItems(r.inv.itemsArr);
+      return arr2.some(it=>!it.dsSupId||it.dsSupId==='__pending__');
+    }));
+    courierHtml+=`<div style="background:#f0f7ff;border:1px solid #c8dff5;border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px;">
+        <div style="font-size:13px;font-weight:600;">${cb.sup} — ${getCourierInfo(cb.courier).name||cb.courier} <span style="font-weight:400;color:#888;">(${cb.articles} article${cb.articles!==1?'s':''})</span></div>
+        ${isMixed?'<span style="font-size:11px;color:#e67e22;font-weight:600;">⚠️ mixed invoice</span>':''}
+        <button class="btn btn-o btn-sm" onclick="exportDSTracking(${JSON.stringify(cb.trackingNos)},${JSON.stringify(cb.sup+'-'+cb.courier)})" style="padding:5px 10px;font-size:12px;">📋 Copy Tracking IDs</button>
+      </div>
+      <div style="font-size:11px;color:#888;word-break:break-all;">${cb.trackingNos.join(', ')||'—'}</div>
+    </div>`;
+  });
+
+  // Detail rows
+  const detailRows=filtered.map((r,i)=>{
+    const key=r.inv.id+'_'+r.idx;
+    const isSelected=_dsSelected.has(key);
+    const saleAmt=r.unitPrice*r.qty;
+    const shipC=r.perArticleCollected*r.qty;
+    const courierC=r.perArticleCourier!==null?r.perArticleCourier*r.qty:null;
+    const owedBase=r.hasCost?r.costPrice*r.qty:null;
+    const owedWithShip=r.hasCost?((r.costPrice*r.qty)+shipC):null;
+    const owedShow=_dsShipToggle?owedWithShip:owedBase;
+    const profitExcl=r.hasCost&&courierC!==null?(saleAmt-r.costPrice*r.qty-Math.max(0,courierC-shipC)):null;
+    const profitIncl=r.hasCost&&courierC!==null?((saleAmt+shipC)-r.costPrice*r.qty-courierC):null;
+    const profitShow=_dsShipToggle?profitIncl:profitExcl;
+    const statusBadge=r.dsUpfront
+      ?'<span style="background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600;">Upfront</span>'
+      :r.dsPaid
+        ?'<span style="background:#d1fae5;color:#065f46;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600;">✓ Paid</span>'
+        :'<span style="background:#fee2e2;color:#991b1b;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600;">Unpaid</span>';
+    const shortfall=courierC!==null&&courierC>shipC?courierC-shipC:0;
+    return `<tr style="border-bottom:1px solid #f0e8da;${isSelected?'background:#fff8ee;':''}">
+      ${_dsSelectMode?`<td style="padding:8px 6px;"><input type="checkbox" ${isSelected?'checked':''} onchange="toggleDSSelect('${key}',this.checked)" style="accent-color:#e67e22;width:16px;height:16px;"/></td>`:''}
+      <td style="padding:8px 6px;font-size:12px;font-weight:600;color:var(--brown);white-space:nowrap;">${r.inv.invNo||r.inv.id}</td>
+      <td style="padding:8px 6px;font-size:12px;white-space:nowrap;">${fmtDate(r.dsDate)}</td>
+      <td style="padding:8px 6px;font-size:12px;">${r.inv.custName||'—'}</td>
+      <td style="padding:8px 6px;font-size:12px;">${r.prodNo?'#'+r.prodNo+' ':''}<span style="color:#888;">${r.desc}</span></td>
+      <td style="padding:8px 6px;font-size:12px;font-weight:600;">${r.dsSupName}</td>
+      <td style="padding:8px 6px;font-size:12px;text-align:right;">${r.hasCost?f(r.costPrice*r.qty):'<span style="color:#e67e22;font-weight:600;">⚠️</span>'}</td>
+      <td style="padding:8px 6px;font-size:12px;text-align:right;">${f(saleAmt)}</td>
+      <td style="padding:8px 6px;font-size:12px;text-align:right;">${f(shipC)}</td>
+      <td style="padding:8px 6px;font-size:12px;text-align:right;">${courierC!==null?f(courierC):'<span style="color:#aaa;">—</span>'}</td>
+      <td style="padding:8px 6px;font-size:12px;text-align:right;">${shortfall>0?`<span style="color:#c0392b;font-weight:600;">${f(shortfall)}</span>`:'—'}</td>
+      <td style="padding:8px 6px;font-size:12px;text-align:right;">${owedShow!==null?f(owedShow):'<span style="color:#aaa;">—</span>'}</td>
+      <td style="padding:8px 6px;font-size:12px;text-align:right;">${profitShow!==null?`<span style="color:${profitShow>=0?'#27ae60':'#c0392b'};font-weight:600;">${f(profitShow)}</span>`:'<span style="color:#aaa;">—</span>'}</td>
+      <td style="padding:8px 6px;font-size:12px;">${statusBadge}</td>
+      <td style="padding:8px 4px;">
+        <button onclick="cycleDSPaid('${r.inv.id}',${r.idx})" style="background:none;border:1px solid #ddd;border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;" title="Toggle paid status">${r.dsUpfront?'↩':'✓'}</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML=`
+    <!-- Filters -->
+    <div class="card" style="margin-bottom:12px;">
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;">
+        <div class="fg" style="margin-bottom:0;flex:1;min-width:130px;"><label style="font-size:11px;">From</label>
+          <input type="date" value="${_dsDateFrom}" onchange="_dsDateFrom=this.value;renderDSReport()" style="padding:9px 10px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;width:100%;"/></div>
+        <div class="fg" style="margin-bottom:0;flex:1;min-width:130px;"><label style="font-size:11px;">To</label>
+          <input type="date" value="${_dsDateTo}" onchange="_dsDateTo=this.value;renderDSReport()" style="padding:9px 10px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;width:100%;"/></div>
+        <div class="fg" style="margin-bottom:0;flex:2;min-width:150px;"><label style="font-size:11px;">Supplier</label>
+          <select onchange="_dsSupFilter=this.value;renderDSReport()" style="padding:9px 10px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;width:100%;">${supOpts}</select></div>
+        <button onclick="_dsDateFrom='';_dsDateTo='';_dsSupFilter='all';renderDSReport()" class="btn btn-o btn-sm" style="white-space:nowrap;">Clear</button>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" ${_dsShipToggle?'checked':''} onchange="_dsShipToggle=this.checked;renderDSReport()" style="accent-color:#e67e22;width:16px;height:16px;"/>
+          Include shipping in owed &amp; profit
+        </label>
+        <button onclick="toggleDSSelectMode()" class="btn btn-o btn-sm" style="margin-left:auto;">${_dsSelectMode?'✕ Cancel':'☑ Bulk Mark Paid'}</button>
+        ${_dsSelectMode&&_dsSelected.size>0?`<button onclick="bulkDSMarkPaid()" class="btn btn-p btn-sm">✓ Mark ${_dsSelected.size} Paid</button>`:''}
+        <button onclick="exportDSExcel()" class="btn btn-o btn-sm">⬇️ Export Excel</button>
+      </div>
+    </div>
+
+    <!-- Summary cards -->
+    ${Object.keys(bySup).length?`<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">📊 Summary by Supplier</div>
+      ${summaryHtml}
+    </div>`:''}
+
+    <!-- Detail table -->
+    <div class="card" style="margin-bottom:12px;overflow-x:auto;">
+      <div class="card-title">📋 DS Articles (${filtered.length})</div>
+      ${filtered.length?`<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px;">
+        <thead>
+          <tr style="background:var(--goldp);text-align:left;">
+            ${_dsSelectMode?'<th style="padding:8px 6px;"></th>':''}
+            <th style="padding:8px 6px;">Invoice</th>
+            <th style="padding:8px 6px;">Date</th>
+            <th style="padding:8px 6px;">Customer</th>
+            <th style="padding:8px 6px;">Article</th>
+            <th style="padding:8px 6px;">Supplier</th>
+            <th style="padding:8px 6px;text-align:right;">Cost</th>
+            <th style="padding:8px 6px;text-align:right;">Sale</th>
+            <th style="padding:8px 6px;text-align:right;">Ship Coll.</th>
+            <th style="padding:8px 6px;text-align:right;">Courier</th>
+            <th style="padding:8px 6px;text-align:right;">Shortfall</th>
+            <th style="padding:8px 6px;text-align:right;">Owed (${shLabel})</th>
+            <th style="padding:8px 6px;text-align:right;">Profit</th>
+            <th style="padding:8px 6px;">Status</th>
+            <th style="padding:8px 4px;"></th>
+          </tr>
+        </thead>
+        <tbody>${detailRows}</tbody>
+      </table>`:'<div style="text-align:center;color:#aaa;padding:20px;">No DS articles found for selected filters</div>'}
+    </div>
+
+    <!-- Courier breakdown -->
+    ${Object.keys(courierBreakdown).length?`<div class="card" style="margin-bottom:12px;">
+      <div class="card-title">🚚 Courier Breakdown</div>
+      ${courierHtml}
+    </div>`:''}
+  `;
+}
+
+function cycleDSPaid(invId,itemIdx){
+  const inv=invoices.find(i=>String(i.id)===String(invId));if(!inv)return;
+  const arr=expandItems(inv.itemsArr);
+  if(!arr[itemIdx])return;
+  const it=arr[itemIdx];
+  if(!it.dsPaid&&!it.dsUpfront){it.dsPaid=true;it.dsPaidDate=today();}
+  else if(it.dsPaid&&!it.dsUpfront){it.dsPaid=false;it.dsPaidDate='';it.dsUpfront=true;}
+  else{it.dsPaid=false;it.dsPaidDate='';it.dsUpfront=false;}
+  inv.itemsArr=arr;
+  save();
+  gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{if(!ok)toast('⚠️ Saved locally — sheet sync failed');});
+  renderDSReport();
+}
+
+function toggleDSSelect(key,checked){
+  if(checked)_dsSelected.add(key);else _dsSelected.delete(key);
+  // Re-render just the action bar without full re-render
+  renderDSReport();
+}
+
+function toggleDSSelectMode(){
+  _dsSelectMode=!_dsSelectMode;
+  _dsSelected.clear();
+  renderDSReport();
+}
+
+function bulkDSMarkPaid(){
+  if(!_dsSelected.size)return;
+  _dsSelected.forEach(key=>{
+    const[invId,idxStr]=key.split('_');
+    const idx=parseInt(idxStr);
+    const inv=invoices.find(i=>String(i.id)===String(invId));if(!inv)return;
+    const arr=expandItems(inv.itemsArr);
+    if(!arr[idx])return;
+    arr[idx].dsPaid=true;arr[idx].dsPaidDate=today();arr[idx].dsUpfront=false;
+    inv.itemsArr=arr;
+  });
+  save();
+  // Batch sync changed invoices
+  const changedInvIds=[...new Set([..._dsSelected].map(k=>k.split('_')[0]))];
+  changedInvIds.forEach(invId=>{
+    const inv=invoices.find(i=>String(i.id)===String(invId));
+    if(inv)gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{if(!ok)toast('⚠️ Saved locally — sheet sync failed');});
+  });
+  const n=_dsSelected.size;
+  _dsSelected.clear();_dsSelectMode=false;
+  toast('✓ Marked '+n+' article(s) as paid');
+  renderDSReport();
+}
+
+function exportDSTracking(nos,label){
+  const text=nos.join('\n');
+  if(navigator.clipboard){navigator.clipboard.writeText(text).then(()=>toast('📋 '+nos.length+' tracking IDs copied'));}
+  else{const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);toast('📋 Copied');}
+}
+
+function exportDSExcel(){
+  const rows=[];
+  invoices.forEach(inv=>{
+    const arr=expandItems(inv.itemsArr);
+    const totalArticles=arr.length||1;
+    const shipC=parseFloat(inv.shipping)||0;
+    const courierC=parseFloat(inv.shippingCost)||0;
+    arr.forEach((it,idx)=>{
+      if(!it.dsSupId||it.dsSupId==='__pending__')return;
+      const dsDate=it.dsDate||inv.invDate;
+      if(_dsDateFrom&&(dsDate||'').slice(0,10)<_dsDateFrom)return;
+      if(_dsDateTo&&(dsDate||'').slice(0,10)>_dsDateTo)return;
+      if(_dsSupFilter!=='all'&&it.dsSupId!==_dsSupFilter)return;
+      const perC=parseFloat((shipC/totalArticles).toFixed(2));
+      const perCourier=courierC>0?parseFloat((courierC/totalArticles).toFixed(2)):null;
+      const saleAmt=parseFloat(it.unitPrice||0)*parseInt(it.qty||1);
+      const costAmt=parseFloat(it.costPrice||0)*parseInt(it.qty||1);
+      const shipCollAmt=perC*parseInt(it.qty||1);
+      const courierAmt=perCourier!==null?perCourier*parseInt(it.qty||1):null;
+      const owedBase=costAmt||null;
+      const owedWithShip=costAmt?(costAmt+shipCollAmt):null;
+      const shortfall=courierAmt!==null&&courierAmt>shipCollAmt?courierAmt-shipCollAmt:0;
+      rows.push({
+        'Invoice':inv.invNo||inv.id,
+        'DS Date':dsDate,
+        'Customer':inv.custName||'',
+        'Article':it.prodNo?'#'+it.prodNo+' '+it.desc:it.desc,
+        'Supplier':it.dsSupName||'',
+        'Cost Price':costAmt||'',
+        'Sale Price':saleAmt,
+        'Ship Collected':shipCollAmt,
+        'Courier Cost':courierAmt!==null?courierAmt:'',
+        'Shortfall':shortfall||'',
+        'Owed (excl ship)':owedBase||'',
+        'Owed (incl ship)':owedWithShip||'',
+        'Profit (excl ship)':owedBase!==null&&courierAmt!==null?(saleAmt-costAmt-Math.max(0,courierAmt-shipCollAmt)):'',
+        'Profit (incl ship)':owedBase!==null&&courierAmt!==null?((saleAmt+shipCollAmt)-costAmt-courierAmt):'',
+        'Status':it.dsUpfront?'Upfront Paid':it.dsPaid?'Paid':'Unpaid',
+        'Paid Date':it.dsPaidDate||'',
+        'Tracking':inv.tracking||'',
+        'Courier':inv.dispatchMethod||'',
+      });
+    });
+  });
+  if(!rows.length){toast('No DS data for selected filters');return;}
+  // Build CSV
+  const headers=Object.keys(rows[0]);
+  const csv=[headers.join(','),...rows.map(r=>headers.map(h=>{const v=r[h];return typeof v==='string'&&(v.includes(',')||v.includes('"'))?'"'+v.replace(/"/g,'""')+'"':v;}).join(','))].join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='DS-Report-'+(new Date().toISOString().slice(0,10))+'.csv';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  toast('⬇️ DS Report exported');
+}
+
 
 // ── SUPPLIERS PAGE BUILD ──
 function buildSuppliersPage() {
