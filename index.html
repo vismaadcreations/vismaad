@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.18.2
+APP: Vismaad Creations v14.18.3
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 18-Jun-2026 — v14.18.2: Sales list DS badges — invoices where all articles are dropshipped show solid orange 📦 DS badge; mixed invoices show outlined 📦 Partial DS badge; computed from expandItems(itemsArr) per card render, no data changes.
+LAST_CHANGE: 18-Jun-2026 — v14.18.3: (1) Fix DS checkbox tick not visible on sales edit page — isDS now treats __pending__ as DS so checkbox shows checked immediately on toggle; (2) DS badge on home screen Pending Orders — solid orange 📦 DS or outlined 📦 Partial DS next to customer name; (3) DS badge on Tracking page — both mobile cards and desktop table rows show DS/Partial DS badge next to invoice number.
 PREV_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -3586,7 +3586,7 @@ function renderEditDSItems(inv){
   const arr=expandItems(inv.itemsArr);
   const supOpts='<option value="">— Select Supplier —</option>'+suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
   const rows=arr.map((it,idx)=>{
-    const isDS=!!(it.dsSupId&&it.dsSupId!=='__pending__');
+    const isDS=!!(it.dsSupId);
     const dsDate=it.dsDate||inv.invDate||today();
     return `<div style="background:${isDS?'#fff8ee':'#fafafa'};border:1px solid ${isDS?'#ffe0b2':'#eee'};border-radius:8px;padding:10px 12px;margin-bottom:8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${isDS?'8px':'0'};">
@@ -4618,8 +4618,13 @@ function renderDashboard(){
     const{dashStatus}=_dashGetStatus(inv);
     const dBadgeClass=grp==='overdue'?'b-red':grp==='notracking'?'b-yellow':grp==='awaiting'?'b-yellow':'b-blue';
     const dBadgeIcon=grp==='overdue'?'⚠️ ':grp==='notracking'?'📭 ':grp==='awaiting'?'⏳ ':'🚚 ';
+    const _dashItems=expandItems(inv.itemsArr||[]);
+    const _dashDSCount=_dashItems.filter(x=>x.dsSupId).length;
+    const _dashDSBadge=_dashDSCount===0?'':_dashDSCount===_dashItems.length
+      ?'<span style="font-size:10px;font-weight:700;color:#fff;background:#e67e22;padding:1px 6px;border-radius:6px;margin-left:4px;">📦 DS</span>'
+      :'<span style="font-size:10px;font-weight:700;color:#e67e22;background:#fff3e0;border:1px solid #e67e22;padding:1px 6px;border-radius:6px;margin-left:4px;">📦 Partial DS</span>';
     return`<div class="list-row" style="cursor:pointer;" onclick="openInvoiceFromDash('${inv.id}')">
-      <div><div class="list-main">${inv.custName}</div>
+      <div><div class="list-main">${inv.custName}${_dashDSBadge}</div>
       <div class="list-sub">${inv.invNo||'—'} · ${fmtDate(inv.invDate)}</div></div>
       <div class="list-right">
         <div class="list-amt">₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}</div>
@@ -8387,9 +8392,14 @@ function renderTrackingResults(){
       const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||'indiapost';
       const courierBadge=isNoTracking?'':courierCode==='dtdc'?'<span style="font-size:10px;background:#fff3cd;color:#856404;border-radius:4px;padding:1px 5px;margin-left:5px;">DTDC</span>':courierCode==='bluedart'?'<span style="font-size:10px;background:#cfe2ff;color:#084298;border-radius:4px;padding:1px 5px;margin-left:5px;">Blue Dart</span>':'<span style="font-size:10px;background:#e8e8e8;color:#555;border-radius:4px;padding:1px 5px;margin-left:5px;">India Post</span>';
       const locLine=inv.custState?(inv.custAddress?inv.custAddress.split(/[\n,]/)[0].trim()+', ':'')+inv.custState:'';
+      const _tkItems=expandItems(inv.itemsArr||[]);
+      const _tkDSCount=_tkItems.filter(x=>x.dsSupId).length;
+      const _tkDSBadge=_tkDSCount===0?'':_tkDSCount===_tkItems.length
+        ?'<span style="font-size:10px;font-weight:700;color:#fff;background:#e67e22;padding:1px 5px;border-radius:5px;margin-left:4px;">📦 DS</span>'
+        :'<span style="font-size:10px;font-weight:700;color:#e67e22;background:#fff3e0;border:1px solid #e67e22;padding:1px 5px;border-radius:5px;margin-left:4px;">📦 Partial DS</span>';
       return`<div class="card" style="margin-bottom:10px;padding:12px;${cardBg}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
-          <div><span style="font-weight:700;color:var(--brown);font-size:14px;">${esc2(inv.invNo)}</span>${parcelNote}${courierBadge}<span style="margin-left:6px;font-size:13px;">${esc2(inv.custName)}</span></div>
+          <div><span style="font-weight:700;color:var(--brown);font-size:14px;">${esc2(inv.invNo)}</span>${parcelNote}${courierBadge}<span style="margin-left:6px;font-size:13px;">${esc2(inv.custName)}</span>${_tkDSBadge}</div>
           ${stBadge}
         </div>
         <div style="font-family:monospace;font-size:12px;color:#555;margin-bottom:4px;">${esc2(trackDisplay)}</div>
@@ -8412,10 +8422,15 @@ function renderTrackingResults(){
       const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||'indiapost';
       const courierBadge=isNoTracking?'':courierCode==='dtdc'?'<span style="font-size:10px;background:#fff3cd;color:#856404;border-radius:4px;padding:1px 5px;margin-left:4px;">DTDC</span>':courierCode==='bluedart'?'<span style="font-size:10px;background:#cfe2ff;color:#084298;border-radius:4px;padding:1px 5px;margin-left:4px;">Blue Dart</span>':'<span style="font-size:10px;background:#e8e8e8;color:#555;border-radius:4px;padding:1px 5px;margin-left:4px;">IP</span>';
       const locCell=inv.custState?esc2((inv.custAddress?inv.custAddress.split(/[\n,]/)[0].trim()+', ':'')+inv.custState):'—';
-      if(isNoTracking)return`<tr style="${rowBg}"><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;color:#aaa;font-style:italic;">—</td><td>${fmtDate(inv.invDate)}</td><td colspan="3"><span class="badge b-yellow">📭 No Tracking</span></td></tr>`;
-      if(!td)return`<tr><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td><td>${fmtDate(inv.invDate)}</td><td colspan="3"><span class="badge b-yellow">⏳ Awaiting Update</span></td></tr>`;
+      const _tkItems2=expandItems(inv.itemsArr||[]);
+      const _tkDSCount2=_tkItems2.filter(x=>x.dsSupId).length;
+      const _tkDSBadge2=_tkDSCount2===0?'':_tkDSCount2===_tkItems2.length
+        ?'<span style="font-size:10px;font-weight:700;color:#fff;background:#e67e22;padding:1px 5px;border-radius:5px;margin-left:4px;">📦 DS</span>'
+        :'<span style="font-size:10px;font-weight:700;color:#e67e22;background:#fff3e0;border:1px solid #e67e22;padding:1px 5px;border-radius:5px;margin-left:4px;">📦 Partial DS</span>';
+      if(isNoTracking)return`<tr style="${rowBg}"><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${_tkDSBadge2}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;color:#aaa;font-style:italic;">—</td><td>${fmtDate(inv.invDate)}</td><td colspan="3"><span class="badge b-yellow">📭 No Tracking</span></td></tr>`;
+      if(!td)return`<tr><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}${_tkDSBadge2}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td><td>${fmtDate(inv.invDate)}</td><td colspan="3"><span class="badge b-yellow">⏳ Awaiting Update</span></td></tr>`;
       const stBadge=isDelivered?'<span class="badge b-green">Delivered</span>':isOD?'<span class="badge b-red">⚠️ Overdue</span>':'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
-      return`<tr style="${rowBg}"><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td><td>${fmtDate(inv.invDate)}</td><td>${parseBookedOn(td.bookedOn||'')?esc2(td.bookedOn):'—'}</td><td>${stBadge}</td><td style="font-size:11px;color:#555;max-width:180px;word-break:break-word;">${td.source==='track123'&&(td.lastEventDetail||td.lastEvent)?('<span style="font-weight:600;">'+(td.lastEventDetail?esc2(td.lastEventDetail):(td.lastEvent?esc2(td.lastEvent):''))+'</span>'+(td.lastEventLocation?'<br/><span style="color:#888;">📍 '+esc2(td.lastEventLocation)+'</span>':'')+(td.lastEventTime?'<br/><span style="color:#aaa;font-size:10px;">'+esc2(td.lastEventTime)+'</span>':'')):((td.lastEvent&&td.lastEvent.trim().toLowerCase()!=='n/a')?esc2(td.lastEvent):'')}</td></tr>`;
+      return`<tr style="${rowBg}"><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}${_tkDSBadge2}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td><td>${fmtDate(inv.invDate)}</td><td>${parseBookedOn(td.bookedOn||'')?esc2(td.bookedOn):'—'}</td><td>${stBadge}</td><td style="font-size:11px;color:#555;max-width:180px;word-break:break-word;">${td.source==='track123'&&(td.lastEventDetail||td.lastEvent)?('<span style="font-weight:600;">'+(td.lastEventDetail?esc2(td.lastEventDetail):(td.lastEvent?esc2(td.lastEvent):''))+'</span>'+(td.lastEventLocation?'<br/><span style="color:#888;">📍 '+esc2(td.lastEventLocation)+'</span>':'')+(td.lastEventTime?'<br/><span style="color:#aaa;font-size:10px;">'+esc2(td.lastEventTime)+'</span>':'')):((td.lastEvent&&td.lastEvent.trim().toLowerCase()!=='n/a')?esc2(td.lastEvent):'')}</td></tr>`;
     }).join('');
     ra.innerHTML=statsHtml+`<div class="card" style="padding:0;overflow:hidden;"><div class="tbl-wrap"><table style="min-width:700px;"><thead><tr><th>#</th><th>Invoice</th><th>Customer</th><th>Location</th><th>Tracking No.</th><th>Inv. Date</th><th>Booked On</th><th>Status</th><th>Last Event</th></tr></thead><tbody>${rows}</tbody></table></div></div><div style="font-size:11px;color:#aaa;text-align:center;margin-top:8px;padding-bottom:8px;">⚠️ Flagged overdue = &gt;6 days since Booked On date and not yet delivered</div>`;
   }
