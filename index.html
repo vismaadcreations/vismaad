@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.18.1
+APP: Vismaad Creations v14.18.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
-PREV_CHANGE: 14-Jun-2026 — v14.15.2: (1) Address parser: retain titles (Mr/Mrs/Ms/Dr/Prof) in customer name; (2) Address parser: PIN-derived state no longer overridden by abbreviation text scan (fixes RAJ matching Raj in customer name); (3) Popup sync fix: review and followup popups now only fire post-sync inside syncAll so remote seen-list is always loaded first — removed premature t=3s init triggers; (4) PopupState write upgraded from gsWrite to gsWriteConfirmed; (5) Removed v14.14.2 migration wipe of vc_review_popup_seen.
+LAST_CHANGE: 18-Jun-2026 — v14.18.2: Sales list DS badges — invoices where all articles are dropshipped show solid orange 📦 DS badge; mixed invoices show outlined 📦 Partial DS badge; computed from expandItems(itemsArr) per card render, no data changes.
+PREV_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
 PREV_CHANGE: 11-Jun-2026 — v14.14.3: Courier detection now falls back to dispatch method dropdown when tracking number format is unrecognized — strict courier detection (India Post never touched), dual API key overflow support, Track123 keys in settings + backup/restore, tracking page split into India Post section (unchanged) + DTDC/Blue Dart section (auto-refresh), dispatch dropdown gets DTDC/Blue Dart options everywhere, WhatsApp dispatch message auto-uses correct courier URL, deliveredOn stamped on import/API-delivery for early-delivery message, getCourierInfo() helper centralises courier name + URL + code.
@@ -3279,13 +3279,21 @@ function renderSales(){
     const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
     const rel=getInvReligion(inv);
     const col={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[rel]||'#888';
+    // DS badge: scan itemsArr to determine full/partial dropship
+    const _dsItems=expandItems(inv.itemsArr||[]);
+    const _dsTagged=_dsItems.filter(it=>it.dsSupId&&it.dsSupId!=='');
+    const _dsBadge=_dsItems.length>0&&_dsTagged.length===_dsItems.length
+      ?'<span style="margin-left:5px;font-size:10px;font-weight:700;color:#fff;background:#e67e22;padding:1px 6px;border-radius:6px;">📦 DS</span>'
+      :_dsTagged.length>0
+        ?'<span style="margin-left:5px;font-size:10px;font-weight:700;color:#e67e22;background:#fff3e0;border:1px solid #e67e22;padding:1px 6px;border-radius:6px;">📦 Partial DS</span>'
+        :'';
     return`<div class="card" style="margin-bottom:10px;">
       <div style="display:flex;align-items:flex-start;gap:10px;">
         <input type="checkbox" class="sale-cb" data-idx="${idx}" onchange="updateSelCount()" style="width:18px;height:18px;margin-top:3px;flex-shrink:0;"/>
         <div style="flex:1;">
           <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
             <div>
-              <div style="font-weight:700;font-size:15px;color:var(--brown);">${esc(inv.invNo)||'—'}${inv._dupWarning?'<span style="margin-left:5px;font-size:10px;font-weight:700;color:#fff;background:#e67e22;padding:1px 6px;border-radius:6px;">⚠️ DUPLICATE NO.</span>':''}</div>
+              <div style="font-weight:700;font-size:15px;color:var(--brown);">${esc(inv.invNo)||'—'}${inv._dupWarning?'<span style="margin-left:5px;font-size:10px;font-weight:700;color:#fff;background:#e67e22;padding:1px 6px;border-radius:6px;">⚠️ DUPLICATE NO.</span>':''}${_dsBadge}</div>
               <div style="font-size:12px;color:#888;">${fmtDate(inv.invDate)} · ${esc(inv.custState)||'—'}</div></div>
             <div style="text-align:right;"><div style="font-weight:700;font-size:16px;color:var(--brown);">₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}</div>${badge}</div>
           </div>
