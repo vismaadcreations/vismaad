@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.19.1
+APP: Vismaad Creations v14.19.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 22-Jun-2026 — v14.19.1: Fix clothing tag printing — @page size 55x89mm (Canon G3010 minimum), one tag per page, product number at 67mm from top and price at 78mm from top both at 25mm from left, font 28pt (~1cm height), removed # prefix and ₹ symbol from printed values.
+LAST_CHANGE: 22-Jun-2026 — v14.19.2: Tag printing — move product number to 55mm from top and price to 66mm from top (both 12mm higher).
 PREV_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -8982,7 +8982,7 @@ function printInvTags() {
     + '}'
     + '.tag-prodno{'
       + 'position:absolute;'
-      + 'top:67mm;'
+      + 'top:55mm;'
       + 'left:25mm;'
       + 'font-size:28pt;font-weight:700;color:#000;'
       + 'line-height:1;'
@@ -8990,7 +8990,7 @@ function printInvTags() {
     + '}'
     + '.tag-price{'
       + 'position:absolute;'
-      + 'top:78mm;'
+      + 'top:66mm;'
       + 'left:25mm;'
       + 'font-size:28pt;font-weight:700;color:#000;'
       + 'line-height:1;'
