@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.19.4
+APP: Vismaad Creations v14.20.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 22-Jun-2026 — v14.19.4: Fix DS status (and all invoice fields) not syncing across devices — invoice merge now uses newer-invUpdatedAt-wins for itemsArr (DS tags, dsPaid, dsUpfront, dsDate), all scalar fields (tracking, channel, shipping, discount, etc.); no-timestamp fallback also merges DS from remote when local has none.
+LAST_CHANGE: 22-Jun-2026 — v14.20.0: Price list enhancements — (1) date received range filter (from/to dateAdded), (2) product number range filter, (3) Qty column added, (4) Customer View toggle hides cost/sell price and shows only combined Price column without shipping mention in header.
 PREV_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -1095,6 +1095,16 @@ body.gst-mode .gst-only{display:block;}
     <button class="modal-close" onclick="document.getElementById('inv-print-modal').classList.remove('open')">X</button>
     <div class="modal-title">Print Price List</div>
     <div style="font-size:13px;color:#888;margin-bottom:14px;" id="inv-print-modal-sub"></div>
+    <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:6px;">Filter by Date Received</div>
+    <div class="row2" style="margin-bottom:14px;">
+      <div class="fg" style="margin-bottom:0;"><label>From</label><input type="date" id="ipm-date-from"/></div>
+      <div class="fg" style="margin-bottom:0;"><label>To</label><input type="date" id="ipm-date-to"/></div>
+    </div>
+    <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:6px;">Filter by Product No.</div>
+    <div class="row2" style="margin-bottom:14px;">
+      <div class="fg" style="margin-bottom:0;"><label>From #</label><input type="number" id="ipm-pno-from" placeholder="e.g. 1" min="1"/></div>
+      <div class="fg" style="margin-bottom:0;"><label>To #</label><input type="number" id="ipm-pno-to" placeholder="e.g. 999" min="1"/></div>
+    </div>
     <div class="fg">
       <label>Shipping Cost to Add per Article (applied to all selected)</label>
       <input type="number" id="ipm-ship" placeholder="e.g. 80" oninput="updateInvPrintPreview()"/>
@@ -1103,6 +1113,10 @@ body.gst-mode .gst-only{display:block;}
     <div class="fg">
       <label>List Title (optional)</label>
       <input id="ipm-title" placeholder="e.g. Latest Collection May 2026"/>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;background:var(--goldp);border-radius:8px;padding:10px 12px;">
+      <input type="checkbox" id="ipm-customer-view" style="width:18px;height:18px;accent-color:var(--brown);cursor:pointer;flex-shrink:0;"/>
+      <label for="ipm-customer-view" style="font-size:13px;font-weight:600;color:var(--brown);cursor:pointer;margin:0;">Customer View — show only final Price, hide cost &amp; sell</label>
     </div>
     <div class="btn-row">
       <button class="btn btn-g" onclick="printInvPriceList()">&#128424; Price List</button>
@@ -8886,6 +8900,11 @@ function openInvPrintDialog() {
   document.getElementById('ipm-ship').value = '';
   document.getElementById('ipm-title').value = '';
   document.getElementById('ipm-preview').textContent = '';
+  document.getElementById('ipm-date-from').value = '';
+  document.getElementById('ipm-date-to').value = '';
+  document.getElementById('ipm-pno-from').value = '';
+  document.getElementById('ipm-pno-to').value = '';
+  document.getElementById('ipm-customer-view').checked = false;
   document.getElementById('inv-print-modal').classList.add('open');
 }
 
@@ -8900,8 +8919,33 @@ function updateInvPrintPreview() {
 function printInvPriceList() {
   const ship = parseFloat(document.getElementById('ipm-ship')?.value) || 0;
   const listTitle = (document.getElementById('ipm-title')?.value || '').trim() || 'Price List';
-  const selected = inventory.filter(p => _invPrintSelected.has(parseInt(p.prodNo)));
-  if (!selected.length) { toast('⚠️ No articles selected'); return; }
+  const customerView = document.getElementById('ipm-customer-view')?.checked || false;
+  const dateFrom = document.getElementById('ipm-date-from')?.value || '';
+  const dateTo = document.getElementById('ipm-date-to')?.value || '';
+  const pnoFrom = parseInt(document.getElementById('ipm-pno-from')?.value) || 0;
+  const pnoTo = parseInt(document.getElementById('ipm-pno-to')?.value) || 999999;
+
+  let selected = inventory.filter(p => _invPrintSelected.has(parseInt(p.prodNo)));
+
+  // Filter by product number range
+  if (pnoFrom > 0 || pnoTo < 999999) {
+    selected = selected.filter(p => {
+      const n = parseInt(p.prodNo) || 0;
+      return n >= pnoFrom && n <= pnoTo;
+    });
+  }
+  // Filter by date received range
+  if (dateFrom || dateTo) {
+    selected = selected.filter(p => {
+      if (!p.dateAdded) return true;
+      const d = p.dateAdded.slice(0, 10);
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      return true;
+    });
+  }
+
+  if (!selected.length) { toast('⚠️ No articles match the filters'); return; }
   document.getElementById('inv-print-modal').classList.remove('open');
 
   const f = n => '₹' + parseFloat(n).toLocaleString('en-IN', {minimumFractionDigits: 2});
@@ -8911,20 +8955,48 @@ function printInvPriceList() {
     const sell = parseFloat(p.sellPrice) || 0;
     const sellWithShip = sell + ship;
     const inStock = (parseInt(p.qty) || 0) > 0;
-    return '<tr style="' + (i % 2 === 0 ? 'background:#fff;' : 'background:#fdf8f2;') + '">'
+    const qty = parseInt(p.qty) || 0;
+    const rowBg = i % 2 === 0 ? 'background:#fff;' : 'background:#fdf8f2;';
+    let html = '<tr style="' + rowBg + '">'
       + '<td style="padding:8px 10px;font-weight:700;color:#5c3d1e;">#' + p.prodNo + '</td>'
       + '<td style="padding:8px 10px;">' + (p.name || '') + (p.fabric ? '<br/><span style="font-size:10pt;color:#888;">' + p.fabric + '</span>' : '') + '</td>'
       + '<td style="padding:8px 10px;text-align:center;">'
         + (inStock ? '<span style="background:#e8f5e9;color:#27ae60;padding:2px 8px;border-radius:8px;font-size:10pt;font-weight:700;">In Stock</span>'
                   : '<span style="background:#fde8e8;color:#c0392b;padding:2px 8px;border-radius:8px;font-size:10pt;font-weight:700;">Sold Out</span>')
-        + '</td>'
-      + '<td style="padding:8px 10px;text-align:right;">' + (p.cost ? f(p.cost) : '—') + '</td>'
-      + '<td style="padding:8px 10px;text-align:right;font-weight:700;">' + (sell ? f(sell) : '—') + '</td>'
-      + (ship > 0 ? '<td style="padding:8px 10px;text-align:right;font-weight:700;color:#5c3d1e;">' + (sell ? f(sellWithShip) : '—') + '</td>' : '')
-      + '</tr>';
+      + '</td>'
+      + '<td style="padding:8px 10px;text-align:center;font-weight:600;">' + qty + '</td>';
+
+    if (customerView) {
+      const price = sell + ship;
+      html += '<td style="padding:8px 10px;text-align:right;font-weight:700;font-size:12pt;color:#5c3d1e;">' + (sell ? f(price) : '—') + '</td>';
+    } else {
+      html += '<td style="padding:8px 10px;text-align:right;">' + (p.cost ? f(p.cost) : '—') + '</td>'
+        + '<td style="padding:8px 10px;text-align:right;font-weight:700;">' + (sell ? f(sell) : '—') + '</td>'
+        + (ship > 0 ? '<td style="padding:8px 10px;text-align:right;font-weight:700;color:#5c3d1e;">' + (sell ? f(sellWithShip) : '—') + '</td>' : '');
+    }
+    html += '</tr>';
+    return html;
   }).join('');
 
   const logoImg = logoB64 ? '<img src="' + logoB64 + '" style="height:40px;object-fit:contain;"/>' : '';
+
+  // Build header columns
+  let thHtml = '<th style="width:70px;">Art. No.</th>'
+    + '<th>Name / Fabric</th>'
+    + '<th style="width:90px;text-align:center;">Status</th>'
+    + '<th style="width:60px;text-align:center;">Qty</th>';
+  if (customerView) {
+    thHtml += '<th style="width:120px;text-align:right;">Price</th>';
+  } else {
+    thHtml += '<th style="width:100px;text-align:right;">Cost Price</th>'
+      + '<th style="width:110px;text-align:right;">Sell Price</th>'
+      + (ship > 0 ? '<th style="width:130px;text-align:right;">With Shipping</th>' : '');
+  }
+
+  // Shipping note in header — only for internal view
+  const shipNote = (!customerView && ship > 0)
+    ? '<div style="font-size:10pt;color:#c9933a;margin-top:3px;">Shipping included: ₹' + ship.toFixed(2) + ' per article</div>'
+    : '';
 
   const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
     + '<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;600&display=swap" rel="stylesheet"/>'
@@ -8944,18 +9016,11 @@ function printInvPriceList() {
       + '<div style="text-align:right;">'
         + '<div style="font-size:16pt;font-weight:700;color:#5c3d1e;">' + listTitle + '</div>'
         + '<div style="font-size:10pt;color:#888;">Date: ' + dateStr + '</div>'
-        + (ship > 0 ? '<div style="font-size:10pt;color:#c9933a;margin-top:3px;">Shipping included: ₹' + ship.toFixed(2) + ' per article</div>' : '')
+        + shipNote
       + '</div>'
     + '</div>'
     + '<table>'
-    + '<thead><tr>'
-      + '<th style="width:70px;">Art. No.</th>'
-      + '<th>Name / Fabric</th>'
-      + '<th style="width:90px;text-align:center;">Status</th>'
-      + '<th style="width:100px;text-align:right;">Cost Price</th>'
-      + '<th style="width:110px;text-align:right;">Sell Price</th>'
-      + (ship > 0 ? '<th style="width:130px;text-align:right;">With Shipping</th>' : '')
-    + '</tr></thead>'
+    + '<thead><tr>' + thHtml + '</tr></thead>'
     + '<tbody>' + rows + '</tbody>'
     + '</table>'
     + '<div style="margin-top:12px;font-size:9pt;color:#aaa;text-align:center;">Vismaad Creations · ' + listTitle + ' · Printed ' + dateStr + '</div>'
