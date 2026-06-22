@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.19.0
+APP: Vismaad Creations v14.19.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 21-Jun-2026 — v14.19.0: Print Clothing Tags — new "Print Tags" button in inventory print dialog; generates one tag (8.8cm x 5.4cm) per unit of qty for each selected product; tag shows product number at 6.7cm from top and sell price + shipping at 7.8cm from top, both 2.5cm from left; tags flow in rows of 3 across A4.
+LAST_CHANGE: 22-Jun-2026 — v14.19.1: Fix clothing tag printing — @page size 55x89mm (Canon G3010 minimum), one tag per page, product number at 67mm from top and price at 78mm from top both at 25mm from left, font 28pt (~1cm height), removed # prefix and ₹ symbol from printed values.
 PREV_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -8954,13 +8954,13 @@ function printInvTags() {
   if (!selected.length) { toast('⚠️ No articles selected'); return; }
   document.getElementById('inv-print-modal').classList.remove('open');
 
-  // Build one tag div per unit of qty
+  // Build one tag div per unit of qty — each tag = one page (55mm x 89mm)
   let tagDivs = '';
   selected.forEach(p => {
     const qty = parseInt(p.qty) || 1;
     const sell = (parseFloat(p.sellPrice) || 0) + ship;
-    const priceStr = '\u20b9' + sell.toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 2});
-    const prodStr = '#' + p.prodNo;
+    const priceStr = sell.toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 2});
+    const prodStr = String(p.prodNo);
     for (let i = 0; i < qty; i++) {
       tagDivs += '<div class="tag">'
         + '<div class="tag-prodno">' + prodStr + '</div>'
@@ -8972,33 +8972,34 @@ function printInvTags() {
   const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
     + '<style>'
     + '*{box-sizing:border-box;margin:0;padding:0;}'
-    + '@page{margin:6mm;}'
+    + '@page{size:55mm 89mm;margin:0;}'
     + 'body{font-family:Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
-    + '.tags-wrap{display:flex;flex-wrap:wrap;gap:0;}'
     + '.tag{'
-      + 'width:5.4cm;height:8.8cm;'
+      + 'width:55mm;height:89mm;'
       + 'position:relative;'
-      + 'display:inline-block;'
+      + 'page-break-after:always;'
       + 'overflow:hidden;'
     + '}'
     + '.tag-prodno{'
       + 'position:absolute;'
-      + 'top:6.7cm;'
-      + 'left:2.5cm;'
-      + 'font-size:12pt;font-weight:700;color:#000;'
+      + 'top:67mm;'
+      + 'left:25mm;'
+      + 'font-size:28pt;font-weight:700;color:#000;'
+      + 'line-height:1;'
       + 'white-space:nowrap;'
     + '}'
     + '.tag-price{'
       + 'position:absolute;'
-      + 'top:7.8cm;'
-      + 'left:2.5cm;'
-      + 'font-size:12pt;font-weight:700;color:#000;'
+      + 'top:78mm;'
+      + 'left:25mm;'
+      + 'font-size:28pt;font-weight:700;color:#000;'
+      + 'line-height:1;'
       + 'white-space:nowrap;'
     + '}'
     + '</style>'
     + '<script>window.onload=function(){setTimeout(function(){window.print();},800);};<\/script>'
     + '</head><body>'
-    + '<div class="tags-wrap">' + tagDivs + '</div>'
+    + tagDivs
     + '</body></html>';
 
   const blob = new Blob([html], {type: 'text/html'});
@@ -9007,7 +9008,6 @@ function printInvTags() {
   if (!w) { toast('⚠️ Popup blocked — allow popups in browser settings', 5000); URL.revokeObjectURL(url); }
   else { setTimeout(() => URL.revokeObjectURL(url), 30000); }
 }
-
 // ═══════════════════════════════════════════
 // SUPPLIERS & BILLS — DATA FUNCTIONS
 // ═══════════════════════════════════════════
