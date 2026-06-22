@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.19.2
+APP: Vismaad Creations v14.19.3
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 22-Jun-2026 — v14.19.2: Tag printing — move product number to 55mm from top and price to 66mm from top (both 12mm higher).
+LAST_CHANGE: 22-Jun-2026 — v14.19.3: Fix DS status (and all invoice fields) not syncing across devices — invoice merge now uses newer-invUpdatedAt-wins for itemsArr (DS tags, dsPaid, dsUpfront, dsDate), all scalar fields (tracking, channel, shipping, discount, etc.); no-timestamp fallback also merges DS from remote when local has none.
 PREV_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -1871,27 +1871,51 @@ async function syncAll(){
           const remShipped=r.isShipped==='true'||r.isShipped===true||r.status==='Shipped';
           const localShipped=local.isShipped===true||local.isShipped==='true'||local.status==='Shipped';
           if(remTime>locTime){
-            // Remote is strictly newer — trust remote isShipped
+            // Remote is strictly newer — overwrite all mutable invoice fields
             local.isShipped=remShipped;
             local.status=remShipped?'Shipped':'Pending';
-            local.invUpdatedAt=r.invUpdatedAt; // keep newer timestamp
+            local.invUpdatedAt=r.invUpdatedAt;
+            // itemsArr carries DS data (dsSupId, dsPaid, dsUpfront, dsDate, costPrice per item)
+            // Take from remote when remote is newer; expandItems normalises string or array
+            const remItems=expandItems(r.itemsArr);
+            if(remItems.length>0)local.itemsArr=remItems;
+            // Scalar fields — overwrite from remote (remote is newer)
+            if(r.tracking)local.tracking=r.tracking;
+            if(r.channel)local.channel=r.channel;
+            if(r.costPrice!=null)local.costPrice=parseFloat(r.costPrice)||0;
+            if(r.shippingCost!=null)local.shippingCost=parseFloat(r.shippingCost)||0;
+            if(r.custPhone)local.custPhone=r.custPhone;
+            if(r.custAddress)local.custAddress=r.custAddress;
+            if(r.dispatchMethod)local.dispatchMethod=r.dispatchMethod;
+            if(r.courierName)local.courierName=r.courierName;
+            if(r.notes)local.notes=r.notes;
+            if(r.religion)local.religion=r.religion;
+            if(r.discount!=null)local.discount=parseFloat(r.discount)||0;
+            if(r.shipping!=null)local.shipping=parseFloat(r.shipping)||0;
           } else if(!locTime&&!remTime){
             // No timestamps on either side — remote wins only if not locally shipped
             // Backfill timestamp so future syncs can resolve correctly
             if(!localShipped){local.isShipped=remShipped;local.status=remShipped?'Shipped':'Pending';}
             local.invUpdatedAt=new Date().toISOString();
+            // Fill-in-blank scalar fields
+            if(r.tracking&&!local.tracking)local.tracking=r.tracking;
+            if(r.channel&&!local.channel)local.channel=r.channel;
+            if(r.costPrice&&!local.costPrice)local.costPrice=parseFloat(r.costPrice)||0;
+            if(r.shippingCost&&!local.shippingCost)local.shippingCost=parseFloat(r.shippingCost)||0;
+            if(r.custPhone&&!local.custPhone)local.custPhone=r.custPhone;
+            if(r.custAddress&&!local.custAddress)local.custAddress=r.custAddress;
+            if(r.dispatchMethod&&!local.dispatchMethod)local.dispatchMethod=r.dispatchMethod;
+            if(r.courierName&&!local.courierName)local.courierName=r.courierName;
+            if(r.notes&&!local.notes)local.notes=r.notes;
+            if(r.religion&&!local.religion)local.religion=r.religion;
+            // Merge itemsArr DS fields if local has none tagged and remote has some
+            const remItemsNT=expandItems(r.itemsArr);
+            const locItemsNT=expandItems(local.itemsArr);
+            const locHasDS=locItemsNT.some(it=>it.dsSupId);
+            const remHasDS=remItemsNT.some(it=>it.dsSupId);
+            if(!locHasDS&&remHasDS&&remItemsNT.length===locItemsNT.length)local.itemsArr=remItemsNT;
           }
-          // else: local timestamp is newer or local is already shipped — keep local
-          if(r.tracking&&!local.tracking)local.tracking=r.tracking;
-          if(r.channel&&!local.channel)local.channel=r.channel;
-          if(r.costPrice&&!local.costPrice)local.costPrice=parseFloat(r.costPrice)||0;
-          if(r.shippingCost&&!local.shippingCost)local.shippingCost=parseFloat(r.shippingCost)||0;
-          if(r.custPhone&&!local.custPhone)local.custPhone=r.custPhone;
-          if(r.custAddress&&!local.custAddress)local.custAddress=r.custAddress;
-          if(r.dispatchMethod&&!local.dispatchMethod)local.dispatchMethod=r.dispatchMethod;
-          if(r.courierName&&!local.courierName)local.courierName=r.courierName;
-          if(r.notes&&!local.notes)local.notes=r.notes;
-          if(r.religion&&!local.religion)local.religion=r.religion;
+          // else: local timestamp is newer — keep local entirely
         }
       });
       invoices=Object.values(localMap).sort((a,b)=>(a.invDate||'')<(b.invDate||'')?-1:1);
