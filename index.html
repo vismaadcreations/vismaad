@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.22.0
+APP: Vismaad Creations v14.22.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 23-Jun-2026 — v14.22.0: Price list — struck-through original qty and total cost per article when units sold, current values shown beside; summary footer with total articles, qty (orig→current) and cost (orig→current); customer view hides cost in footer too.
+LAST_CHANGE: 24-Jun-2026 — v14.22.1: Pending orders cutoff reverted to hardcoded 2026-06-01 (from 90-day rolling window) in both dashboard and tracking page.
 PREV_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -4631,10 +4631,7 @@ function renderDashboard(){
     return{dashStatus,isShipped,isOverdue};
   }
   const _grpNoTracking=[],_grpAwaitingUpdate=[],_grpOverdue=[],_grpInTransit=[];
-  // Rolling 90-day cutoff — applies only to unshipped/no-tracking orders (old delivered orders
-  // with no tracking number). Shipped-but-undelivered orders always show regardless of age
-  // so lost parcels are never hidden.
-  const _pendingCutoff=new Date(Date.now()-90*864e5).toISOString().slice(0,10);
+  const _pendingCutoff='2026-06-01';
   invoices.forEach(inv=>{
     const{dashStatus,isShipped,isOverdue}=_dashGetStatus(inv);
     if(dashStatus==='Delivered')return;
@@ -8097,8 +8094,7 @@ function renderTrackingPage(){
 
   // Also include invoices with NO tracking number (shown as notracking category)
   const seenInvIds=new Set(top.map(inv=>String(inv.id)));
-  // Rolling 90-day cutoff for unshipped/no-tracking only — shipped orders always included
-  const _pendingCutoff=new Date(Date.now()-90*864e5).toISOString().slice(0,10);
+  const _pendingCutoff='2026-06-01';
   const noTrackingInvs=invoices.filter(inv=>{
     if(seenInvIds.has(String(inv.id)))return false;
     const trackNos=(inv.tracking||'').split(',').map(t=>t.trim()).filter(Boolean);
