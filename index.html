@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.22.1
+APP: Vismaad Creations v14.22.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 24-Jun-2026 — v14.22.1: Pending orders cutoff reverted to hardcoded 2026-06-01 (from 90-day rolling window) in both dashboard and tracking page.
+LAST_CHANGE: 24-Jun-2026 — v14.22.2: Pending orders cutoff (2026-06-01) now applies to all groups — previously only applied to unshipped/no-tracking, so old shipped orders without tracking were bypassing the cutoff and showing in dashboard.
 PREV_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -4635,11 +4635,9 @@ function renderDashboard(){
   invoices.forEach(inv=>{
     const{dashStatus,isShipped,isOverdue}=_dashGetStatus(inv);
     if(dashStatus==='Delivered')return;
-    if(dashStatus==='No Tracking'&&!isShipped){
-      // Apply cutoff only here — unshipped, no tracking number
-      if((inv.invDate||'')<_pendingCutoff)return;
-      _grpNoTracking.push(inv);
-    }
+    // Apply cutoff to all groups except genuinely overdue (tracked parcels that are stuck)
+    if(!isOverdue&&(inv.invDate||'')<_pendingCutoff)return;
+    if(dashStatus==='No Tracking'&&!isShipped){_grpNoTracking.push(inv);}
     else if(dashStatus==='Awaiting Update'&&!isShipped){_grpAwaitingUpdate.push(inv);}
     else if(isOverdue){_grpOverdue.push(inv);}
     else if(!isShipped&&dashStatus!=='No Tracking'&&dashStatus!=='Awaiting Update'){_grpAwaitingUpdate.push(inv);}
