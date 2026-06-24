@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.20.0
+APP: Vismaad Creations v14.22.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 22-Jun-2026 — v14.20.0: Price list enhancements — (1) date received range filter (from/to dateAdded), (2) product number range filter, (3) Qty column added, (4) Customer View toggle hides cost/sell price and shows only combined Price column without shipping mention in header.
+LAST_CHANGE: 23-Jun-2026 — v14.22.0: Price list — struck-through original qty and total cost per article when units sold, current values shown beside; summary footer with total articles, qty (orig→current) and cost (orig→current); customer view hides cost in footer too.
 PREV_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -4631,12 +4631,18 @@ function renderDashboard(){
     return{dashStatus,isShipped,isOverdue};
   }
   const _grpNoTracking=[],_grpAwaitingUpdate=[],_grpOverdue=[],_grpInTransit=[];
-  const _pendingCutoff='2026-06-01';
+  // Rolling 90-day cutoff — applies only to unshipped/no-tracking orders (old delivered orders
+  // with no tracking number). Shipped-but-undelivered orders always show regardless of age
+  // so lost parcels are never hidden.
+  const _pendingCutoff=new Date(Date.now()-90*864e5).toISOString().slice(0,10);
   invoices.forEach(inv=>{
-    if((inv.invDate||'')<_pendingCutoff)return;
     const{dashStatus,isShipped,isOverdue}=_dashGetStatus(inv);
     if(dashStatus==='Delivered')return;
-    if(dashStatus==='No Tracking'&&!isShipped){_grpNoTracking.push(inv);}
+    if(dashStatus==='No Tracking'&&!isShipped){
+      // Apply cutoff only here — unshipped, no tracking number
+      if((inv.invDate||'')<_pendingCutoff)return;
+      _grpNoTracking.push(inv);
+    }
     else if(dashStatus==='Awaiting Update'&&!isShipped){_grpAwaitingUpdate.push(inv);}
     else if(isOverdue){_grpOverdue.push(inv);}
     else if(!isShipped&&dashStatus!=='No Tracking'&&dashStatus!=='Awaiting Update'){_grpAwaitingUpdate.push(inv);}
@@ -8091,16 +8097,19 @@ function renderTrackingPage(){
 
   // Also include invoices with NO tracking number (shown as notracking category)
   const seenInvIds=new Set(top.map(inv=>String(inv.id)));
-  const _pendingCutoff='2026-06-01';
+  // Rolling 90-day cutoff for unshipped/no-tracking only — shipped orders always included
+  const _pendingCutoff=new Date(Date.now()-90*864e5).toISOString().slice(0,10);
   const noTrackingInvs=invoices.filter(inv=>{
-    if((inv.invDate||'')<_pendingCutoff)return false;
     if(seenInvIds.has(String(inv.id)))return false;
     const trackNos=(inv.tracking||'').split(',').map(t=>t.trim()).filter(Boolean);
     if(trackNos.length>0)return false;
     // Only show non-delivered (check manual status)
     const manualShipped=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
     const manualDelivered=inv.status==='Delivered';
-    return !manualDelivered;
+    if(manualDelivered)return false;
+    // Apply cutoff only to unshipped — shipped-but-undelivered always show (lost parcel safety)
+    if(!manualShipped&&(inv.invDate||'')<_pendingCutoff)return false;
+    return true;
   }).map(inv=>({...inv,_singleTracking:'',_courierCode:''}));
 
   if(!top.length&&!noTrackingInvs.length){
@@ -8951,32 +8960,89 @@ function printInvPriceList() {
   const f = n => '₹' + parseFloat(n).toLocaleString('en-IN', {minimumFractionDigits: 2});
   const dateStr = new Date().toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
 
+  // Helper: struck-through old value + new value, only when they differ
+  const struck = (oldVal, newVal, fmt) => oldVal !== newVal
+    ? '<s style="color:#bbb;font-weight:400;">' + fmt(oldVal) + '</s> <span style="color:#1a1208;">' + fmt(newVal) + '</span>'
+    : fmt(newVal);
+
+  // Totals accumulators
+  let totQtyOrig = 0, totQtyCur = 0;
+  let totCostOrig = 0, totCostCur = 0;
+
   const rows = selected.map((p, i) => {
     const sell = parseFloat(p.sellPrice) || 0;
     const sellWithShip = sell + ship;
-    const inStock = (parseInt(p.qty) || 0) > 0;
-    const qty = parseInt(p.qty) || 0;
+    const qtyCur  = parseInt(p.qty) || 0;
+    const qtySold = parseInt(p.qtySold) || 0;
+    const qtyOrig = qtyCur + qtySold;          // original quantity at time of purchase
+    const hasSold = qtySold > 0;
+    const inStock = qtyCur > 0;
+    const cost = parseFloat(p.cost) || 0;
+    const costOrig = cost * qtyOrig;           // total cost at full qty
+    const costCur  = cost * qtyCur;            // remaining cost (in-stock only)
+
+    // Accumulate totals
+    totQtyOrig += qtyOrig;
+    totQtyCur  += qtyCur;
+    totCostOrig += costOrig;
+    totCostCur  += costCur;
+
     const rowBg = i % 2 === 0 ? 'background:#fff;' : 'background:#fdf8f2;';
+
+    // Qty cell: struck original if any sold
+    const qtyCell = hasSold
+      ? struck(qtyOrig, qtyCur, v => v)
+      : String(qtyCur);
+
     let html = '<tr style="' + rowBg + '">'
       + '<td style="padding:8px 10px;font-weight:700;color:#5c3d1e;">#' + p.prodNo + '</td>'
       + '<td style="padding:8px 10px;">' + (p.name || '') + (p.fabric ? '<br/><span style="font-size:10pt;color:#888;">' + p.fabric + '</span>' : '') + '</td>'
       + '<td style="padding:8px 10px;text-align:center;">'
-        + (inStock ? '<span style="background:#e8f5e9;color:#27ae60;padding:2px 8px;border-radius:8px;font-size:10pt;font-weight:700;">In Stock</span>'
-                  : '<span style="background:#fde8e8;color:#c0392b;padding:2px 8px;border-radius:8px;font-size:10pt;font-weight:700;">Sold Out</span>')
+        + (inStock
+          ? '<span style="background:#e8f5e9;color:#27ae60;padding:2px 8px;border-radius:8px;font-size:10pt;font-weight:700;">In Stock</span>'
+          : '<span style="background:#fde8e8;color:#c0392b;padding:2px 8px;border-radius:8px;font-size:10pt;font-weight:700;">Sold Out</span>')
       + '</td>'
-      + '<td style="padding:8px 10px;text-align:center;font-weight:600;">' + qty + '</td>';
+      + '<td style="padding:8px 10px;text-align:center;font-weight:600;">' + qtyCell + '</td>';
 
     if (customerView) {
       const price = sell + ship;
       html += '<td style="padding:8px 10px;text-align:right;font-weight:700;font-size:12pt;color:#5c3d1e;">' + (sell ? f(price) : '—') + '</td>';
     } else {
-      html += '<td style="padding:8px 10px;text-align:right;">' + (p.cost ? f(p.cost) : '—') + '</td>'
+      // Cost cell: struck original total cost if any sold, show remaining
+      const costCell = (cost && hasSold)
+        ? struck(costOrig, costCur, f)
+        : (cost ? f(cost) : '—');
+      html += '<td style="padding:8px 10px;text-align:right;">' + costCell + '</td>'
         + '<td style="padding:8px 10px;text-align:right;font-weight:700;">' + (sell ? f(sell) : '—') + '</td>'
         + (ship > 0 ? '<td style="padding:8px 10px;text-align:right;font-weight:700;color:#5c3d1e;">' + (sell ? f(sellWithShip) : '—') + '</td>' : '');
     }
     html += '</tr>';
     return html;
   }).join('');
+
+  // Summary footer row
+  const hasSoldOverall = totQtyOrig !== totQtyCur;
+  const footerQty = hasSoldOverall
+    ? struck(totQtyOrig, totQtyCur, v => v)
+    : String(totQtyCur);
+  const footerCost = (!customerView && totCostOrig > 0)
+    ? (hasSoldOverall ? struck(totCostOrig, totCostCur, f) : f(totCostOrig))
+    : '';
+  const colSpanName = 2; // Art No + Name
+  let footerHtml = '<tr style="background:#f5ede0;font-weight:700;border-top:2px solid #5c3d1e;">'
+    + '<td colspan="' + colSpanName + '" style="padding:10px 10px;color:#5c3d1e;font-size:11pt;">'
+      + 'Total: ' + selected.length + ' article' + (selected.length !== 1 ? 's' : '')
+    + '</td>'
+    + '<td style="padding:10px 10px;text-align:center;font-size:10pt;color:#888;">—</td>'
+    + '<td style="padding:10px 10px;text-align:center;font-size:11pt;">' + footerQty + '</td>';
+  if (customerView) {
+    footerHtml += '<td style="padding:10px 10px;"></td>';
+  } else {
+    footerHtml += '<td style="padding:10px 10px;text-align:right;font-size:11pt;">' + (footerCost || '—') + '</td>'
+      + '<td style="padding:10px 10px;"></td>'
+      + (ship > 0 ? '<td style="padding:10px 10px;"></td>' : '');
+  }
+  footerHtml += '</tr>';
 
   const logoImg = logoB64 ? '<img src="' + logoB64 + '" style="height:40px;object-fit:contain;"/>' : '';
 
@@ -9021,7 +9087,7 @@ function printInvPriceList() {
     + '</div>'
     + '<table>'
     + '<thead><tr>' + thHtml + '</tr></thead>'
-    + '<tbody>' + rows + '</tbody>'
+    + '<tbody>' + rows + footerHtml + '</tbody>'
     + '</table>'
     + '<div style="margin-top:12px;font-size:9pt;color:#aaa;text-align:center;">Vismaad Creations · ' + listTitle + ' · Printed ' + dateStr + '</div>'
     + '</body></html>';
