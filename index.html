@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.22.5
+APP: Vismaad Creations v14.23.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 24-Jun-2026 — v14.22.5: Dashboard pending orders hard cutoff at 2026-06-01 now applies to ALL groups with no exceptions — pre-June orders no longer appear even if flagged overdue.
+LAST_CHANGE: 27-Jun-2026 — v14.23.0: (1) Inventory dateAdded preserved in remote-wins sync merge; one-time updatedAt backfill for legacy items to stop needsPush re-pushing every sync; (2) Price list cost price column no longer strikes through — cost is a static fact; (3) Credit note full flow: CN linked inside invoice card in sales list with print button; on Return/Cancellation CN prompt to mark invoice as Returned/Cancelled (with stock restore for Returns); manual 📋 Status button on each invoice; invoiceStatus field (Active/Cancelled/Returned); (4) Cancelled/Returned invoices excluded from tracking page and dashboard pending orders; sales list filter adds Cancelled/Returned options; badge shown on invoice card; (5) DTDC/Blue Dart description now shows in-transit count.
 PREV_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -679,7 +679,7 @@ body.gst-mode .gst-only{display:block;}
   <div style="display:flex;gap:8px;margin-bottom:8px;">
     <input type="text" id="sales-search" placeholder="🔍 Search name, invoice…" oninput="renderSales()" style="flex:1;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:14px;"/>
     <select id="sales-filter" onchange="renderSales()" style="padding:12px 10px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;">
-      <option value="">All</option><option value="Shipped">Shipped</option><option value="Pending">Pending</option>
+      <option value="">All</option><option value="Shipped">Shipped</option><option value="Pending">Pending</option><option value="Cancelled">Cancelled</option><option value="Returned">Returned</option>
     </select>
   </div>
   <!-- Religion filter -->
@@ -1949,8 +1949,9 @@ async function syncAll(){
         const remTime=parsed.updatedAt?new Date(parsed.updatedAt).getTime():0;
         const locTime=local.updatedAt?new Date(local.updatedAt).getTime():0;
         if(remTime>locTime){
-          // Remote is newer — remote wins; preserve local-only posting dates if remote lacks them
-          const keep={dateReel:local.dateReel,dateStory1:local.dateStory1,dateStory2:local.dateStory2};
+          // Remote is newer — remote wins; preserve local-only posting dates and dateAdded if remote lacks them
+          const keep={dateReel:local.dateReel,dateStory1:local.dateStory1,dateStory2:local.dateStory2,
+            dateAdded:parsed.dateAdded||local.dateAdded};
           sm[key]={...parsed,...keep};
           invConflicts.push(parsed.prodNo);
         }
@@ -2336,6 +2337,12 @@ function init(){
       }
     });
     if (_qtyNormFixed > 0) { saveStk(); console.log('v14.11 qtySold normalised for', _qtyNormFixed, 'product(s)'); }
+    // MIGRATION v14.22.6: backfill updatedAt on inventory items that never had one.
+    // Without this, needsPush() pushes them every sync, triggering the remote-wins path
+    // which can overwrite dateAdded with a blank value from the sheet.
+    let _updAtFixed = 0;
+    inventory.forEach(p => { if (!p.updatedAt) { p.updatedAt = new Date().toISOString(); _updAtFixed++; } });
+    if (_updAtFixed > 0) { saveStk(); console.log('v14.22.6 updatedAt backfilled for', _updAtFixed, 'product(s)'); }
     // MIGRATION v14.12: recompute invoice costPrice from itemsArr (costPrice × qty per item).
     // Prior versions saved costPrice without multiplying by qty. Idempotent — safe to run every init.
     let _costFixed = 0;
@@ -2959,7 +2966,7 @@ function generateInvoice(){
     itemsSummary:validItems.map(i=>`${i.desc}${i.variantLabel?' ('+i.variantLabel+')':''} x${i.qty} @₹${i.unitPrice}`).join(' | '),
     itemsArr:validItems,
     gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,
-    isShipped:false,status:'Pending',
+    isShipped:false,status:'Pending',invoiceStatus:'Active',
     costPrice:itemsCostTotal,
     religion:getAutoReligion(custName,custPhone,custWhatsapp),
     invUpdatedAt:new Date().toISOString(),
@@ -3261,6 +3268,7 @@ function renderSales(){
   });
   salesFiltered=applySortToList(deduped.filter(inv=>{
     // Use unified status for filter (tracking wins over manual)
+    const invSt=inv.invoiceStatus||'Active';
     const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
     let isShippedOrDelivered=false;
     if(trackNos.length>0&&trackNos.some(t=>trackingData[t])){
@@ -3270,6 +3278,9 @@ function renderSales(){
     }else{
       isShippedOrDelivered=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
     }
+    if(sf==='Cancelled')return invSt==='Cancelled';
+    if(sf==='Returned')return invSt==='Returned';
+    // For Shipped/Pending filters, skip Cancelled/Returned invoices
     if(sf==='Shipped'&&!isShippedOrDelivered)return false;
     if(sf==='Pending'&&isShippedOrDelivered)return false;
     if(q&&!inv.custName?.toLowerCase().includes(q)&&!inv.invNo?.toLowerCase().includes(q)&&!(inv.itemsSummary||'').toLowerCase().includes(q))return false;
@@ -3313,7 +3324,9 @@ function renderSales(){
     }
     const badgeClass=unifiedStatus==='Delivered'?'b-green':unifiedStatus==='Shipped'?'b-green':unifiedStatus==='No Tracking'?'b-yellow':unifiedStatus==='Awaiting Update'?'b-yellow':unifiedStatus==='Part Delivered'?'b-blue':unifiedStatus==='Overdue'?'b-red':'b-blue';
     const badgeIcon=unifiedStatus==='Delivered'?'✅ ':unifiedStatus==='Overdue'?'⚠️ ':unifiedStatus==='Part Delivered'?'📦 ':unifiedStatus==='No Tracking'?'📭 ':unifiedStatus==='Awaiting Update'?'⏳ ':'';
-    const badge=`<span class="badge ${badgeClass}">${badgeIcon}${unifiedStatus}</span>`;
+    const _invSt=inv.invoiceStatus||'Active';
+    const _stBadge=_invSt==='Cancelled'?'<span class="badge" style="background:#c0392b;color:#fff;">🚫 Cancelled</span>':_invSt==='Returned'?'<span class="badge" style="background:#e67e22;color:#fff;">↩ Returned</span>':'';
+    const badge=_stBadge||`<span class="badge ${badgeClass}">${badgeIcon}${unifiedStatus}</span>`;
     const shipped=unifiedStatus==='Delivered'||unifiedStatus==='Shipped';
     const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
     const rel=getInvReligion(inv);
@@ -3351,36 +3364,18 @@ function renderSales(){
             <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="editInvoiceByIdx(${idx})">✏️ Edit</button>
             <button class="btn btn-sm ${shipped?'btn-o':'btn-g'}" style="min-height:44px;" onclick="toggleShippedByIdx(${idx})">${shipped?'↩':'🚚'}</button>
             <button class="btn btn-d btn-sm" style="min-height:44px;" onclick="deleteInvoiceByIdx(${idx})">🗑</button>
+            ${_invSt==='Active'?`<button class="btn btn-o btn-sm" style="min-height:44px;font-size:11px;" onclick="openInvStatusModal(salesFiltered[${idx}])">📋 Status</button>`:''}
+            ${_invSt!=='Active'?`<button class="btn btn-o btn-sm" style="min-height:44px;font-size:11px;" onclick="_applyInvoiceStatus(salesFiltered[${idx}],'Active')">↺ Reactivate</button>`:''}
           </div>
+          ${(()=>{const invCNs=creditNotes.filter(cn=>String(cn.refInvId)===String(inv.id));if(!invCNs.length)return'';return'<div style="margin-top:8px;border-top:1px solid #e8dcc8;padding-top:8px;">'+invCNs.map(cn=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;"><div><span style="font-size:11px;font-weight:700;color:#c0392b;">'+cn.cnNo+'</span> <span style="font-size:11px;color:#888;">'+fmtDate(cn.cnDate)+' · '+cn.reason+'</span></div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:12px;font-weight:700;color:#c0392b;">−₹'+parseFloat(cn.creditAmount||0).toLocaleString('en-IN')+'</span><button class="btn btn-o btn-sm" style="padding:4px 8px;font-size:10px;min-height:0;" onclick="printCreditNote('+JSON.stringify(cn).replace(/"/g,'&quot;')+')">🖨️</button></div></div>').join('')+'</div>'})()}
         </div>
       </div>
     </div>`;
   }).join('');
 
-  // Render credit notes if any exist
+  // Credit notes are now rendered inside each invoice card
   const cnSection=document.getElementById('cn-section');
-  const cnList=document.getElementById('cn-list');
-  if(cnSection&&cnList&&creditNotes.length>0){
-    cnSection.style.display='block';
-    cnList.innerHTML=creditNotes.slice().reverse().map(cn=>`
-      <div class="card" style="border-left:4px solid #e74c3c;margin-bottom:10px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-          <div>
-            <div style="font-weight:700;font-size:14px;color:#c0392b;">${cn.cnNo}</div>
-            <div style="font-size:12px;color:#888;">${fmtDate(cn.cnDate)} · Against: ${cn.refInvNo}</div>
-            <div style="font-size:13px;font-weight:500;margin-top:3px;">${cn.custName}</div>
-            <div style="font-size:12px;color:#888;">Reason: ${cn.reason}</div>
-          </div>
-          <div style="text-align:right;">
-            <div style="font-weight:700;font-size:15px;color:#c0392b;">−₹${parseFloat(cn.creditAmount||0).toLocaleString('en-IN')}</div>
-            <button class="btn btn-o btn-sm" style="margin-top:6px;" onclick="printCreditNote(${JSON.stringify(cn).replace(/"/g,'&quot;')})">🖨️ Print</button>
-          </div>
-        </div>
-        ${cn.notes?`<div style="font-size:12px;color:#888;margin-top:6px;">${cn.notes}</div>`:''}
-      </div>`).join('');
-  }else if(cnSection){
-    cnSection.style.display='none';
-  }
+  if(cnSection)cnSection.style.display='none';
 }
 function updateSelCount(){
   const cbs=document.querySelectorAll('.sale-cb:checked');
@@ -4359,6 +4354,17 @@ function openCreditNoteFromEdit(){
   openCNModal(inv);
 }
 
+// Manual invoice status change (Cancelled / Returned) without needing a CN
+function openInvStatusModal(inv){
+  if(!inv)return;
+  const bodyHtml='<div style="font-size:13px;color:#555;margin-bottom:14px;">Change status for invoice <strong>'+(inv.invNo||'')+'</strong> ('+esc(inv.custName||'')+')</div>'
+    +'<div style="display:flex;flex-direction:column;gap:10px;">'
+    +'<button class="btn btn-o" style="text-align:left;" onclick="closeConfirmModal();_applyInvoiceStatus(invoices.find(i=>String(i.id)===\''+String(inv.id)+'\'),\'Cancelled\')">🚫 Mark as Cancelled</button>'
+    +'<button class="btn btn-o" style="text-align:left;" onclick="closeConfirmModal();_applyInvoiceStatus(invoices.find(i=>String(i.id)===\''+String(inv.id)+'\'),\'Returned\')">↩ Mark as Returned <span style=\"font-size:11px;color:#888;\">(restores stock)</span></button>'
+    +'</div>';
+  showConfirmModal('📋 Change Invoice Status',bodyHtml,null,null);
+}
+
 function openCNModal(inv){
   cnRefInvId=String(inv.id);
   const gst=inv.isGST===true||inv.isGST==='true';
@@ -4460,7 +4466,47 @@ function saveCreditNote(){
   gsWriteConfirmed('CreditNotes',cn).then(function(ok){
     hideLoading();
     toast(ok?'✅ Credit Note '+cnNo+' issued!':'✅ Credit Note '+cnNo+' issued — sheet sync pending',ok?3000:5000);
+    // For Return or Cancellation, prompt to update invoice status
+    if(finalReason==='Return'||finalReason==='Cancellation'){
+      const newStatus=finalReason==='Return'?'Returned':'Cancelled';
+      const bodyHtml='<div style="font-size:13px;color:#555;margin-bottom:12px;">Credit Note <strong>'+cnNo+'</strong> has been issued against invoice <strong>'+(refInv.invNo||'')+'</strong>.<br/><br/>Do you want to also mark this invoice as <strong>'+newStatus+'</strong>?'+(finalReason==='Return'?'<br/><span style="font-size:12px;color:#888;">This will restore inventory stock for items with a product number.</span>':'')+'</div>';
+      showConfirmModal('📋 Mark Invoice as '+newStatus+'?',bodyHtml,function(){
+        _applyInvoiceStatus(refInv,newStatus);
+      },null);
+    }
   });
+}
+
+// Apply Cancelled/Returned status to an invoice; optionally restore stock for Returns
+function _applyInvoiceStatus(inv,newStatus){
+  inv.invoiceStatus=newStatus;
+  inv.invUpdatedAt=new Date().toISOString();
+  save();
+  renderSales();
+  // Restore inventory stock for Returns
+  let restored=0;
+  if(newStatus==='Returned'){
+    const items=expandItems(inv.itemsArr||[]);
+    items.forEach(it=>{
+      if(!it.prodNo)return;
+      const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(it.prodNo));
+      if(!p)return;
+      const qty=parseInt(it.qty)||1;
+      p.qty=(parseInt(p.qty)||0)+qty;
+      p.qtySold=Math.max(0,(parseInt(p.qtySold)||0)-qty);
+      p.updatedAt=new Date().toISOString();
+      saveStk();
+      gsWriteConfirmed(SHEETS.inventory,flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Inventory sync failed for #'+p.prodNo+' — tap sync to retry');});
+      restored+=qty;
+    });
+  }
+  gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{
+    if(!ok)toast('⚠️ Invoice status saved locally — sheet sync pending');
+  });
+  renderTrackingPage&&renderTrackingPage();
+  renderDashboard&&renderDashboard();
+  const restoredMsg=restored>0?' · '+restored+' item'+(restored!==1?'s':'')+' restored to stock':'';
+  toast('✅ Invoice marked as '+newStatus+restoredMsg);
 }
 
 function printCreditNote(cn){
@@ -4637,6 +4683,9 @@ function renderDashboard(){
   invoices.forEach(inv=>{
     const{dashStatus,isShipped,isOverdue}=_dashGetStatus(inv);
     if(dashStatus==='Delivered')return;
+    // Exclude Cancelled/Returned invoices from pending orders
+    const invSt=inv.invoiceStatus||'Active';
+    if(invSt==='Cancelled'||invSt==='Returned')return;
     // Hard cutoff — no exceptions, including overdue
     if((inv.invDate||'')<_pendingCutoff)return;
     if(dashStatus==='No Tracking'&&!isShipped){_grpNoTracking.push(inv);}
@@ -6271,7 +6320,7 @@ async function bulkSaveOnly(){
         grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,itemCount:validItems.length,
         itemsSummary:validItems.map(i=>i.desc).join(', '),itemsArr:validItems,
         shipping:r.shipping,shippingCost:r.shippingCost||0,discount:r.discount,
-        tracking:r.tracking,channel:r.channel||'',isShipped:false,status:'Pending',isGST:isGSTEnabled(),costPrice:ct||0,
+        tracking:r.tracking,channel:r.channel||'',isShipped:false,status:'Pending',invoiceStatus:'Active',isGST:isGSTEnabled(),costPrice:ct||0,
         gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,dispatchDate:'',
       };
       invoices.push(saved);
@@ -8035,7 +8084,9 @@ function buildTrackingPage(){
   const total=Object.keys(trackingData).length;
   const top=getTop1000Tracked();
   const courierItems=getCourierTrackedInvoices();
-  const courierTotal=[...new Set(courierItems.map(i=>i._singleTracking.trim().toUpperCase()))].length;
+  const courierNos=[...new Set(courierItems.map(i=>i._singleTracking.trim().toUpperCase()))];
+  const courierTotal=courierNos.length;
+  const courierInTransit=courierNos.filter(t=>{const td=trackingData[t];return td&&td.source&&!isGhostTrackingRecord(td)&&!/^delivered$/i.test(td.status||'');}).length;
   const key=S.track123Key1||S.track123Key2||'';
   return`<div class="card" style="margin-bottom:14px;">
     <div class="card-title">📡 India Post — Bulk Tracking</div>
@@ -8055,7 +8106,7 @@ function buildTrackingPage(){
     <div class="card-title">🚚 DTDC &amp; Blue Dart — Auto Tracking</div>
     <div style="font-size:13px;color:#888;margin-bottom:12px;line-height:1.7;">
       Status is fetched automatically via Track123 API. No manual export/import needed.<br/>
-      <strong>${courierTotal}</strong> DTDC/Blue Dart shipment${courierTotal!==1?'s':''} found in invoices
+      <strong>${courierTotal}</strong> DTDC/Blue Dart shipment${courierTotal!==1?'s':''} found in invoices${courierInTransit>0?' · <strong style="color:#2980b9;">'+courierInTransit+' in transit</strong>':''}
       ${!key?'<br/><span style="color:#e74c3c;font-weight:600;">⚠️ No Track123 API key set — add it in Settings → Courier Tracking</span>':''}
     </div>
     <button class="btn btn-p" style="width:100%;margin-bottom:8px;" onclick="refreshCourierTracking()">🔄 Refresh DTDC / Blue Dart Status</button>
@@ -8086,8 +8137,10 @@ function renderTrackingPage(){
   const area=document.getElementById('tracking-table-area');
   if(!area)return;
   // Merge India Post + DTDC/Blue Dart into one list, deduplicate by tracking number
-  const ipItems=getTop1000Tracked().map(inv=>({...inv,_courierCode:inv._courierCode||'indiapost'}));
-  const courierItems=getCourierTrackedInvoices();
+  // Exclude Cancelled/Returned invoices from tracking entirely
+  const _activeInvIds=new Set(invoices.filter(i=>{const s=i.invoiceStatus||'Active';return s==='Active';}).map(i=>String(i.id)));
+  const ipItems=getTop1000Tracked().filter(inv=>_activeInvIds.has(String(inv.id))).map(inv=>({...inv,_courierCode:inv._courierCode||'indiapost'}));
+  const courierItems=getCourierTrackedInvoices().filter(inv=>_activeInvIds.has(String(inv.id)));
   const seenKeys=new Set(ipItems.map(inv=>(inv._singleTracking||'').trim().toUpperCase()));
   const mergedExtra=courierItems.filter(inv=>!seenKeys.has((inv._singleTracking||'').trim().toUpperCase()));
   const top=[...ipItems,...mergedExtra];
@@ -8097,6 +8150,9 @@ function renderTrackingPage(){
   const _pendingCutoff='2026-06-01';
   const noTrackingInvs=invoices.filter(inv=>{
     if(seenInvIds.has(String(inv.id)))return false;
+    // Exclude Cancelled/Returned invoices
+    const invSt=inv.invoiceStatus||'Active';
+    if(invSt==='Cancelled'||invSt==='Returned')return false;
     const trackNos=(inv.tracking||'').split(',').map(t=>t.trim()).filter(Boolean);
     if(trackNos.length>0)return false;
     // Only show non-delivered (check manual status)
@@ -9004,10 +9060,8 @@ function printInvPriceList() {
       const price = sell + ship;
       html += '<td style="padding:8px 10px;text-align:right;font-weight:700;font-size:12pt;color:#5c3d1e;">' + (sell ? f(price) : '—') + '</td>';
     } else {
-      // Cost cell: struck original total cost if any sold, show remaining
-      const costCell = (cost && hasSold)
-        ? struck(costOrig, costCur, f)
-        : (cost ? f(cost) : '—');
+      // Cost cell: always show current per-unit cost — no strikethrough (cost is a static purchase fact)
+      const costCell = cost ? f(cost) : '—';
       html += '<td style="padding:8px 10px;text-align:right;">' + costCell + '</td>'
         + '<td style="padding:8px 10px;text-align:right;font-weight:700;">' + (sell ? f(sell) : '—') + '</td>'
         + (ship > 0 ? '<td style="padding:8px 10px;text-align:right;font-weight:700;color:#5c3d1e;">' + (sell ? f(sellWithShip) : '—') + '</td>' : '');
@@ -9022,7 +9076,7 @@ function printInvPriceList() {
     ? struck(totQtyOrig, totQtyCur, v => v)
     : String(totQtyCur);
   const footerCost = (!customerView && totCostOrig > 0)
-    ? (hasSoldOverall ? struck(totCostOrig, totCostCur, f) : f(totCostOrig))
+    ? f(totCostOrig)
     : '';
   const colSpanName = 2; // Art No + Name
   let footerHtml = '<tr style="background:#f5ede0;font-weight:700;border-top:2px solid #5c3d1e;">'
