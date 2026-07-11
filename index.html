@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.26.0
+APP: Vismaad Creations v14.27.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 10-Jul-2026 — v14.26.0: (1) readAll — syncAll fetches all 12 sheets in ONE JSONP round-trip via new Apps Script action=readAll (per-sheet fallback if old script still deployed; requires Code.gs v3). (2) Follow-up pause — ⏸/▶️ toggle on Outreach page; paused = no FU popup, no dashboard due counter, no FU list; on resume fuResumeDate is stamped and customers whose 45-day due date fell before it are skipped forever; synced via Settings sheet (fuPaused/fuResumeDate). Festival + delivery messages unaffected. (3) GST era: gstStartDate setting (auto-set when GST toggled ON, editable in Settings); Archive Pre-GST Data downloads a JSON backup then moves invoices/credit notes dated before gstStartDate to InvoicesArchive/CreditNotesArchive sheet tabs (action=archivePreGst) and tombstones their ids in DeletedIds so every device purges them — live app carries GST-era books only; DeletedIds purge in syncAll now also removes credit notes. (4) Stock integrity: deductStock/restoreStock single entry points — deductions/restorations on variant products without a variantId previously wrote product-level qty and were silently reverted by the next variant recalc; fixed in invoice-save fallback, standalone mark-sold, link-to-invoice, invoice-delete restore, Returned-status restore and undo; expandItems now preserves variantId (sync merge was stripping it from itemsArr, breaking variant restores cross-device); ± Stock button blocked on variant products (edit per-variant instead). (5) Inventory stats: Active Products (count with qty>0), Units in Stock (sum of in-stock qty), Stock Value (in-stock qty×cost) + warning when in-stock products are missing cost price.
+LAST_CHANGE: 11-Jul-2026 — v14.27.0: (1) Cancelled/Returned status now actually sticks — invoiceStatus was NEVER read from the remote row in the invoice sync merge, so a cancel never propagated cross-device and a stale device pushed 'Active' back over the sheet row (status appeared to revert after a sync/reload); merge now takes invoiceStatus when remote is newer, and in the no-timestamp fallback never downgrades a local Cancelled/Returned to Active; init backfills invoiceStatus='Active' + invUpdatedAt on legacy rows so the field is never blank/ambiguous on the sheet. (2) New Credit Notes page (More → 📝 Credit Notes, and shortcut on Sales header) — full list of every CN with search + FY filter, stat cards (count, total credited, GST reversed, unlinked), parent-invoice status badge, print/relink/delete per row; desktop table + mobile cards (768px). (3) Delete credit note — confirm modal (with optional "also reactivate the invoice" when the parent is Cancelled/Returned), removes locally, tombstones the id in DeletedIds and gsDeletes the sheet row so it disappears on every device; CN sync merge now honours tombstones (was resurrecting deleted CNs from stale sheet rows). (4) Link/relink credit notes — 🔗 on a CN re-points it at a different invoice; 🔗 Link existing on a Cancelled/Returned invoice with no CN picks an existing/orphan CN to attach; both guard against exceeding the target invoice's remaining creditable value and re-derive the GST split from the target document type; orphan CNs (invoice deleted) flagged "Not linked" in red. (5) Invoice card — Cancelled/Returned invoices with no credit note now show an amber "No credit note linked" hint with 📝 Issue CN / 🔗 Link existing buttons; linked CNs gain relink + delete buttons.
+PREV_CHANGE: 10-Jul-2026 — v14.26.0: (1) readAll — syncAll fetches all 12 sheets in ONE JSONP round-trip via new Apps Script action=readAll (per-sheet fallback if old script still deployed; requires Code.gs v3). (2) Follow-up pause — paused = no FU popup/dashboard counter; fuResumeDate skips elapsed windows. (3) GST era: gstStartDate + Archive Pre-GST Data to InvoicesArchive/CreditNotesArchive tabs. (4) Stock integrity: deductStock/restoreStock single entry points; expandItems preserves variantId; ± Stock blocked on variant products. (5) Inventory stats corrected (Active Products / Units in Stock / Stock Value).
 PREV_CHANGE: 09-Jul-2026 — v14.25.0: CTO audit fixes, 13 in one pass. C1: perpetual auto-sync loop killed — saves inside syncAll no longer re-schedule the 20s timer (app synced every 20s forever, ~50k requests/day); lastSyncTime now stamped from sync START so edits made mid-sync push next cycle. C2: settingsForSheet() sanitized payload — githubPat/track123 keys/catSheetId/UPI never written to Settings sheet (3 leaking write paths replaced); NOTE: manually delete credential values already in the Settings sheet row. C3: flattenForSheet no longer strips gstin from settings writes — GSTIN now actually syncs cross-device. C4: hardcoded Track123 key removed from source (existing devices keep it in localStorage; new devices enter it in Settings). C5: invoice save/delete writes only touched products via gsWriteConfirmed (was full-inventory fire-and-forget). H1: DeletedIds sheet — invoice deletions propagate cross-device (tombstones were localStorage-only, deleted invoices lived forever on other devices). H2: init qtySold normaliser repairs qtyOriginal UPWARD instead of wiping sales on rows lacking qtyOriginal; all mark-sold paths maintain qtyOriginal=qty+qtySold invariant; 10s UNDO toast on mark-sold (standalone + linked) via showUndoToast/_undoMarkSold. H3: visibilitychange flushes dirty records (flushPendingWrites, keepalive fetch) when app backgrounded with pending timer; online listener reschedules sync after reconnect. H4: checkDupInvNos after sync detects duplicate invoice numbers from concurrent device creation, prompts renumber of newer invoice to next free number (FY-aware for GST format). H5: settings get updatedAt; timestamp-wins merge (allows clearing fields cross-device, legacy presence-based fallback when timestamps absent); merge preserves local-only fields via spread — also fixes upiId/upiName/upiPhone being silently dropped from S on every sync. M1: sales search debounced 250ms. M2: PopupState pushed only when changed (was confirmed-write every sync). M6: Synced toast on manual sync only (header tap, Sync Now button, pull-to-refresh pass manual=true). PREV_CHANGE: 29-Jun-2026 — v14.24.0: (1) DTDC/Blue Dart count in tracking page description now excludes Cancelled/Returned invoices and shows non-delivered count (orange) or "all delivered" (green) instead of in-transit; (2) Hand Delivery and Walk-in invoices excluded from tracking page no-tracking list and dashboard pending orders. PREV_CHANGE: 27-Jun-2026 — v14.23.0: (1) Inventory dateAdded preserved in remote-wins sync merge; one-time updatedAt backfill for legacy items to stop needsPush re-pushing every sync; (2) Price list cost price column no longer strikes through — cost is a static fact; (3) Credit note full flow: CN linked inside invoice card in sales list with print button; on Return/Cancellation CN prompt to mark invoice as Returned/Cancelled (with stock restore for Returns); manual 📋 Status button on each invoice; invoiceStatus field (Active/Cancelled/Returned); (4) Cancelled/Returned invoices excluded from tracking page and dashboard pending orders; sales list filter adds Cancelled/Returned options; badge shown on invoice card; (5) DTDC/Blue Dart description now shows in-transit count.
 PREV_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
@@ -188,7 +189,12 @@ tbody tr:last-child td{border-bottom:none;}
 @page{margin:0;}
 
 /* ── DESKTOP ENHANCEMENTS ── */
+/* v14.27.0: credit notes page — table on desktop, cards on mobile */
+.cn-desk{display:none;}
+.cn-mob{display:block;}
 @media(min-width:768px){
+  .cn-desk{display:block;}
+  .cn-mob{display:none;}
   .page{padding:24px 28px;max-width:900px;margin:0 auto;}
   .stat-grid{grid-template-columns:repeat(4,1fr);}
   .row2{grid-template-columns:1fr 1fr;}
@@ -675,7 +681,11 @@ body.gst-mode .gst-only{display:block;}
 
 <!-- ════ SALES/SAVED PAGE ════ -->
 <div class="page" id="page-sales">
-  <div class="sec-title">Sales</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+    <div class="sec-title" style="margin-bottom:0;">Sales</div>
+    <button class="btn btn-o btn-sm" style="font-size:11px;" onclick="showSubPage('creditnotes')">📝 Credit Notes</button>
+  </div>
+  <div style="height:10px;"></div>
 
   <!-- Search + filter + sort -->
   <div style="display:flex;gap:8px;margin-bottom:8px;">
@@ -766,6 +776,7 @@ body.gst-mode .gst-only{display:block;}
       <button class="btn btn-o btn-sm" onclick="showSubPage('bulkedit')">✏️ Bulk Invoice Editor</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('tracking')">📡 Tracking Status</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('dsreport')">📦 DS Report</button>
+      <button class="btn btn-o btn-sm" onclick="showSubPage('creditnotes')">📝 Credit Notes</button>
       <button class="btn btn-o btn-sm" onclick="toggleSettings()">⚙️ Settings</button>
     </div>
   </div>
@@ -1006,6 +1017,21 @@ body.gst-mode .gst-only{display:block;}
     <div class="btn-row">
       <button class="btn btn-p" onclick="saveCreditNote()">📝 Issue Credit Note</button>
       <button class="btn btn-o" onclick="closeCNModal()" style="width:auto;padding:13px 16px;">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ v14.27.0 CREDIT NOTE LINK / RELINK MODAL ════ -->
+<div class="modal-bg" id="cnlink-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeCNLinkModal()">✕</button>
+    <div class="modal-title" id="cnlink-title">🔗 Link Credit Note</div>
+    <div style="font-size:13px;color:#555;margin-bottom:12px;line-height:1.6;" id="cnlink-sub"></div>
+    <input type="text" id="cnlink-search" placeholder="🔍 Search…" oninput="renderCNLinkList()"
+      style="width:100%;padding:11px 13px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;margin-bottom:10px;"/>
+    <div id="cnlink-list" style="max-height:52vh;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>
+    <div class="btn-row" style="margin-top:12px;">
+      <button class="btn btn-o" onclick="closeCNLinkModal()">Cancel</button>
     </div>
   </div>
 </div>
@@ -1979,6 +2005,14 @@ async function syncAll(manual){
             // Remote is strictly newer — overwrite all mutable invoice fields
             local.isShipped=remShipped;
             local.status=remShipped?'Shipped':'Pending';
+            // v14.27.0: invoiceStatus (Active/Cancelled/Returned) was NEVER merged from remote —
+            // cancellations never propagated cross-device and a stale remote row could silently
+            // keep the sheet on 'Active', so the cancel appeared to "revert" after a sync/reload.
+            // A BLANK remote value means "that device never knew about this field" (pre-v14.27
+            // client), not "Active" — it must not clear a local Cancelled/Returned.
+            const _rSt=String(r.invoiceStatus||'').trim();
+            const _lSt=String(local.invoiceStatus||'').trim()||'Active';
+            local.invoiceStatus=_rSt?_rSt:_lSt;
             local.invUpdatedAt=r.invUpdatedAt;
             // itemsArr carries DS data (dsSupId, dsPaid, dsUpfront, dsDate, costPrice per item)
             // Take from remote when remote is newer; expandItems normalises string or array
@@ -2001,6 +2035,11 @@ async function syncAll(manual){
             // No timestamps on either side — remote wins only if not locally shipped
             // Backfill timestamp so future syncs can resolve correctly
             if(!localShipped){local.isShipped=remShipped;local.status=remShipped?'Shipped':'Pending';}
+            // v14.27.0: invoiceStatus — never downgrade a local Cancelled/Returned back to Active
+            // from an untimestamped remote row; adopt a remote non-Active status if local is Active.
+            const _locSt=(local.invoiceStatus&&String(local.invoiceStatus).trim())||'Active';
+            const _remSt=(r.invoiceStatus&&String(r.invoiceStatus).trim())||'Active';
+            local.invoiceStatus=(_locSt!=='Active')?_locSt:_remSt;
             local.invUpdatedAt=new Date().toISOString();
             // Fill-in-blank scalar fields
             if(r.tracking&&!local.tracking)local.tracking=r.tracking;
@@ -2126,10 +2165,14 @@ async function syncAll(manual){
     // CREDIT NOTES — newer updatedAt wins; remote-only items added
     try{
       const remCN=await rd('CreditNotes');
-      const cnm={};creditNotes.forEach(c=>{cnm[String(c.id)]=c;});
+      // v14.27.0: honour tombstones — a CN deleted on any device must not be resurrected
+      // from a sheet row whose gsDelete hasn't landed yet (invoice merge already did this).
+      const _cnDel=new Set(getDeletedIds().map(String));
+      const cnm={};creditNotes.forEach(c=>{if(!_cnDel.has(String(c.id)))cnm[String(c.id)]=c;});
       remCN.forEach(r=>{
         if(!r.id)return;
         const key=String(r.id);
+        if(_cnDel.has(key)){gsDelete('CreditNotes',key);return;}
         if(!cnm[key]){cnm[key]=r;}
         else{
           const remTime=r.updatedAt?new Date(r.updatedAt).getTime():0;
@@ -2326,6 +2369,7 @@ async function syncAll(manual){
     renderDashboard();
     renderInventory();renderAgingGrid();updateInventoryStats();renderPostingQueue();
     renderSales();
+    renderCreditNotesList(); // v14.27.0: no-op unless the Credit Notes sub-page is open
     renderOutreachWidget();
     renderSyncInfo();
     if(manual===true)toast('☁️ Synced — '+invoices.length+' invoices'); // v14.25.0 M6: toast on manual sync only
@@ -2381,7 +2425,8 @@ function showSubPage(id){
     outreach:'📬 Outreach Centre',
     tracking:'📡 Tracking Status',
     suppliers:'🏭 Suppliers & Bills',
-    dsreport:'📦 Dropship Report'
+    dsreport:'📦 Dropship Report',
+    creditnotes:'📝 Credit Notes'
   };
   if(titleEl)titleEl.textContent=titles[id]||id;
   content.innerHTML=buildSubPage(id);
@@ -2392,6 +2437,7 @@ function showSubPage(id){
   if(id==='outreach')renderOutreachPage();
   if(id==='tracking')renderTrackingPage();
   if(id==='dsreport')renderDSReport();
+  if(id==='creditnotes')renderCreditNotesList();
 }
 function closeSubPage(){
   const c=document.getElementById('sub-page-container');
@@ -2414,6 +2460,16 @@ function init(){
           }
         }
       }
+    });
+    // v14.27.0: backfill invoiceStatus/invUpdatedAt so the field is never blank on the sheet.
+    // A blank invoiceStatus is ambiguous during merge — a stale device could push an empty value
+    // over a Cancelled row. Idempotent; only pushes rows it actually repairs.
+    let _stFixed=0;
+    invoices.forEach(inv=>{
+      let ch=false;
+      if(!inv.invoiceStatus||!String(inv.invoiceStatus).trim()){inv.invoiceStatus='Active';ch=true;}
+      if(!inv.invUpdatedAt){inv.invUpdatedAt=new Date(inv.invDate?inv.invDate+'T00:00:00':Date.now()).toISOString();ch=true;}
+      if(ch)_stFixed++;
     });
     save();
     // MIGRATION v14.3: default variant qty to 1 for existing variants that have no qty set
@@ -3563,7 +3619,28 @@ function renderSales(){
             ${_invSt==='Active'?`<button class="btn btn-o btn-sm" style="min-height:44px;font-size:11px;" onclick="openInvStatusModal(salesFiltered[${idx}])">📋 Status</button>`:''}
             ${_invSt!=='Active'?`<button class="btn btn-o btn-sm" style="min-height:44px;font-size:11px;" onclick="_applyInvoiceStatus(salesFiltered[${idx}],'Active')">↺ Reactivate</button>`:''}
           </div>
-          ${(()=>{const invCNs=creditNotes.filter(cn=>String(cn.refInvId)===String(inv.id));if(!invCNs.length)return'';return'<div style="margin-top:8px;border-top:1px solid #e8dcc8;padding-top:8px;">'+invCNs.map(cn=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;"><div><span style="font-size:11px;font-weight:700;color:#c0392b;">'+cn.cnNo+'</span> <span style="font-size:11px;color:#888;">'+fmtDate(cn.cnDate)+' · '+cn.reason+'</span></div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:12px;font-weight:700;color:#c0392b;">−₹'+parseFloat(cn.creditAmount||0).toLocaleString('en-IN')+'</span><button class="btn btn-o btn-sm" style="padding:4px 8px;font-size:10px;min-height:0;" onclick="printCreditNote('+JSON.stringify(cn).replace(/"/g,'&quot;')+')">🖨️</button></div></div>').join('')+'</div>'})()}
+          ${(()=>{
+            const invCNs=creditNotes.filter(cn=>String(cn.refInvId)===String(inv.id));
+            // v14.27.0: Cancelled/Returned invoice with no CN linked — prompt to issue or link one
+            if(!invCNs.length){
+              if(_invSt==='Active')return'';
+              return'<div style="margin-top:8px;border-top:1px solid #e8dcc8;padding-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">'
+                +'<span style="font-size:11px;color:#c47b00;font-weight:600;">⚠️ No credit note linked</span>'
+                +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+                +'<button class="btn btn-o btn-sm" style="padding:5px 9px;font-size:10px;min-height:0;" onclick="openCNModal(salesFiltered['+idx+'])">📝 Issue CN</button>'
+                +'<button class="btn btn-o btn-sm" style="padding:5px 9px;font-size:10px;min-height:0;" onclick="openCNAttachModal(\''+String(inv.id)+'\')">🔗 Link existing</button>'
+                +'</div></div>';
+            }
+            return'<div style="margin-top:8px;border-top:1px solid #e8dcc8;padding-top:8px;">'+invCNs.map(cn=>
+              '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:4px 0;flex-wrap:wrap;">'
+              +'<div><span style="font-size:11px;font-weight:700;color:#c0392b;">'+esc(cn.cnNo)+'</span> <span style="font-size:11px;color:#888;">'+fmtDate(cn.cnDate)+' · '+esc(cn.reason)+'</span></div>'
+              +'<div style="display:flex;align-items:center;gap:6px;">'
+              +'<span style="font-size:12px;font-weight:700;color:#c0392b;">−₹'+parseFloat(cn.creditAmount||0).toLocaleString('en-IN')+'</span>'
+              +'<button class="btn btn-o btn-sm" style="padding:4px 8px;font-size:10px;min-height:0;" onclick="printCreditNoteById(\''+String(cn.id)+'\')">🖨️</button>'
+              +'<button class="btn btn-o btn-sm" style="padding:4px 8px;font-size:10px;min-height:0;" onclick="openCNRelinkModal(\''+String(cn.id)+'\')">🔗</button>'
+              +'<button class="btn btn-d btn-sm" style="padding:4px 8px;font-size:10px;min-height:0;" onclick="confirmDeleteCN(\''+String(cn.id)+'\')">🗑</button>'
+              +'</div></div>').join('')+'</div>';
+          })()}
         </div>
       </div>
     </div>`;
@@ -4705,6 +4782,7 @@ function saveCreditNote(){
   saveCNs();
   closeCNModal();
   renderSales();
+  renderCreditNotesList();
   showLoading('Saving…');
   gsWriteConfirmed('CreditNotes',cn).then(function(ok){
     hideLoading();
@@ -4748,9 +4826,339 @@ function _applyInvoiceStatus(inv,newStatus){
   });
   renderTrackingPage&&renderTrackingPage();
   renderDashboard&&renderDashboard();
+  renderCreditNotesList(); // v14.27.0: CN page status badges follow invoice status
   const restoredMsg=restored>0?' · '+restored+' item'+(restored!==1?'s':'')+' restored to stock':'';
   toast('✅ Invoice marked as '+newStatus+restoredMsg);
 }
+
+// ═══════════════════════════════════════════
+// v14.27.0 — CREDIT NOTE MANAGEMENT
+// Dedicated page, delete (tombstoned cross-device), relink to another invoice,
+// and attach an existing orphan/unlinked CN to a cancelled invoice.
+// ═══════════════════════════════════════════
+
+function findCN(id){return creditNotes.find(c=>String(c.id)===String(id))||null;}
+function printCreditNoteById(id){const cn=findCN(id);if(!cn){toast('⚠️ Credit note not found');return;}printCreditNote(cn);}
+
+// A CN is orphaned when its refInvId no longer resolves to a live invoice
+function isCNOrphan(cn){return !invoices.some(i=>String(i.id)===String(cn.refInvId));}
+
+// ── DELETE ──────────────────────────────────
+function confirmDeleteCN(id){
+  const cn=findCN(id);
+  if(!cn){toast('⚠️ Credit note not found');return;}
+  const refInv=invoices.find(i=>String(i.id)===String(cn.refInvId));
+  const st=refInv?(refInv.invoiceStatus||'Active'):null;
+  let body='<div style="font-size:13px;color:#555;line-height:1.6;">'
+    +'Delete credit note <strong>'+esc(cn.cnNo)+'</strong> (₹'+parseFloat(cn.creditAmount||0).toLocaleString('en-IN')+')'
+    +(refInv?' issued against <strong>'+esc(refInv.invNo||'')+'</strong>':'')+'?<br/><br/>'
+    +'This removes it from every device and from the Google Sheet. Revenue and GST in the P&L will go back up by this amount.'
+    +'</div>';
+  if(refInv&&(st==='Cancelled'||st==='Returned')){
+    body+='<div style="margin-top:12px;background:#fff8e8;border:1px solid #e8dcc8;border-radius:8px;padding:10px;font-size:12px;color:#7a5c1e;">'
+      +'⚠️ Invoice <strong>'+esc(refInv.invNo||'')+'</strong> is currently marked <strong>'+st+'</strong>. '
+      +'Deleting this credit note does <strong>not</strong> change the invoice status.'
+      +'<label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;font-weight:600;">'
+      +'<input type="checkbox" id="cn-del-reactivate" style="width:16px;height:16px;"/> Also reactivate the invoice (back to Active)</label>'
+      +'</div>';
+  }
+  showConfirmModal('🗑 Delete Credit Note?',body,function(){
+    const react=document.getElementById('cn-del-reactivate');
+    const doReact=!!(react&&react.checked);
+    _deleteCN(String(cn.id),doReact?refInv:null);
+  },null);
+}
+
+function _deleteCN(id,reactivateInv){
+  const cn=findCN(id);
+  if(!cn)return;
+  const cnNo=cn.cnNo;
+  creditNotes=creditNotes.filter(c=>String(c.id)!==String(id));
+  saveCNs();
+  // Tombstone so every device purges its local copy (syncAll DeletedIds purge covers CNs since v14.26.0)
+  addDeletedId(String(id));
+  gsDelete('CreditNotes',String(id));
+  gsWrite('DeletedIds',{id:String(id),deletedAt:new Date().toISOString()});
+  if(reactivateInv){
+    _applyInvoiceStatus(reactivateInv,'Active');
+  }else{
+    renderSales();
+  }
+  renderCreditNotesList();
+  renderDashboard&&renderDashboard();
+  toast('🗑 Credit Note '+cnNo+' deleted');
+}
+
+// ── RELINK / ATTACH ─────────────────────────
+// _cnLinkMode: 'relink' (move an existing CN to a different invoice, opened from the CN)
+//              'attach' (pick an existing CN to link to THIS invoice, opened from the invoice)
+let _cnLinkCnId=null;
+let _cnLinkInvId=null;
+
+function openCNRelinkModal(cnId){
+  const cn=findCN(cnId);
+  if(!cn){toast('⚠️ Credit note not found');return;}
+  _cnLinkCnId=String(cnId);
+  _cnLinkInvId=null;
+  const cur=invoices.find(i=>String(i.id)===String(cn.refInvId));
+  document.getElementById('cnlink-title').textContent='🔗 Relink Credit Note';
+  document.getElementById('cnlink-sub').innerHTML=
+    '<strong>'+esc(cn.cnNo)+'</strong> · ₹'+parseFloat(cn.creditAmount||0).toLocaleString('en-IN')+' · '+esc(cn.reason||'')
+    +'<br/><span style="color:#888;">Currently linked to: '+(cur?esc(cur.invNo||'—'):'<span style="color:#c0392b;font-weight:700;">not linked (invoice missing)</span>')+'</span>'
+    +'<br/><span style="color:#888;">Pick the invoice this credit note belongs to.</span>';
+  document.getElementById('cnlink-search').value='';
+  document.getElementById('cnlink-modal').classList.add('open');
+  renderCNLinkList();
+}
+
+function openCNAttachModal(invId){
+  const inv=invoices.find(i=>String(i.id)===String(invId));
+  if(!inv){toast('⚠️ Invoice not found');return;}
+  _cnLinkCnId=null;
+  _cnLinkInvId=String(invId);
+  document.getElementById('cnlink-title').textContent='🔗 Link Existing Credit Note';
+  document.getElementById('cnlink-sub').innerHTML=
+    'Invoice <strong>'+esc(inv.invNo||'')+'</strong> · '+esc(inv.custName||'')+' · ₹'+parseFloat(inv.grandTotal||0).toLocaleString('en-IN')
+    +'<br/><span style="color:#888;">Pick an existing credit note to attach to this invoice.</span>';
+  document.getElementById('cnlink-search').value='';
+  document.getElementById('cnlink-modal').classList.add('open');
+  renderCNLinkList();
+}
+
+function closeCNLinkModal(){
+  document.getElementById('cnlink-modal').classList.remove('open');
+  _cnLinkCnId=null;_cnLinkInvId=null;
+}
+
+// Remaining creditable value on an invoice, excluding a given CN id (used when relinking)
+function cnRemaining(inv,excludeCnId){
+  const prior=creditNotes
+    .filter(c=>String(c.refInvId)===String(inv.id)&&String(c.id)!==String(excludeCnId||''))
+    .reduce((s,c)=>s+(parseFloat(c.creditAmount)||0),0);
+  return parseFloat((parseFloat(inv.grandTotal||0)-prior).toFixed(2));
+}
+
+function renderCNLinkList(){
+  const el=document.getElementById('cnlink-list');
+  if(!el)return;
+  const q=(document.getElementById('cnlink-search')?.value||'').toLowerCase().trim();
+
+  // MODE: relink — list invoices to pick from
+  if(_cnLinkCnId){
+    const cn=findCN(_cnLinkCnId);
+    if(!cn){el.innerHTML='';return;}
+    const amt=parseFloat(cn.creditAmount)||0;
+    let list=invoices.slice();
+    if(q)list=list.filter(i=>String(i.invNo||'').toLowerCase().includes(q)||String(i.custName||'').toLowerCase().includes(q));
+    list.sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1);
+    list=list.slice(0,60);
+    if(!list.length){el.innerHTML='<div style="text-align:center;padding:24px;color:#aaa;font-size:13px;">No matching invoices</div>';return;}
+    el.innerHTML=list.map(i=>{
+      const rem=cnRemaining(i,cn.id);
+      const ok=amt<=rem;
+      const isCur=String(i.id)===String(cn.refInvId);
+      const st=i.invoiceStatus||'Active';
+      const stB=st==='Cancelled'?'<span style="font-size:10px;font-weight:700;color:#fff;background:#c0392b;padding:1px 6px;border-radius:6px;margin-left:5px;">🚫 Cancelled</span>'
+        :st==='Returned'?'<span style="font-size:10px;font-weight:700;color:#fff;background:#e67e22;padding:1px 6px;border-radius:6px;margin-left:5px;">↩ Returned</span>':'';
+      return'<div style="border:1.5px solid '+(isCur?'var(--brown)':'var(--border)')+';border-radius:10px;padding:10px;margin-bottom:8px;background:'+(ok?'var(--warm)':'#f7f2ea')+';opacity:'+(ok?'1':'0.6')+';">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">'
+        +'<div style="flex:1;min-width:150px;">'
+        +'<div style="font-weight:700;font-size:13px;color:var(--brown);">'+esc(i.invNo||'—')+stB+(isCur?'<span style="font-size:10px;color:#888;margin-left:5px;">(current)</span>':'')+'</div>'
+        +'<div style="font-size:11px;color:#888;">'+esc(i.custName||'—')+' · '+fmtDate(i.invDate)+' · ₹'+parseFloat(i.grandTotal||0).toLocaleString('en-IN')+'</div>'
+        +'<div style="font-size:11px;color:'+(ok?'#1a7f3c':'#c0392b')+';font-weight:600;margin-top:2px;">Creditable: ₹'+rem.toLocaleString('en-IN')+(ok?'':' — too small for ₹'+amt.toLocaleString('en-IN'))+'</div>'
+        +'</div>'
+        +(ok&&!isCur?'<button class="btn btn-p btn-sm" style="padding:7px 12px;font-size:11px;min-height:0;" onclick="doCNRelink(\''+String(cn.id)+'\',\''+String(i.id)+'\')">Link →</button>':'')
+        +'</div></div>';
+    }).join('');
+    return;
+  }
+
+  // MODE: attach — list credit notes to pick from
+  if(_cnLinkInvId){
+    const inv=invoices.find(i=>String(i.id)===String(_cnLinkInvId));
+    if(!inv){el.innerHTML='';return;}
+    let list=creditNotes.slice();
+    if(q)list=list.filter(c=>String(c.cnNo||'').toLowerCase().includes(q)||String(c.custName||'').toLowerCase().includes(q)||String(c.refInvNo||'').toLowerCase().includes(q));
+    // Orphans first, then most recent
+    list.sort((a,b)=>{
+      const oa=isCNOrphan(a)?0:1,ob=isCNOrphan(b)?0:1;
+      if(oa!==ob)return oa-ob;
+      return(b.cnDate||'')>(a.cnDate||'')?1:-1;
+    });
+    list=list.slice(0,60);
+    if(!list.length){el.innerHTML='<div style="text-align:center;padding:24px;color:#aaa;font-size:13px;">No credit notes yet</div>';return;}
+    el.innerHTML=list.map(c=>{
+      const amt=parseFloat(c.creditAmount)||0;
+      const rem=cnRemaining(inv,c.id);
+      const ok=amt<=rem;
+      const already=String(c.refInvId)===String(inv.id);
+      const orph=isCNOrphan(c);
+      return'<div style="border:1.5px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px;background:'+(ok?'var(--warm)':'#f7f2ea')+';opacity:'+(ok?'1':'0.6')+';">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">'
+        +'<div style="flex:1;min-width:150px;">'
+        +'<div style="font-weight:700;font-size:13px;color:#c0392b;">'+esc(c.cnNo||'—')+' · ₹'+amt.toLocaleString('en-IN')
+        +(orph?'<span style="font-size:10px;font-weight:700;color:#fff;background:#c0392b;padding:1px 6px;border-radius:6px;margin-left:5px;">Not linked</span>':'')
+        +(already?'<span style="font-size:10px;color:#888;margin-left:5px;">(already linked here)</span>':'')+'</div>'
+        +'<div style="font-size:11px;color:#888;">'+fmtDate(c.cnDate)+' · '+esc(c.reason||'')+' · '+esc(c.custName||'')+'</div>'
+        +'<div style="font-size:11px;color:#888;">Was against: '+esc(c.refInvNo||'—')+'</div>'
+        +(ok?'':'<div style="font-size:11px;color:#c0392b;font-weight:600;margin-top:2px;">Only ₹'+rem.toLocaleString('en-IN')+' creditable on this invoice</div>')
+        +'</div>'
+        +(ok&&!already?'<button class="btn btn-p btn-sm" style="padding:7px 12px;font-size:11px;min-height:0;" onclick="doCNRelink(\''+String(c.id)+'\',\''+String(inv.id)+'\')">Link →</button>':'')
+        +'</div></div>';
+    }).join('');
+  }
+}
+
+// Re-point a credit note at a different invoice. Copies the target invoice's customer
+// snapshot onto the CN (the CN print carries its own copy of these fields) and re-derives
+// the GST split from the target document type — a CN against a Bill of Supply reverses no GST.
+function doCNRelink(cnId,invId){
+  const cn=findCN(cnId);
+  const inv=invoices.find(i=>String(i.id)===String(invId));
+  if(!cn||!inv){toast('⚠️ Not found');return;}
+  const amt=parseFloat(cn.creditAmount)||0;
+  const rem=cnRemaining(inv,cn.id);
+  if(amt>rem){
+    toast('⚠️ Only ₹'+rem.toLocaleString('en-IN')+' creditable on '+(inv.invNo||'this invoice')+' — prior credit notes already reverse the rest',6000);
+    return;
+  }
+  const gst=inv.isGST===true||inv.isGST==='true';
+  cn.refInvId=String(inv.id);
+  cn.refInvNo=inv.invNo;
+  cn.refInvDate=inv.invDate;
+  cn.custName=inv.custName;
+  cn.custPhone=inv.custPhone||'';
+  cn.custState=inv.custState;
+  cn.isGST=gst;
+  cn.gstReversed=gst?parseFloat((amt-amt/1.05).toFixed(2)):0;
+  cn.taxableReversed=gst?parseFloat((amt/1.05).toFixed(2)):amt;
+  cn.updatedAt=new Date().toISOString();
+  saveCNs();
+  closeCNLinkModal();
+  renderSales();
+  renderCreditNotesList();
+  showLoading('Saving…');
+  gsWriteConfirmed('CreditNotes',cn).then(function(ok){
+    hideLoading();
+    toast(ok?'🔗 '+cn.cnNo+' linked to '+(inv.invNo||'invoice'):'🔗 Linked — sheet sync pending',ok?3000:5000);
+  });
+}
+
+// ── CREDIT NOTES PAGE ───────────────────────
+let _cnPageFY='';
+let _cnPageSearch='';
+
+function buildCreditNotesPage(){
+  const fys=[...new Set(creditNotes.map(c=>c.fy).filter(Boolean))].sort().reverse();
+  return`
+  <div class="card">
+    <div class="card-title">📝 Credit Notes</div>
+    <div style="font-size:12px;color:#888;margin-bottom:10px;line-height:1.5;">
+      Every credit note issued, across all invoices. Deleting a credit note removes it from all devices and adds its amount back to revenue.
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <input type="text" id="cn-page-search" placeholder="🔍 CN no, customer, invoice…" oninput="cnPageSearch(this.value)"
+        style="flex:1;min-width:160px;padding:11px 13px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;"/>
+      <select id="cn-page-fy" onchange="cnPageSetFY(this.value)"
+        style="padding:11px 10px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;">
+        <option value="">All FY</option>${fys.map(f=>`<option value="${esc(f)}">${esc(f)}</option>`).join('')}
+      </select>
+    </div>
+  </div>
+  <div id="cn-page-stats"></div>
+  <div id="cn-page-list"></div>`;
+}
+
+function cnPageSearch(v){_cnPageSearch=v;renderCreditNotesList();}
+function cnPageSetFY(v){_cnPageFY=v;renderCreditNotesList();}
+
+function renderCreditNotesList(){
+  const listEl=document.getElementById('cn-page-list');
+  const statEl=document.getElementById('cn-page-stats');
+  if(!listEl)return; // page not open
+
+  const q=(_cnPageSearch||'').toLowerCase().trim();
+  let list=creditNotes.filter(c=>{
+    if(_cnPageFY&&c.fy!==_cnPageFY)return false;
+    if(!q)return true;
+    return String(c.cnNo||'').toLowerCase().includes(q)
+      ||String(c.custName||'').toLowerCase().includes(q)
+      ||String(c.refInvNo||'').toLowerCase().includes(q)
+      ||String(c.reason||'').toLowerCase().includes(q);
+  });
+  list.sort((a,b)=>(b.cnDate||'')>(a.cnDate||'')?1:-1);
+
+  const totAmt=list.reduce((s,c)=>s+(parseFloat(c.creditAmount)||0),0);
+  const totGST=list.reduce((s,c)=>s+(parseFloat(c.gstReversed)||0),0);
+  const orphans=list.filter(isCNOrphan).length;
+
+  if(statEl){
+    statEl.innerHTML=`<div class="card">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;">
+        <div style="text-align:center;"><div style="font-size:11px;color:#888;">Credit Notes</div><div style="font-size:19px;font-weight:700;color:var(--brown);">${list.length}</div></div>
+        <div style="text-align:center;"><div style="font-size:11px;color:#888;">Total Credited</div><div style="font-size:19px;font-weight:700;color:#c0392b;">₹${totAmt.toLocaleString('en-IN')}</div></div>
+        <div style="text-align:center;"><div style="font-size:11px;color:#888;">GST Reversed</div><div style="font-size:19px;font-weight:700;color:#c0392b;">₹${totGST.toLocaleString('en-IN',{minimumFractionDigits:2})}</div></div>
+        <div style="text-align:center;"><div style="font-size:11px;color:#888;">Not Linked</div><div style="font-size:19px;font-weight:700;color:${orphans>0?'#c0392b':'#1a7f3c'};">${orphans}</div></div>
+      </div>
+      ${orphans>0?'<div style="margin-top:10px;background:#fdf0ee;border:1px solid #f0c8c0;border-radius:8px;padding:9px;font-size:12px;color:#c0392b;">⚠️ '+orphans+' credit note'+(orphans!==1?'s are':' is')+' not linked to any invoice (the invoice was deleted). Tap 🔗 to link it to the right invoice.</div>':''}
+    </div>`;
+  }
+
+  if(!list.length){
+    listEl.innerHTML='<div class="card" style="text-align:center;padding:34px;color:#aaa;font-size:13px;">No credit notes'+((q||_cnPageFY)?' match this filter':' issued yet')+'</div>';
+    return;
+  }
+
+  // Desktop table (>=768px) / mobile cards (<768px) — both rendered, CSS picks one
+  const rows=list.map(c=>{
+    const inv=invoices.find(i=>String(i.id)===String(c.refInvId));
+    const orph=!inv;
+    const st=inv?(inv.invoiceStatus||'Active'):'';
+    const stB=orph?'<span style="font-size:10px;font-weight:700;color:#fff;background:#c0392b;padding:2px 7px;border-radius:6px;">Not linked</span>'
+      :st==='Cancelled'?'<span style="font-size:10px;font-weight:700;color:#fff;background:#c0392b;padding:2px 7px;border-radius:6px;">🚫 Cancelled</span>'
+      :st==='Returned'?'<span style="font-size:10px;font-weight:700;color:#fff;background:#e67e22;padding:2px 7px;border-radius:6px;">↩ Returned</span>'
+      :'<span style="font-size:10px;font-weight:700;color:#1a7f3c;background:#e8f5ec;border:1px solid #1a7f3c;padding:2px 7px;border-radius:6px;">Active</span>';
+    const acts='<button class="btn btn-o btn-sm" style="padding:6px 9px;font-size:10px;min-height:0;" onclick="printCreditNoteById(\''+String(c.id)+'\')">🖨️</button>'
+      +'<button class="btn btn-o btn-sm" style="padding:6px 9px;font-size:10px;min-height:0;" onclick="openCNRelinkModal(\''+String(c.id)+'\')">🔗</button>'
+      +'<button class="btn btn-d btn-sm" style="padding:6px 9px;font-size:10px;min-height:0;" onclick="confirmDeleteCN(\''+String(c.id)+'\')">🗑</button>';
+    return{c,inv,orph,stB,acts};
+  });
+
+  const tbl='<div class="cn-desk"><div class="card" style="padding:0;overflow-x:auto;">'
+    +'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+    +'<thead><tr style="background:var(--goldp);">'
+    +['CN No','Date','Invoice','Customer','Reason','Amount','GST Rev.','Status','']
+      .map(h=>'<th style="text-align:left;padding:10px 12px;font-size:11px;font-weight:700;color:var(--brown);white-space:nowrap;">'+h+'</th>').join('')
+    +'</tr></thead><tbody>'
+    +rows.map(r=>'<tr style="border-top:1px solid var(--border);">'
+      +'<td style="padding:10px 12px;font-weight:700;color:#c0392b;white-space:nowrap;">'+esc(r.c.cnNo||'—')+'</td>'
+      +'<td style="padding:10px 12px;color:#888;white-space:nowrap;">'+fmtDate(r.c.cnDate)+'</td>'
+      +'<td style="padding:10px 12px;white-space:nowrap;">'+esc(r.c.refInvNo||'—')+'</td>'
+      +'<td style="padding:10px 12px;">'+esc(r.c.custName||'—')+'</td>'
+      +'<td style="padding:10px 12px;color:#888;">'+esc(r.c.reason||'—')+'</td>'
+      +'<td style="padding:10px 12px;font-weight:700;color:#c0392b;white-space:nowrap;">−₹'+parseFloat(r.c.creditAmount||0).toLocaleString('en-IN')+'</td>'
+      +'<td style="padding:10px 12px;color:#888;white-space:nowrap;">'+(parseFloat(r.c.gstReversed||0)>0?'₹'+parseFloat(r.c.gstReversed).toLocaleString('en-IN',{minimumFractionDigits:2}):'—')+'</td>'
+      +'<td style="padding:10px 12px;white-space:nowrap;">'+r.stB+'</td>'
+      +'<td style="padding:10px 12px;"><div style="display:flex;gap:5px;">'+r.acts+'</div></td>'
+      +'</tr>').join('')
+    +'</tbody></table></div></div>';
+
+  const cards='<div class="cn-mob">'+rows.map(r=>
+    '<div class="card" style="margin-bottom:10px;'+(r.orph?'border:1.5px solid #c0392b;':'')+'">'
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">'
+    +'<div><div style="font-weight:700;font-size:15px;color:#c0392b;">'+esc(r.c.cnNo||'—')+'</div>'
+    +'<div style="font-size:12px;color:#888;">'+fmtDate(r.c.cnDate)+' · '+esc(r.c.reason||'—')+'</div></div>'
+    +'<div style="text-align:right;"><div style="font-weight:700;font-size:16px;color:#c0392b;">−₹'+parseFloat(r.c.creditAmount||0).toLocaleString('en-IN')+'</div>'
+    +(parseFloat(r.c.gstReversed||0)>0?'<div style="font-size:11px;color:#888;">GST ₹'+parseFloat(r.c.gstReversed).toLocaleString('en-IN',{minimumFractionDigits:2})+'</div>':'')+'</div></div>'
+    +'<div style="font-size:14px;font-weight:500;">'+esc(r.c.custName||'—')+'</div>'
+    +'<div style="display:flex;align-items:center;gap:6px;margin-top:5px;flex-wrap:wrap;">'
+    +'<span style="font-size:12px;color:#888;">Invoice: '+esc(r.c.refInvNo||'—')+'</span>'+r.stB+'</div>'
+    +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">'+r.acts+'</div>'
+    +'</div>').join('')+'</div>';
+
+  listEl.innerHTML=tbl+cards;
+}
+
 
 function printCreditNote(cn){
   const refInv=invoices.find(i=>String(i.id)===String(cn.refInvId));
@@ -5395,6 +5803,7 @@ function buildSubPage(id){
   if(id==='tracking')return buildTrackingPage();
   if(id==='suppliers')return buildSuppliersPage();
   if(id==='dsreport')return buildDSReportPage();
+  if(id==='creditnotes')return buildCreditNotesPage();
   return '<p>Coming soon</p>';
 }
 // ═══════════════════════════════════════════
