@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.25.0
+APP: Vismaad Creations v14.26.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 09-Jul-2026 — v14.25.0: CTO audit fixes, 13 in one pass. C1: perpetual auto-sync loop killed — saves inside syncAll no longer re-schedule the 20s timer (app synced every 20s forever, ~50k requests/day); lastSyncTime now stamped from sync START so edits made mid-sync push next cycle. C2: settingsForSheet() sanitized payload — githubPat/track123 keys/catSheetId/UPI never written to Settings sheet (3 leaking write paths replaced); NOTE: manually delete credential values already in the Settings sheet row. C3: flattenForSheet no longer strips gstin from settings writes — GSTIN now actually syncs cross-device. C4: hardcoded Track123 key removed from source (existing devices keep it in localStorage; new devices enter it in Settings). C5: invoice save/delete writes only touched products via gsWriteConfirmed (was full-inventory fire-and-forget). H1: DeletedIds sheet — invoice deletions propagate cross-device (tombstones were localStorage-only, deleted invoices lived forever on other devices). H2: init qtySold normaliser repairs qtyOriginal UPWARD instead of wiping sales on rows lacking qtyOriginal; all mark-sold paths maintain qtyOriginal=qty+qtySold invariant; 10s UNDO toast on mark-sold (standalone + linked) via showUndoToast/_undoMarkSold. H3: visibilitychange flushes dirty records (flushPendingWrites, keepalive fetch) when app backgrounded with pending timer; online listener reschedules sync after reconnect. H4: checkDupInvNos after sync detects duplicate invoice numbers from concurrent device creation, prompts renumber of newer invoice to next free number (FY-aware for GST format). H5: settings get updatedAt; timestamp-wins merge (allows clearing fields cross-device, legacy presence-based fallback when timestamps absent); merge preserves local-only fields via spread — also fixes upiId/upiName/upiPhone being silently dropped from S on every sync. M1: sales search debounced 250ms. M2: PopupState pushed only when changed (was confirmed-write every sync). M6: Synced toast on manual sync only (header tap, Sync Now button, pull-to-refresh pass manual=true). PREV_CHANGE: 29-Jun-2026 — v14.24.0: (1) DTDC/Blue Dart count in tracking page description now excludes Cancelled/Returned invoices and shows non-delivered count (orange) or "all delivered" (green) instead of in-transit; (2) Hand Delivery and Walk-in invoices excluded from tracking page no-tracking list and dashboard pending orders. PREV_CHANGE: 27-Jun-2026 — v14.23.0: (1) Inventory dateAdded preserved in remote-wins sync merge; one-time updatedAt backfill for legacy items to stop needsPush re-pushing every sync; (2) Price list cost price column no longer strikes through — cost is a static fact; (3) Credit note full flow: CN linked inside invoice card in sales list with print button; on Return/Cancellation CN prompt to mark invoice as Returned/Cancelled (with stock restore for Returns); manual 📋 Status button on each invoice; invoiceStatus field (Active/Cancelled/Returned); (4) Cancelled/Returned invoices excluded from tracking page and dashboard pending orders; sales list filter adds Cancelled/Returned options; badge shown on invoice card; (5) DTDC/Blue Dart description now shows in-transit count.
+LAST_CHANGE: 10-Jul-2026 — v14.26.0: (1) readAll — syncAll fetches all 12 sheets in ONE JSONP round-trip via new Apps Script action=readAll (per-sheet fallback if old script still deployed; requires Code.gs v3). (2) Follow-up pause — ⏸/▶️ toggle on Outreach page; paused = no FU popup, no dashboard due counter, no FU list; on resume fuResumeDate is stamped and customers whose 45-day due date fell before it are skipped forever; synced via Settings sheet (fuPaused/fuResumeDate). Festival + delivery messages unaffected. (3) GST era: gstStartDate setting (auto-set when GST toggled ON, editable in Settings); Archive Pre-GST Data downloads a JSON backup then moves invoices/credit notes dated before gstStartDate to InvoicesArchive/CreditNotesArchive sheet tabs (action=archivePreGst) and tombstones their ids in DeletedIds so every device purges them — live app carries GST-era books only; DeletedIds purge in syncAll now also removes credit notes. (4) Stock integrity: deductStock/restoreStock single entry points — deductions/restorations on variant products without a variantId previously wrote product-level qty and were silently reverted by the next variant recalc; fixed in invoice-save fallback, standalone mark-sold, link-to-invoice, invoice-delete restore, Returned-status restore and undo; expandItems now preserves variantId (sync merge was stripping it from itemsArr, breaking variant restores cross-device); ± Stock button blocked on variant products (edit per-variant instead). (5) Inventory stats: Active Products (count with qty>0), Units in Stock (sum of in-stock qty), Stock Value (in-stock qty×cost) + warning when in-stock products are missing cost price.
+PREV_CHANGE: 09-Jul-2026 — v14.25.0: CTO audit fixes, 13 in one pass. C1: perpetual auto-sync loop killed — saves inside syncAll no longer re-schedule the 20s timer (app synced every 20s forever, ~50k requests/day); lastSyncTime now stamped from sync START so edits made mid-sync push next cycle. C2: settingsForSheet() sanitized payload — githubPat/track123 keys/catSheetId/UPI never written to Settings sheet (3 leaking write paths replaced); NOTE: manually delete credential values already in the Settings sheet row. C3: flattenForSheet no longer strips gstin from settings writes — GSTIN now actually syncs cross-device. C4: hardcoded Track123 key removed from source (existing devices keep it in localStorage; new devices enter it in Settings). C5: invoice save/delete writes only touched products via gsWriteConfirmed (was full-inventory fire-and-forget). H1: DeletedIds sheet — invoice deletions propagate cross-device (tombstones were localStorage-only, deleted invoices lived forever on other devices). H2: init qtySold normaliser repairs qtyOriginal UPWARD instead of wiping sales on rows lacking qtyOriginal; all mark-sold paths maintain qtyOriginal=qty+qtySold invariant; 10s UNDO toast on mark-sold (standalone + linked) via showUndoToast/_undoMarkSold. H3: visibilitychange flushes dirty records (flushPendingWrites, keepalive fetch) when app backgrounded with pending timer; online listener reschedules sync after reconnect. H4: checkDupInvNos after sync detects duplicate invoice numbers from concurrent device creation, prompts renumber of newer invoice to next free number (FY-aware for GST format). H5: settings get updatedAt; timestamp-wins merge (allows clearing fields cross-device, legacy presence-based fallback when timestamps absent); merge preserves local-only fields via spread — also fixes upiId/upiName/upiPhone being silently dropped from S on every sync. M1: sales search debounced 250ms. M2: PopupState pushed only when changed (was confirmed-write every sync). M6: Synced toast on manual sync only (header tap, Sync Now button, pull-to-refresh pass manual=true). PREV_CHANGE: 29-Jun-2026 — v14.24.0: (1) DTDC/Blue Dart count in tracking page description now excludes Cancelled/Returned invoices and shows non-delivered count (orange) or "all delivered" (green) instead of in-transit; (2) Hand Delivery and Walk-in invoices excluded from tracking page no-tracking list and dashboard pending orders. PREV_CHANGE: 27-Jun-2026 — v14.23.0: (1) Inventory dateAdded preserved in remote-wins sync merge; one-time updatedAt backfill for legacy items to stop needsPush re-pushing every sync; (2) Price list cost price column no longer strikes through — cost is a static fact; (3) Credit note full flow: CN linked inside invoice card in sales list with print button; on Return/Cancellation CN prompt to mark invoice as Returned/Cancelled (with stock restore for Returns); manual 📋 Status button on each invoice; invoiceStatus field (Active/Cancelled/Returned); (4) Cancelled/Returned invoices excluded from tracking page and dashboard pending orders; sales list filter adds Cancelled/Returned options; badge shown on invoice card; (5) DTDC/Blue Dart description now shows in-transit count.
 PREV_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
 PREV_CHANGE: 13-Jun-2026 — v14.14.14: Fix tracking/dispatch date fields not showing for DTDC/Blue Dart. PREV_CHANGE_2: 12-Jun-2026 — v14.14.12: Dashboard "Recent Orders" renamed to "Pending Orders" — now shows all non-delivered invoices grouped as: (1) Not Shipped / Pending oldest-first, (2) Overdue (shipped >6 days, not delivered) oldest-first, (3) In Transit / on-time oldest-first; uses existing isTrackingOverdue() logic.
 PREV_CHANGE: 12-Jun-2026 — v14.14.11: (1) All single-record user-action saves (invoice, inventory, purchase, settings, tracking) converted from fire-and-forget gsWrite to gsWriteConfirmed with failure toast — data correctness over speed; (2) India Post import and Track123 refresh use gsWriteBatch with progress toast for reliable sheet writes; (3) PopupState sheet row syncs review_popup_seen, review_skipped, followup_shown_date across devices so popups actioned on one device don't re-appear on another.
@@ -583,10 +584,11 @@ body.gst-mode .gst-only{display:block;}
 <div class="page" id="page-inventory">
   <div class="sec-title">Inventory</div>
   <div class="stat-grid cols3">
-    <div class="stat-card"><div class="stat-val" id="ist-total">0</div><div class="stat-lbl">Products</div></div>
-    <div class="stat-card"><div class="stat-val" id="ist-stock" style="color:#27ae60;">0</div><div class="stat-lbl">In Stock</div></div>
+    <div class="stat-card"><div class="stat-val" id="ist-total">0</div><div class="stat-lbl">Active Products</div></div>
+    <div class="stat-card"><div class="stat-val" id="ist-stock" style="color:#27ae60;">0</div><div class="stat-lbl">Units in Stock</div></div>
     <div class="stat-card"><div class="stat-val" id="ist-value">₹0</div><div class="stat-lbl">Stock Value</div></div>
   </div>
+  <div id="ist-cost-note" style="display:none;font-size:11px;color:#c47b00;margin:-6px 0 12px;text-align:center;"></div>
 
   <!-- Add product -->
   <div class="card">
@@ -780,6 +782,14 @@ body.gst-mode .gst-only{display:block;}
         <button id="gst-toggle-off" class="btn btn-o" style="flex:1;min-height:44px;" onclick="setGSTMode(false)">❌ Not Registered</button>
       </div>
       <div id="gst-toggle-note" style="font-size:12px;color:var(--brown);margin-top:8px;"></div>
+      <div id="gst-era-block" style="display:none;margin-top:12px;border-top:1px solid rgba(0,0,0,.08);padding-top:12px;">
+        <div class="fg" style="margin-bottom:10px;"><label>GST Era Start Date</label>
+          <input type="date" id="ms-gst-start" onchange="saveGstStartDate(this.value)"/>
+          <div style="font-size:11px;color:#888;margin-top:4px;">Records dated before this belong to the pre-GST firm.</div>
+        </div>
+        <button class="btn btn-o" style="width:100%;min-height:44px;" onclick="archivePreGst()">📦 Archive Pre-GST Data</button>
+        <div id="gst-archive-note" style="font-size:11px;color:#888;margin-top:6px;"></div>
+      </div>
     </div>
 
     <div id="ms-gstin-row" class="fg"><label>Your GSTIN</label><input id="ms-gstin" placeholder="03XXXXX1234Z5" maxlength="15" style="text-transform:uppercase"/></div>
@@ -1698,6 +1708,7 @@ function expandItems(arr){
     dsPaid:i.dsPaid||false,
     dsPaidDate:i.dsPaidDate||'',
     dsUpfront:i.dsUpfront||false,
+    variantId:i.variantId||'', // v14.26.0: was stripped here — sync merge lost variant links, breaking variant stock restores cross-device
   }));
 }
 function numberToWords(n){
@@ -1746,6 +1757,27 @@ function gsRead(sheet){
     };
     s.src=`${SCRIPT_URL}?action=read&sheet=${encodeURIComponent(sheet)}&callback=${cb}`;
     s.onerror=()=>{clearTimeout(timer);delete window[cb];reject(new Error('Network error reading '+sheet));};
+    document.head.appendChild(s);
+  });
+}
+// v14.26.0: read ALL sheets in one JSONP round-trip (Apps Script action=readAll).
+// Rejects when the deployed script doesn't support it — caller falls back to per-sheet gsRead.
+function gsReadAll(){
+  return new Promise((resolve,reject)=>{
+    const cb='_gs_readAll_'+Date.now();
+    const s=document.createElement('script');
+    const timer=setTimeout(()=>{
+      delete window[cb];try{document.head.removeChild(s);}catch{}
+      reject(new Error('Timeout on readAll'));
+    },60000);
+    window[cb]=data=>{
+      clearTimeout(timer);delete window[cb];
+      try{document.head.removeChild(s);}catch{}
+      if(data&&data.sheets)resolve(data.sheets);
+      else reject(new Error((data&&data.error)||'readAll not supported by deployed script'));
+    };
+    s.src=`${SCRIPT_URL}?action=readAll&callback=${cb}`;
+    s.onerror=()=>{clearTimeout(timer);delete window[cb];reject(new Error('Network error on readAll'));};
     document.head.appendChild(s);
   });
 }
@@ -1838,6 +1870,9 @@ function flattenInvoice(inv){
 function settingsForSheet(){
   return{id:'settings',gstin:S.gstin||'',address:S.address||'',phone:S.phone||'',email:S.email||'',
     gstEnabled:S.gstEnabled===true||S.gstEnabled==='true',calKey:S.calKey||'',
+    gstStartDate:S.gstStartDate||'',
+    fuPaused:S.fuPaused===true||S.fuPaused==='true',
+    fuResumeDate:S.fuResumeDate||'',
     updatedAt:S.updatedAt||''};
 }
 function flattenProduct(p){
@@ -1890,11 +1925,15 @@ async function syncAll(manual){
   if(_autoSyncTimer){clearTimeout(_autoSyncTimer);_autoSyncTimer=null;}
   try{
     const cleared=lsGet('vc_inv_cleared',null)==='1';
+    // v14.26.0: single readAll round-trip for all sheets; per-sheet fallback keeps old Apps Script working
+    let _bulk=null;
+    try{_bulk=await gsReadAll();}catch(e){console.warn('readAll unavailable — per-sheet fallback:',e.message);}
+    const rd=(sheet)=>_bulk?Promise.resolve(_bulk[sheet]||[]):gsRead(sheet);
     // v14.25.0 H1: cross-device deletion propagation via DeletedIds sheet.
     // Tombstones were localStorage-only — an invoice deleted on one device stayed
     // visible on every other device forever. Now tombstones sync both ways.
     try{
-      const remDel=await gsRead('DeletedIds');
+      const remDel=await rd('DeletedIds');
       const remDelIds=remDel.map(r=>String(r.id||'').trim()).filter(Boolean);
       const localDel=getDeletedIds().map(String);
       localDel.filter(id=>!remDelIds.includes(id)).forEach(id=>gsWrite('DeletedIds',{id:id,deletedAt:new Date().toISOString()}));
@@ -1903,13 +1942,14 @@ async function syncAll(manual){
       const _delSet=new Set(allDel);
       const _before=invoices.length;
       invoices=invoices.filter(i=>!_delSet.has(String(i.id).trim()));
+      creditNotes=creditNotes.filter(c=>!_delSet.has(String(c.id).trim())); // v14.26.0: archived/deleted credit notes purge cross-device too
       if(invoices.length<_before)setTimeout(()=>toast('🗑 '+(_before-invoices.length)+' invoice(s) deleted on another device — removed here too',5000),1500);
     }catch(e){console.warn('DeletedIds sync failed:',e.message);}
     // Read sheets sequentially — gives each sheet full timeout
-    const remInv = cleared ? [] : await gsRead(SHEETS.invoices);
-    const remStk = await gsRead(SHEETS.inventory);
-    const remPur = await gsRead(SHEETS.purchases);
-    const remSet = await gsRead(SHEETS.settings);
+    const remInv = cleared ? [] : await rd(SHEETS.invoices);
+    const remStk = await rd(SHEETS.inventory);
+    const remPur = await rd(SHEETS.purchases);
+    const remSet = await rd(SHEETS.settings);
 
     if(!cleared){
       const deletedIds=new Set(getDeletedIds());
@@ -2033,7 +2073,7 @@ async function syncAll(manual){
 
     // SUPPLIERS — newer updatedAt wins; remote-only items added
     let remSup=[];
-    try{remSup=await gsRead(SHEETS.suppliers);}catch(e){console.warn('Suppliers sync failed:',e.message);}
+    try{remSup=await rd(SHEETS.suppliers);}catch(e){console.warn('Suppliers sync failed:',e.message);}
     const supm={};suppliers.forEach(l=>{supm[String(l.id)]=l;});
     remSup.forEach(r=>{
       if(!r.id)return;
@@ -2049,7 +2089,7 @@ async function syncAll(manual){
 
     // BILLS — newer updatedAt wins; remote-only items added
     let remBills=[];
-    try{remBills=await gsRead(SHEETS.bills);}catch(e){console.warn('Bills sync failed:',e.message);}
+    try{remBills=await rd(SHEETS.bills);}catch(e){console.warn('Bills sync failed:',e.message);}
     const billm={};bills.forEach(l=>{billm[String(l.id)]=l;});
     remBills.forEach(r=>{
       if(!r.id)return;
@@ -2070,7 +2110,7 @@ async function syncAll(manual){
 
     // SUPPLIER TXNS — newer updatedAt wins; remote-only items added
     let remStxn=[];
-    try{remStxn=await gsRead(SHEETS.supplierTxns);}catch(e){console.warn('SupplierTxns sync failed:',e.message);}
+    try{remStxn=await rd(SHEETS.supplierTxns);}catch(e){console.warn('SupplierTxns sync failed:',e.message);}
     const stxnm={};supplierTxns.forEach(t=>{stxnm[String(t.id)]=t;});
     remStxn.forEach(r=>{
       if(!r.id)return;
@@ -2085,7 +2125,7 @@ async function syncAll(manual){
     supplierTxns=Object.values(stxnm);
     // CREDIT NOTES — newer updatedAt wins; remote-only items added
     try{
-      const remCN=await gsRead('CreditNotes');
+      const remCN=await rd('CreditNotes');
       const cnm={};creditNotes.forEach(c=>{cnm[String(c.id)]=c;});
       remCN.forEach(r=>{
         if(!r.id)return;
@@ -2112,7 +2152,10 @@ async function syncAll(manual){
       if(_remT&&_locT){
         if(_remT>_locT){
           S={...S,gstin:rs.gstin||'',address:rs.address||'',phone:rs.phone||'',email:rs.email||'',
-            gstEnabled:rs.gstEnabled==='true'||rs.gstEnabled===true,calKey:rs.calKey||'',updatedAt:rs.updatedAt};
+            gstEnabled:rs.gstEnabled==='true'||rs.gstEnabled===true,calKey:rs.calKey||'',
+            gstStartDate:rs.gstStartDate||'',
+            fuPaused:rs.fuPaused==='true'||rs.fuPaused===true,
+            fuResumeDate:rs.fuResumeDate||'',updatedAt:rs.updatedAt};
         }
         // else local is newer — keep local; push-back below updates the sheet
       }else{
@@ -2124,7 +2167,10 @@ async function syncAll(manual){
           email:rs.email||S.email||'',
           gstEnabled:rs.gstEnabled!==undefined?(rs.gstEnabled==='true'||rs.gstEnabled===true):
                      (S.gstEnabled!==undefined?S.gstEnabled:true),
-          calKey:rs.calKey||S.calKey||''};
+          calKey:rs.calKey||S.calKey||'',
+          gstStartDate:rs.gstStartDate||S.gstStartDate||'',
+          fuPaused:rs.fuPaused!==undefined?(rs.fuPaused==='true'||rs.fuPaused===true):(S.fuPaused===true||S.fuPaused==='true'),
+          fuResumeDate:rs.fuResumeDate||S.fuResumeDate||''};
         if(rs.updatedAt&&!S.updatedAt)S.updatedAt=rs.updatedAt;
       }
       lsSet('vc_s',S);
@@ -2134,7 +2180,7 @@ async function syncAll(manual){
     // Each article is now its own sheet row keyed by id=articleNumber (per-row format)
     // Legacy blob row (id='tracking_all') is still read as fallback for first sync after migration
     let remTracking=[];
-    try{remTracking=await gsRead(SHEETS.tracking);}catch(e){console.warn('Tracking sheet read failed:',e.message);}
+    try{remTracking=await rd(SHEETS.tracking);}catch(e){console.warn('Tracking sheet read failed:',e.message);}
     let remTrackingMap={};
     remTracking.forEach(r=>{
       if(!r.id)return;
@@ -2173,7 +2219,7 @@ async function syncAll(manual){
 
     // MESSAGE LOG — read back from sheet so sent/followup/festival/never flags sync across devices
     try{
-      const remMsgLog=await gsRead('MessageLog');
+      const remMsgLog=await rd('MessageLog');
       if(remMsgLog&&remMsgLog.length){
         const localMap={};msgLog.forEach(l=>{localMap[l.phone+'_'+l.type+'_'+l.year]=l;});
         let changed=false;
@@ -2202,7 +2248,7 @@ async function syncAll(manual){
     // POPUP STATE — sync review_popup_seen, review_skipped, followup_shown_date across devices
     // so popups already actioned on one device don't re-appear on another
     try{
-      const remPS=await gsRead('PopupState');
+      const remPS=await rd('PopupState');
       const localSeen=lsGet('vc_review_popup_seen',[]);
       const localSkipped=lsGet('vc_review_skipped',{});
       const localFollowupDate=lsGet('vc_followup_shown_date','')||'';
@@ -2477,16 +2523,104 @@ function applyGSTMode(){
   if(btnOff){btnOff.style.background=!on?'var(--brown)':'';btnOff.style.color=!on?'#fff':'';}
   if(note)note.textContent=on?'Issuing Tax Invoices with full GST breakdown.':'Issuing Bills of Supply — no GST. Toggle ON when GST registration is restored.';
   if(gstinRow)gstinRow.style.display=on?'block':'none';
+  // v14.26.0: GST era block — start-date input + archive status
+  const eraBlock=document.getElementById('gst-era-block');
+  if(eraBlock){
+    eraBlock.style.display=on?'block':'none';
+    if(on){
+      const inp=document.getElementById('ms-gst-start');
+      if(inp&&document.activeElement!==inp)inp.value=S.gstStartDate||'';
+      const an=document.getElementById('gst-archive-note');
+      if(an){
+        try{
+          const cutoff=S.gstStartDate||'';
+          if(!cutoff){an.textContent='Set the GST era start date to enable archiving.';}
+          else{
+            const nInv=invoices.filter(i=>(i.invDate||'')&&i.invDate<cutoff).length;
+            const nCN=creditNotes.filter(c=>(c.cnDate||'')&&c.cnDate<cutoff).length;
+            an.textContent=(nInv+nCN)>0
+              ?nInv+' invoice(s) + '+nCN+' credit note(s) dated before '+fmtDate(cutoff)+' will be archived.'
+              :'No pre-GST records in the app — nothing left to archive.';
+          }
+        }catch(e){}
+      }
+    }
+  }
 }
 
 function setGSTMode(on){
   S.gstEnabled=on;
+  if(on&&!S.gstStartDate)S.gstStartDate=today(); // v14.26.0: GST era begins the day registration is switched ON (editable in Settings)
   S.updatedAt=new Date().toISOString(); // v14.25.0 H5
   lsSet('vc_s',S);
   if(!on){invoices.forEach(inv=>{if(inv.isGST===undefined)inv.isGST=false;});save();}
   applyGSTMode();
   gsWriteConfirmed(SHEETS.settings,settingsForSheet()).then(ok=>{if(!ok)toast('⚠️ Settings saved locally but sheet sync failed — tap sync to retry');});
   toast(on?'✅ GST Mode ON — issuing Tax Invoices':'✅ GST Mode OFF — issuing Bills of Supply');
+}
+
+// ── GST ERA — pre-GST archive (v14.26.0) ──
+// Two legal firms: the pre-GST firm ends at gstStartDate, the GST-registered firm begins there.
+// Archiving downloads a JSON backup, then moves all invoices/credit notes dated before
+// gstStartDate to InvoicesArchive/CreditNotesArchive tabs on the Google Sheet and tombstones
+// their ids in DeletedIds so every device purges its local copies. Requires Code.gs v3.
+function saveGstStartDate(v){
+  if(!v)return;
+  S.gstStartDate=v;S.updatedAt=new Date().toISOString();lsSet('vc_s',S);
+  gsWriteConfirmed(SHEETS.settings,settingsForSheet()).then(ok=>{if(!ok)toast('⚠️ Settings saved locally but sheet sync failed — tap sync to retry');});
+  applyGSTMode();toast('📅 GST era start date saved');
+}
+function gsArchivePreGst(cutoff){
+  return new Promise((resolve,reject)=>{
+    const cb='_gs_archive_'+Date.now();
+    const s=document.createElement('script');
+    const timer=setTimeout(()=>{
+      delete window[cb];try{document.head.removeChild(s);}catch{}
+      reject(new Error('Timeout — the archive may still be running on the sheet. Check the InvoicesArchive tab before retrying.'));
+    },180000);
+    window[cb]=data=>{clearTimeout(timer);delete window[cb];try{document.head.removeChild(s);}catch{};resolve(data);};
+    s.src=`${SCRIPT_URL}?action=archivePreGst&cutoff=${encodeURIComponent(cutoff)}&callback=${cb}`;
+    s.onerror=()=>{clearTimeout(timer);delete window[cb];reject(new Error('Network error during archive'));};
+    document.head.appendChild(s);
+  });
+}
+function archivePreGst(){
+  if(!isGSTEnabled()){toast('⚠️ Enable GST mode first');return;}
+  const cutoff=S.gstStartDate;
+  if(!cutoff){toast('⚠️ Set the GST era start date first');return;}
+  const preInv=invoices.filter(i=>(i.invDate||'')&&i.invDate<cutoff);
+  const preCN=creditNotes.filter(c=>(c.cnDate||'')&&c.cnDate<cutoff);
+  if(preInv.length===0&&preCN.length===0){toast('✅ No pre-GST records to archive');return;}
+  // Backup file FIRST — downloaded before the confirm so it exists even if archive is cancelled
+  const backup={app:'Vismaad Creations',type:'pre-gst-archive-backup',exportedAt:new Date().toISOString(),gstStartDate:cutoff,invoices:preInv,creditNotes:preCN};
+  const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='vismaad-pregst-backup-'+today()+'.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+  showConfirmModal('📦 Archive Pre-GST Data',
+    '<b>'+preInv.length+'</b> invoice(s) and <b>'+preCN.length+'</b> credit note(s) dated before <b>'+fmtDate(cutoff)+'</b> will be:<br/>'
+    +'• moved to <b>InvoicesArchive</b> / <b>CreditNotesArchive</b> tabs in the Google Sheet<br/>'
+    +'• removed from this app on <b>all devices</b><br/><br/>'
+    +'A JSON backup file was just downloaded — keep it safe.<br/><br/>Continue?',
+    function(){_doArchivePreGst(cutoff);},null);
+}
+async function _doArchivePreGst(cutoff){
+  toast('📦 Archiving on Google Sheet — please wait…',8000);
+  let res=null;
+  try{res=await gsArchivePreGst(cutoff);}catch(e){toast('⚠️ Archive failed: '+e.message,8000);return;}
+  if(!res||res.error){toast('⚠️ Archive failed: '+((res&&res.error)||'unknown — is the updated Apps Script (Code.gs v3) deployed?'),8000);return;}
+  // Tombstone + purge locally (server already appended the moved ids to the DeletedIds sheet)
+  const localIds=[
+    ...invoices.filter(i=>(i.invDate||'')&&i.invDate<cutoff).map(i=>String(i.id)),
+    ...creditNotes.filter(c=>(c.cnDate||'')&&c.cnDate<cutoff).map(c=>String(c.id))
+  ];
+  const allIds=[...new Set([...(res.ids||[]).map(String),...localIds])];
+  lsSet('vc_deleted_ids',[...new Set([...getDeletedIds().map(String),...allIds])]);
+  const idSet=new Set(allIds);
+  invoices=invoices.filter(i=>!idSet.has(String(i.id)));
+  creditNotes=creditNotes.filter(c=>!idSet.has(String(c.id)));
+  save();saveCNs();
+  renderDashboard();renderSales();renderOutreachWidget();applyGSTMode();
+  toast('✅ Archived '+(res.invoices||0)+' invoice(s) + '+(res.creditNotes||0)+' credit note(s) to the sheet archive tabs',8000);
 }
 
 let _setupGSTEnabled=false;
@@ -3045,14 +3179,7 @@ function generateInvoice(){
     // Link invoice ID to product (avoid duplicates)
     if(!Array.isArray(prod.linkedInvoices))prod.linkedInvoices=[];
     if(!prod.linkedInvoices.includes(String(saved.id)))prod.linkedInvoices.push(String(saved.id));
-    if (it.variantId && prod.variants) {
-      // Deduct from the specific variant (qty on invoice row = 1 for suit items)
-      const v = prod.variants.find(x => x.id === it.variantId);
-      if (v) { v.qty = Math.max(0, (parseInt(v.qty)||0) - (it.qty||1)); }
-      recalcProductQtyFromVariants(prod);
-    } else {
-      prod.qty=Math.max(0,(prod.qty||0)-(it.qty||1));
-    }
+    deductStock(prod,it.variantId,it.qty||1); // v14.26.0: variant-safe (product-level writes on variant products were reverted by the next recalc)
     prod.qtyOriginal=Math.max(parseInt(prod.qtyOriginal)||0,(parseInt(prod.qty)||0)+(parseInt(prod.qtySold)||0)); // v14.25.0 H2
     prod.updatedAt=new Date().toISOString();
   });
@@ -3656,13 +3783,7 @@ function _doDeleteInvoice(inv){
     if(Array.isArray(prod.linkedInvoices))
       prod.linkedInvoices=prod.linkedInvoices.filter(id=>String(id)!==String(inv.id));
     // Restore stock
-    if(it.variantId && prod.variants){
-      const v=prod.variants.find(x=>x.id===it.variantId);
-      if(v){v.qty=(parseInt(v.qty)||0)+soldQty;}
-      recalcProductQtyFromVariants(prod);
-    }else{
-      prod.qty=(parseInt(prod.qty)||0)+soldQty;
-    }
+    restoreStock(prod,it.variantId,soldQty); // v14.26.0: variant-safe (product-level restore on variant products was reverted by the next recalc)
     prod.updatedAt=new Date().toISOString();
   });
   if(items.length){
@@ -4614,7 +4735,7 @@ function _applyInvoiceStatus(inv,newStatus){
       const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(it.prodNo));
       if(!p)return;
       const qty=parseInt(it.qty)||1;
-      p.qty=(parseInt(p.qty)||0)+qty;
+      restoreStock(p,it.variantId,qty); // v14.26.0: variant-safe (was product-level only — reverted by the next variant recalc)
       p.qtySold=Math.max(0,(parseInt(p.qtySold)||0)-qty);
       p.updatedAt=new Date().toISOString();
       saveStk();
@@ -4925,6 +5046,10 @@ function saveProduct(){
 }
 function adjustStock(prodNo){
   const p=inventory.find(x=>parseInt(x.prodNo)===prodNo);if(!p)return;
+  if(Array.isArray(p.variants)&&p.variants.length){ // v14.26.0: product qty is derived from variants — direct edits were silently reverted
+    toast('⚠️ #'+prodNo+' has variants — adjust stock per variant in ✏️ Edit');
+    openInvEdit(prodNo);return;
+  }
   const v=prompt(`#${prodNo} "${p.name}"\nCurrent stock: ${p.qty}\nEnter new stock qty:`,p.qty);
   if(v===null)return;
   p.qty=Math.max(0,parseInt(v)||0);
@@ -5054,11 +5179,19 @@ function renderInventory(){
   }).join('');
 }
 function updateInventoryStats(){
-  const stk=inventory.reduce((s,p)=>s+(parseInt(p.qty)||0),0);
-  const val=inventory.reduce((s,p)=>s+(parseInt(p.qty)||0)*(parseFloat(p.cost)||0),0);
-  const e1=document.getElementById('ist-total');if(e1)e1.textContent=inventory.length;
-  const e2=document.getElementById('ist-stock');if(e2)e2.textContent=stk;
+  // v14.26.0: Active Products = count with qty>0 · Units in Stock = total in-stock pieces · Stock Value = in-stock qty×cost
+  const active=inventory.filter(p=>(parseInt(p.qty)||0)>0);
+  const units=active.reduce((s,p)=>s+(parseInt(p.qty)||0),0);
+  const val=active.reduce((s,p)=>s+(parseInt(p.qty)||0)*(parseFloat(p.cost)||0),0);
+  const noCost=active.filter(p=>!(parseFloat(p.cost)>0)).length;
+  const e1=document.getElementById('ist-total');if(e1)e1.textContent=active.length;
+  const e2=document.getElementById('ist-stock');if(e2)e2.textContent=units;
   const e3=document.getElementById('ist-value');if(e3)e3.textContent='₹'+val.toLocaleString('en-IN');
+  const e4=document.getElementById('ist-cost-note');
+  if(e4){
+    e4.style.display=noCost>0?'block':'none';
+    if(noCost>0)e4.textContent='⚠️ '+noCost+' in-stock product'+(noCost>1?'s':'')+' missing cost price — Stock Value is understated';
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -7219,6 +7352,40 @@ function daysSince(dateStr){
   }catch{return -1;}
 }
 
+// ── FOLLOW-UP PAUSE (v14.26.0) ──
+// Paused: no FU popup, no dashboard due counter, no FU list rows. Festival + delivery
+// notification messages are unaffected. On resume, fuResumeDate is stamped: any customer
+// whose 45-day due date fell BEFORE the resume date is skipped forever; customers who
+// cross 45 days after resuming behave normally. Both fields sync via the Settings sheet.
+function isFuPaused(){return S.fuPaused===true||S.fuPaused==='true';}
+function fuDueDate(lastOrder){
+  try{
+    const p=lastOrder.split('-');
+    const d=new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
+    d.setDate(d.getDate()+45);
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  }catch{return '';}
+}
+function fuEligible(c){
+  if(isFuPaused())return false;
+  if(isOptedOut(c.phone))return false;
+  if(hasSentFollowupSinceLastOrder(c.phone,c.lastOrder))return false;
+  if(!c.lastOrder)return false;
+  if(daysSince(c.lastOrder)<45)return false;
+  if(S.fuResumeDate&&fuDueDate(c.lastOrder)<S.fuResumeDate)return false; // due date passed while paused — skipped forever
+  return true;
+}
+function toggleFuPause(){
+  const pausing=!isFuPaused();
+  S.fuPaused=pausing;
+  if(!pausing)S.fuResumeDate=today();
+  S.updatedAt=new Date().toISOString();
+  lsSet('vc_s',S);
+  gsWriteConfirmed(SHEETS.settings,settingsForSheet()).then(ok=>{if(!ok)toast('⚠️ Saved locally but sheet sync failed — tap sync to retry');});
+  renderOutreachWidget();renderOutreachPage();
+  toast(pausing?'⏸ Follow-ups paused — no reminders until you resume':'▶️ Follow-ups resumed — anyone already due has been skipped');
+}
+
 // ── DASHBOARD OUTREACH WIDGET ──
 async function renderOutreachWidget(){
   const cache=await fetchFestivals(false);
@@ -7226,14 +7393,8 @@ async function renderOutreachWidget(){
   const yr=new Date().getFullYear();
   const todayStr=today();
 
-  // Follow-ups due (45+ days, not sent, not opted out)
-  const followupsDue=customers.filter(c=>{
-    if(isOptedOut(c.phone))return false;
-    if(hasSentFollowupSinceLastOrder(c.phone,c.lastOrder))return false;
-    if(!c.lastOrder)return false;
-    const days=daysSince(c.lastOrder);
-    return days>=45;
-  });
+  // Follow-ups due — shared eligibility (v14.26.0: pause + resume-date rule); empty while paused
+  const followupsDue=customers.filter(fuEligible);
 
   // Upcoming festivals within 25 days
   const upcoming=[];
@@ -7269,7 +7430,12 @@ async function renderOutreachWidget(){
       <span style="font-size:12px;color:#888;">${deliveryReviews.length} parcel${deliveryReviews.length>1?'s':''}</span>
     </div>`;
   }
-  if(followupsDue.length>0){
+  if(isFuPaused()){
+    html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="font-size:13px;color:#888;">⏸ Follow-ups paused</span>
+      <button class="btn btn-o btn-sm" style="min-height:32px;font-size:11px;" onclick="toggleFuPause()">▶️ Resume</button>
+    </div>`;
+  }else if(followupsDue.length>0){
     html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
       <span style="font-size:13px;">📬 ${followupsDue.length} follow-up${followupsDue.length>1?'s':''} due</span>
       <span style="font-size:12px;color:#888;">${followupsDue.length} customer${followupsDue.length>1?'s':''}</span>
@@ -7290,18 +7456,13 @@ let _followupQueue=[];
 let _followupIdx=0;
 
 async function checkFollowupPopup(){
+  if(isFuPaused())return; // v14.26.0: paused — no popup, and don't burn today's shown-marker
   // Show at most once per calendar day per device (prevents re-firing on every page reload)
   // Cross-device dedup is handled by msgLog (synced via sheet) via hasSentFollowupSinceLastOrder
   const lastShown=lsGet('vc_followup_shown_date','')||'';
   if(lastShown===today())return;
   const customers=getUniqueCustomers();
-  _followupQueue=customers.filter(c=>{
-    if(isOptedOut(c.phone))return false;
-    if(hasSentFollowupSinceLastOrder(c.phone,c.lastOrder))return false;
-    if(!c.lastOrder)return false;
-    const days=daysSince(c.lastOrder);
-    return days>=45;
-  });
+  _followupQueue=customers.filter(fuEligible); // v14.26.0: shared eligibility (pause + resume-date rule)
   if(_followupQueue.length===0){
     // No actionable customers — still mark shown so we don't re-check every page load today
     lsSet('vc_followup_shown_date',today());
@@ -7383,14 +7544,8 @@ async function renderOutreachPage(){
   const yr=new Date().getFullYear();
   const todayStr=today();
 
-  // Follow-ups — skip if reordered within 45 days
-  const followups=customers.filter(c=>{
-    if(isOptedOut(c.phone))return false;
-    if(hasSentFollowupSinceLastOrder(c.phone,c.lastOrder))return false;
-    if(!c.lastOrder)return false;
-    const days=daysSince(c.lastOrder);
-    return days>=45;
-  });
+  // Follow-ups — shared eligibility (v14.26.0: pause + resume-date rule); empty while paused
+  const followups=customers.filter(fuEligible);
 
   const rColour={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'};
 
@@ -7465,11 +7620,16 @@ async function renderOutreachPage(){
 
   // ── FOLLOW-UPS ──
   html+=`<div class="card">
-    <div class="card-title">📬 Follow-ups Due (${followups.length})</div>
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+      <span>📬 Follow-ups Due (${followups.length})</span>
+      <button class="btn btn-o btn-sm" style="min-height:36px;flex-shrink:0;" onclick="toggleFuPause()">${isFuPaused()?'▶️ Resume Follow-ups':'⏸ Pause Follow-ups'}</button>
+    </div>
     <div style="font-size:12px;color:#888;margin-bottom:12px;">
       Customers who ordered 45+ days ago with no recent reorder and no follow-up sent this year.
     </div>`;
-  if(followups.length===0){
+  if(isFuPaused()){
+    html+=`<div style="color:#aaa;text-align:center;padding:16px;">⏸ Follow-ups are paused — no popups or due counts. Customers whose 45-day mark passes while paused are skipped permanently on resume.</div>`;
+  }else if(followups.length===0){
     html+=`<div style="color:#aaa;text-align:center;padding:16px;">No follow-ups due.</div>`;
   }else{
     followups.forEach((c,i)=>{
@@ -9009,13 +9169,7 @@ function showUndoToast(msg,undoFn){
 }
 function _undoMarkSold(prodNo,variantId,invId){
   const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(prodNo));if(!p)return;
-  if(variantId&&p.variants){
-    const v=p.variants.find(x=>x.id===variantId);
-    if(v)v.qty=(parseInt(v.qty)||0)+1;
-    recalcProductQtyFromVariants(p);
-  }else{
-    p.qty=(parseInt(p.qty)||0)+1;
-  }
+  restoreStock(p,variantId,1); // v14.26.0: variant-safe
   p.qtySold=Math.max(0,(parseInt(p.qtySold)||0)-1);
   if(invId&&Array.isArray(p.linkedInvoices)){
     const ix=p.linkedInvoices.indexOf(String(invId));
@@ -9039,20 +9193,14 @@ function markInvItemSoldStandalone() {
 function _doMarkSoldStandalone(prodNoArg, variantId){
   const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(prodNoArg));
   if(!p)return;
-  // Deduct from specific variant if provided
-  if (variantId && p.variants) {
-    const v = p.variants.find(x => x.id === variantId);
-    if (v) { v.qty = Math.max(0, (parseInt(v.qty) || 0) - 1); recalcProductQtyFromVariants(p); }
-  } else {
-    p.qty = Math.max(0, (parseInt(p.qty) || 0) - 1);
-  }
+  const _dvId = deductStock(p, variantId, 1); // v14.26.0: variant-safe
   p.qtySold = (parseInt(p.qtySold) || 0) + 1;
   p.qtyOriginal = Math.max(parseInt(p.qtyOriginal) || 0, (parseInt(p.qty) || 0) + p.qtySold); // v14.25.0 H2: keep invariant so init normaliser can't wipe this sale
   p.updatedAt = new Date().toISOString();
   saveStk(); gsWriteConfirmed(SHEETS.inventory, flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Product saved locally but sheet sync failed — tap sync to retry');});
   closeInvEditModal();
   renderInventory(); renderAgingGrid(); updateInventoryStats();
-  showUndoToast('✅ Marked as sold (1 unit)', function(){ _undoMarkSold(p.prodNo, variantId, null); }); // v14.25.0 H2 undo
+  showUndoToast('✅ Marked as sold (1 unit)', function(){ _undoMarkSold(p.prodNo, _dvId||variantId, null); }); // v14.25.0 H2 undo · v14.26.0: undo the variant actually deducted
 }
 
 function confirmMarkSoldLinked() {
@@ -9066,13 +9214,7 @@ function _doLinkToInvoice(prodNoArg, invId, variantId){
   const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(prodNoArg));
   const inv=invoices.find(i=>String(i.id)===String(invId));
   if(!p||!inv)return;
-  // Deduct from specific variant if provided
-  if (variantId && p.variants) {
-    const v = p.variants.find(x => x.id === variantId);
-    if (v) { v.qty = Math.max(0, (parseInt(v.qty) || 0) - 1); recalcProductQtyFromVariants(p); }
-  } else {
-    p.qty = Math.max(0, (parseInt(p.qty) || 0) - 1);
-  }
+  const _dvId = deductStock(p, variantId, 1); // v14.26.0: variant-safe
   p.qtySold = (parseInt(p.qtySold) || 0) + 1;
   p.qtyOriginal = Math.max(parseInt(p.qtyOriginal) || 0, (parseInt(p.qty) || 0) + p.qtySold); // v14.25.0 H2
   if (!p.linkedInvoices) p.linkedInvoices = [];
@@ -9082,7 +9224,7 @@ function _doLinkToInvoice(prodNoArg, invId, variantId){
   saveStk(); gsWriteConfirmed(SHEETS.inventory, flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Product saved locally but sheet sync failed — tap sync to retry');});
   closeInvEditModal();
   renderInventory(); renderAgingGrid(); updateInventoryStats();
-  showUndoToast('✅ Linked to ' + esc(String(inv.invNo||inv.id)) + ' — stock deducted', function(){ _undoMarkSold(p.prodNo, variantId, inv.id); }); // v14.25.0 H2 undo
+  showUndoToast('✅ Linked to ' + esc(String(inv.invNo||inv.id)) + ' — stock deducted', function(){ _undoMarkSold(p.prodNo, _dvId||variantId, inv.id); }); // v14.25.0 H2 undo · v14.26.0: undo the variant actually deducted
 }
 
 // ═══════════════════════════════════════════
@@ -10634,6 +10776,40 @@ function updateVariantQty(variantId, val) {
   if (el) { el.style.borderColor = v.qty === 0 ? '#c0392b' : v.qty === 1 ? '#e67e22' : '#27ae60'; el.style.color = el.style.borderColor; }
 }
 
+// v14.26.0: single entry points for ALL stock deductions/restorations.
+// On variant products, product-level qty is DERIVED (recalcProductQtyFromVariants), so writing
+// p.qty directly on a variant product is silently reverted by the next recalc — every mutation
+// must go through the variants. Returns the variant id actually deducted (for undo), or null.
+function deductStock(p,variantId,qty){
+  qty=parseInt(qty)||1;
+  const hasVars=Array.isArray(p.variants)&&p.variants.length>0;
+  if(!hasVars){p.qty=Math.max(0,(parseInt(p.qty)||0)-qty);return null;}
+  let v=variantId?p.variants.find(x=>x.id===variantId):null;
+  if(v){
+    v.qty=Math.max(0,(parseInt(v.qty)||0)-qty);
+    recalcProductQtyFromVariants(p);
+    return v.id;
+  }
+  // No/unknown variantId on a variant product — take from in-stock variants in order
+  let left=qty,firstHit=null;
+  p.variants.forEach(x=>{
+    if(left<=0)return;
+    const q=parseInt(x.qty)||0;
+    const take=Math.min(q,left);
+    if(take>0){x.qty=q-take;left-=take;if(!firstHit)firstHit=x.id;}
+  });
+  recalcProductQtyFromVariants(p);
+  return firstHit;
+}
+function restoreStock(p,variantId,qty){
+  qty=parseInt(qty)||1;
+  const hasVars=Array.isArray(p.variants)&&p.variants.length>0;
+  if(!hasVars){p.qty=(parseInt(p.qty)||0)+qty;return;}
+  let v=variantId?p.variants.find(x=>x.id===variantId):null;
+  if(!v)v=p.variants[0]; // unknown variant — restore to the first so the recalc keeps it
+  v.qty=(parseInt(v.qty)||0)+qty;
+  recalcProductQtyFromVariants(p);
+}
 // Recompute product-level qty as sum of all variant qtys (when variants exist)
 function recalcProductQtyFromVariants(p) {
   if (!p || !p.variants || !p.variants.length) return;
