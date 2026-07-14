@@ -3,10 +3,13 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.27.0
+APP: Vismaad Creations v14.28.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 11-Jul-2026 — v14.27.0: LINKED PRODUCT STOCK POOLING. Linked products now share ONE physical stock pool — previously linkedProducts was cosmetic only (a 🔗 badge from the name-similarity suggester) and no stock code ever read it, so selling 3 articles of #2 when #2 held 2 clamped #2 to 0, silently swallowed the 3rd article and left linked #1 untouched at 2. (1) getStockPool(p) — breadth-first walk of the linkedProducts graph, TRANSITIVE: 1—3 and 2—3 makes {1,2,3} one pool even though acceptLink only ever writes the two ends it was given, so 1 and 2 are not directly linked. Returns the invoiced product first, siblings ascending by prodNo. (2) deductStock — takes what the invoiced product holds, then SPILLS the overflow onto pool siblings in prodNo order; returns {variantId, spill[], short, touched[]}. qtySold is credited to whichever product PHYSICALLY supplied each unit, so P&L/aging on the sibling is correct; the invoice line still names the product you typed. (3) The spill is RECORDED on the invoice item (itemsArr[i].spill) — it cannot be recomputed at delete/return time because stock levels move on; expandItems preserves it through the sheet round-trip (same treatment variantId got in v14.26.0), flattenForSheet already JSON-stringifies itemsArr so it rides along. (4) restoreStock(p,variantId,qty,spill) reverses the spill EXACTLY, giving each sibling back precisely what it supplied; called with no spill it behaves as it did pre-v14.27.0. (5) NEVER STALLS — if the whole pool is empty (you have the article but the software does not), the sale still saves: qty floors at 0, qtySold still climbs, qtyOriginal ratchets, and a non-blocking toast reports the shortfall. No modal, no block. (6) Invoice save reordered — deduction now runs BEFORE `saved` is constructed so the spill lands on the item; touched-product sync set widened to include drained siblings. (7) All six stock call sites made pool-aware: saveInvoice, _doDeleteInvoice, _applyInvoiceStatus (Returned), _doMarkSoldStandalone, _doLinkToInvoice (writes spill back onto the invoice item), _undoMarkSold (undo now reverses the pool). (8) Inventory card 🔗 badge shows the COMPUTED transitive pool plus a shared 'Pool: N' total, so what you see matches what deductStock will draw from. NOTE: sales made before this version cannot be repaired automatically — the old clamp overwrote qtyOriginal via its Math.max ratchet, which absorbed the over-sale and left no recoverable record of the true intake. Correct the affected products by hand in the inventory editor.
+LAST_CHANGE: 14-Jul-2026 — v14.28.0: (1) PARTNER REPORT — select any invoices on the Sales page (any dates, free-form) and tap 📤 Partner Report to build ONE WhatsApp message for a record-keeping partner, grouped by DISPATCH DATE (ascending, undated orders bucketed last rather than dropped). Each article is listed by Product No. with cost → sale; then shipping charged to the customer and our own shipping cost (from the existing batch-split, omitted when 0). Per-date subtotal and a grand total, each carrying a profit line. Profit is uniform and deliberately simple — sale − cost + shipping charged − shipping cost — with NO GST handling anywhere: this is a partner's record, not a CA's return. City is resolved from the customer PIN via India Post's free public endpoint (api.postalpincode.in, no key, no signup), cached permanently in vc_pincity since a PIN's district never changes; a failed lookup or offline device degrades to a blank city and the report still sends. Preview modal is editable before sending, with Copy alongside Send. Partner number stored once in Settings (S.partnerWa) and kept localStorage-only, matching how waNumber is already handled — personal numbers never reach the Settings sheet. Warns in-modal when orders are missing a city or a cost price.
+(2) BUGFIX — SHIPPING CARRIED OVER TO THE NEXT INVOICE. generateInvoice() never reset the money fields; only ↺ / "+ New Invoice" did. Starting the next invoice without tapping either left the previous shipping figure in place. The auto-shipping guard then cemented it: it decided whether a value was a manual override by testing whether it equalled prevQty*50, so a carried-over ₹100 matched neither that nor 0, was mistaken for a deliberate override, and survived indefinitely. Two-item invoices reproduced it every time; single-item ones (₹50) happened to match the expected value and silently self-corrected, which is why it looked intermittent. Fixed on both sides: shipping/discount/shipping-cost are now cleared the moment an invoice is committed, and the override is tracked explicitly via _shipManual (set ONLY when the user types in the field) instead of being inferred from the value. All four auto-shipping call sites (addItem, removeItem, qty change, channel change, dispatch change) now route through one recalcAutoShipping() helper — which also fixes a latent bug where the dispatch-method branch used items.length*50 instead of totalQty()*50, undercharging shipping whenever any line had qty > 1.
+(3) SALES SHIPPING-STATUS FILTERS — the Sales filter dropdown gains In Transit (tracking data exists, nothing delivered yet), Delivered (a tracking number reports Delivered), and No Tracking (no tracking number at all). No Tracking excludes hand-delivery and walk-in orders, which are never meant to carry a number and would otherwise bury the orders that genuinely need one; Cancelled/Returned are excluded from all three.
+PREV_CHANGE: 11-Jul-2026 — v14.27.0: LINKED PRODUCT STOCK POOLING. Linked products now share ONE physical stock pool — previously linkedProducts was cosmetic only (a 🔗 badge from the name-similarity suggester) and no stock code ever read it, so selling 3 articles of #2 when #2 held 2 clamped #2 to 0, silently swallowed the 3rd article and left linked #1 untouched at 2. (1) getStockPool(p) — breadth-first walk of the linkedProducts graph, TRANSITIVE: 1—3 and 2—3 makes {1,2,3} one pool even though acceptLink only ever writes the two ends it was given, so 1 and 2 are not directly linked. Returns the invoiced product first, siblings ascending by prodNo. (2) deductStock — takes what the invoiced product holds, then SPILLS the overflow onto pool siblings in prodNo order; returns {variantId, spill[], short, touched[]}. qtySold is credited to whichever product PHYSICALLY supplied each unit, so P&L/aging on the sibling is correct; the invoice line still names the product you typed. (3) The spill is RECORDED on the invoice item (itemsArr[i].spill) — it cannot be recomputed at delete/return time because stock levels move on; expandItems preserves it through the sheet round-trip (same treatment variantId got in v14.26.0), flattenForSheet already JSON-stringifies itemsArr so it rides along. (4) restoreStock(p,variantId,qty,spill) reverses the spill EXACTLY, giving each sibling back precisely what it supplied; called with no spill it behaves as it did pre-v14.27.0. (5) NEVER STALLS — if the whole pool is empty (you have the article but the software does not), the sale still saves: qty floors at 0, qtySold still climbs, qtyOriginal ratchets, and a non-blocking toast reports the shortfall. No modal, no block. (6) Invoice save reordered — deduction now runs BEFORE `saved` is constructed so the spill lands on the item; touched-product sync set widened to include drained siblings. (7) All six stock call sites made pool-aware: saveInvoice, _doDeleteInvoice, _applyInvoiceStatus (Returned), _doMarkSoldStandalone, _doLinkToInvoice (writes spill back onto the invoice item), _undoMarkSold (undo now reverses the pool). (8) Inventory card 🔗 badge shows the COMPUTED transitive pool plus a shared 'Pool: N' total, so what you see matches what deductStock will draw from. NOTE: sales made before this version cannot be repaired automatically — the old clamp overwrote qtyOriginal via its Math.max ratchet, which absorbed the over-sale and left no recoverable record of the true intake. Correct the affected products by hand in the inventory editor.
 PREV_CHANGE: 10-Jul-2026 — v14.26.0: (1) readAll — syncAll fetches all 12 sheets in ONE JSONP round-trip via new Apps Script action=readAll (per-sheet fallback if old script still deployed; requires Code.gs v3). (2) Follow-up pause — ⏸/▶️ toggle on Outreach page; paused = no FU popup, no dashboard due counter, no FU list; on resume fuResumeDate is stamped and customers whose 45-day due date fell before it are skipped forever; synced via Settings sheet (fuPaused/fuResumeDate). Festival + delivery messages unaffected. (3) GST era: gstStartDate setting (auto-set when GST toggled ON, editable in Settings); Archive Pre-GST Data downloads a JSON backup then moves invoices/credit notes dated before gstStartDate to InvoicesArchive/CreditNotesArchive sheet tabs (action=archivePreGst) and tombstones their ids in DeletedIds so every device purges them — live app carries GST-era books only; DeletedIds purge in syncAll now also removes credit notes. (4) Stock integrity: deductStock/restoreStock single entry points — deductions/restorations on variant products without a variantId previously wrote product-level qty and were silently reverted by the next variant recalc; fixed in invoice-save fallback, standalone mark-sold, link-to-invoice, invoice-delete restore, Returned-status restore and undo; expandItems now preserves variantId (sync merge was stripping it from itemsArr, breaking variant restores cross-device); ± Stock button blocked on variant products (edit per-variant instead). (5) Inventory stats: Active Products (count with qty>0), Units in Stock (sum of in-stock qty), Stock Value (in-stock qty×cost) + warning when in-stock products are missing cost price.
 PREV_CHANGE: 09-Jul-2026 — v14.25.0: CTO audit fixes, 13 in one pass. C1: perpetual auto-sync loop killed — saves inside syncAll no longer re-schedule the 20s timer (app synced every 20s forever, ~50k requests/day); lastSyncTime now stamped from sync START so edits made mid-sync push next cycle. C2: settingsForSheet() sanitized payload — githubPat/track123 keys/catSheetId/UPI never written to Settings sheet (3 leaking write paths replaced); NOTE: manually delete credential values already in the Settings sheet row. C3: flattenForSheet no longer strips gstin from settings writes — GSTIN now actually syncs cross-device. C4: hardcoded Track123 key removed from source (existing devices keep it in localStorage; new devices enter it in Settings). C5: invoice save/delete writes only touched products via gsWriteConfirmed (was full-inventory fire-and-forget). H1: DeletedIds sheet — invoice deletions propagate cross-device (tombstones were localStorage-only, deleted invoices lived forever on other devices). H2: init qtySold normaliser repairs qtyOriginal UPWARD instead of wiping sales on rows lacking qtyOriginal; all mark-sold paths maintain qtyOriginal=qty+qtySold invariant; 10s UNDO toast on mark-sold (standalone + linked) via showUndoToast/_undoMarkSold. H3: visibilitychange flushes dirty records (flushPendingWrites, keepalive fetch) when app backgrounded with pending timer; online listener reschedules sync after reconnect. H4: checkDupInvNos after sync detects duplicate invoice numbers from concurrent device creation, prompts renumber of newer invoice to next free number (FY-aware for GST format). H5: settings get updatedAt; timestamp-wins merge (allows clearing fields cross-device, legacy presence-based fallback when timestamps absent); merge preserves local-only fields via spread — also fixes upiId/upiName/upiPhone being silently dropped from S on every sync. M1: sales search debounced 250ms. M2: PopupState pushed only when changed (was confirmed-write every sync). M6: Synced toast on manual sync only (header tap, Sync Now button, pull-to-refresh pass manual=true). PREV_CHANGE: 29-Jun-2026 — v14.24.0: (1) DTDC/Blue Dart count in tracking page description now excludes Cancelled/Returned invoices and shows non-delivered count (orange) or "all delivered" (green) instead of in-transit; (2) Hand Delivery and Walk-in invoices excluded from tracking page no-tracking list and dashboard pending orders. PREV_CHANGE: 27-Jun-2026 — v14.23.0: (1) Inventory dateAdded preserved in remote-wins sync merge; one-time updatedAt backfill for legacy items to stop needsPush re-pushing every sync; (2) Price list cost price column no longer strikes through — cost is a static fact; (3) Credit note full flow: CN linked inside invoice card in sales list with print button; on Return/Cancellation CN prompt to mark invoice as Returned/Cancelled (with stock restore for Returns); manual 📋 Status button on each invoice; invoiceStatus field (Active/Cancelled/Returned); (4) Cancelled/Returned invoices excluded from tracking page and dashboard pending orders; sales list filter adds Cancelled/Returned options; badge shown on invoice card; (5) DTDC/Blue Dart description now shows in-transit count.
 PREV_CHANGE: 17-Jun-2026 — v14.18.1: Bulk Mark as Dropshipped on Sales page — select invoices, tap 📦 Dropship, enter supplier name (datalist from existing suppliers), all articles in selected invoices get DS-tagged with invoice date as dsDate; saves sequentially via gsWriteConfirmed.
@@ -336,6 +339,22 @@ body.gst-mode .gst-only{display:block;}
   </div>
 </div>
 
+<!-- ════ PARTNER REPORT MODAL (v14.28.0) ════ -->
+<div class="modal-bg" id="partner-report-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="document.getElementById('partner-report-modal').classList.remove('open')">✕</button>
+    <div class="modal-title">📤 Partner Report</div>
+    <div id="pr-status" style="font-size:13px;color:#888;margin-bottom:12px;"></div>
+    <textarea id="pr-preview" readonly
+      style="width:100%;min-height:260px;max-height:45vh;padding:12px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:12.5px;font-family:ui-monospace,Menlo,Consolas,monospace;line-height:1.6;resize:vertical;-webkit-overflow-scrolling:touch;"></textarea>
+    <div style="font-size:11px;color:#888;margin:8px 0 14px;">Review before sending. You can edit the text above — it sends exactly as shown.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-p" style="flex:1;min-width:150px;" onclick="sendPartnerReport()">💬 Send on WhatsApp</button>
+      <button class="btn btn-o" style="flex:1;min-width:110px;" onclick="copyPartnerReport()">📋 Copy</button>
+    </div>
+  </div>
+</div>
+
 <!-- ════ PASTE DETAILS MODAL ════ -->
 <div class="modal-bg" id="paste-modal">
   <div class="modal">
@@ -520,7 +539,7 @@ body.gst-mode .gst-only{display:block;}
   <div class="card">
     <div class="card-title">🚚 Shipping & Extras</div>
     <div class="row2">
-      <div class="fg"><label>Shipping charged to customer (₹)</label><input type="number" id="shipping" value="0" oninput="recalc()"/></div>
+      <div class="fg"><label>Shipping charged to customer (₹)</label><input type="number" id="shipping" value="0" oninput="_shipManual=true;recalc()"/></div>
       <div class="fg"><label>Discount (₹)</label><input type="number" id="discount" value="0" oninput="recalc()"/></div>
     </div>
     <div class="fg"><label>Actual shipping cost paid (₹) <span style="font-weight:400;color:#aaa;">(for P&L only)</span></label><input type="number" id="shipping-cost" value="0" placeholder="What courier charged you"/></div>
@@ -682,7 +701,14 @@ body.gst-mode .gst-only{display:block;}
   <div style="display:flex;gap:8px;margin-bottom:8px;">
     <input type="text" id="sales-search" placeholder="🔍 Search name, invoice…" oninput="debouncedRenderSales()" style="flex:1;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:14px;"/>
     <select id="sales-filter" onchange="renderSales()" style="padding:12px 10px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;">
-      <option value="">All</option><option value="Shipped">Shipped</option><option value="Pending">Pending</option><option value="Cancelled">Cancelled</option><option value="Returned">Returned</option>
+      <option value="">All</option>
+      <option value="Shipped">Shipped</option>
+      <option value="InTransit">In Transit</option>
+      <option value="Delivered">Delivered</option>
+      <option value="Pending">Pending</option>
+      <option value="NoTracking">No Tracking</option>
+      <option value="Cancelled">Cancelled</option>
+      <option value="Returned">Returned</option>
     </select>
   </div>
   <!-- Religion filter -->
@@ -719,6 +745,7 @@ body.gst-mode .gst-only{display:block;}
         <button class="btn btn-o btn-sm" onclick="bulkPrint()">🖨️ Print</button>
         <button class="btn btn-o btn-sm" onclick="bulkPrintLabels()">📦 Labels</button>
         <button class="btn btn-o btn-sm" onclick="showBatchShipping()">💰 Batch Ship Cost</button>
+        <button class="btn btn-o btn-sm" onclick="showPartnerReport()">📤 Partner Report</button>
         <button class="btn btn-d btn-sm" onclick="bulkDelete()">🗑 Delete</button>
       </div>
     </div>
@@ -813,6 +840,9 @@ body.gst-mode .gst-only{display:block;}
         <input id="ms-tagline" placeholder="e.g. Premium Unstitched Suits · Punjab"/></div>
       <div class="fg" style="margin-bottom:10px;"><label>WhatsApp Number for Enquiries <span style="font-weight:400;color:#aaa;">(with country code, no +)</span></label>
         <input id="ms-wa-number" placeholder="e.g. 919876543210" type="tel"/></div>
+      <div class="fg" style="margin-bottom:10px;"><label>Partner WhatsApp Number <span style="font-weight:400;color:#aaa;">(for 📤 Partner Report — with country code, no +)</span></label>
+        <input id="ms-partner-wa" placeholder="e.g. 919876543210" type="tel"/>
+        <div style="font-size:11px;color:#888;margin-top:4px;">Saved once. The Partner Report button on the Sales page sends the cost/sale/profit summary here.</div></div>
       <div class="fg" style="margin-bottom:10px;"><label>GitHub Personal Access Token <span style="font-weight:400;color:#aaa;">(for photo uploads)</span></label>
         <input id="ms-gh-pat" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" type="password"/>
         <div style="font-size:11px;color:#888;margin-top:4px;">Create at github.com/settings/tokens → Classic → repo scope. Photos upload to your vismaadcreations/vismaad repo.</div></div>
@@ -2672,6 +2702,8 @@ function loadSettings(){
   if(tagEl&&S.tagline)tagEl.value=S.tagline;
   const waEl=document.getElementById('ms-wa-number');
   if(waEl&&S.waNumber)waEl.value=S.waNumber;
+  const pwaEl=document.getElementById('ms-partner-wa');
+  if(pwaEl&&S.partnerWa)pwaEl.value=S.partnerWa;
   const patEl=document.getElementById('ms-gh-pat');
   if(patEl&&S.githubPat)patEl.value=S.githubPat;
   const catEl=document.getElementById('ms-cat-sheet-id');
@@ -2699,6 +2731,7 @@ function saveSettings(){
     calKey:(document.getElementById('ms-cal-key')?.value||'').trim(),
     tagline:(document.getElementById('ms-tagline')?.value||'').trim(),
     waNumber:(document.getElementById('ms-wa-number')?.value||'').trim(),
+    partnerWa:(document.getElementById('ms-partner-wa')?.value||'').replace(/\D/g,''),
     githubPat:(document.getElementById('ms-gh-pat')?.value||'').trim(),
     catSheetId:(document.getElementById('ms-cat-sheet-id')?.value||'').trim(),
     track123Key1:(document.getElementById('ms-track123-key1')?.value||'').trim(),
@@ -2764,45 +2797,35 @@ function onInvDateChange(){
 // INVOICE ITEMS
 // ═══════════════════════════════════════════
 function totalQty(){return items.reduce((s,i)=>s+(i.qty||1),0);}
+
+// v14.28.0 BUGFIX: auto-shipping (₹50/unit) previously guarded itself by testing whether the
+// CURRENT field value equalled the value it would have written last time (prevQty*50). A shipping
+// figure carried over from a prior invoice matched neither that nor 0, so it was mistaken for a
+// deliberate manual override and preserved forever. Two-item invoices (₹100) reproduced it every
+// time; single-item ones (₹50) happened to match the expected value and silently self-corrected.
+// Now the override is tracked explicitly: _shipManual is set ONLY when the user types in the field.
+let _shipManual=false;
+function autoShipEligible(){
+  const channel=document.getElementById('sale-channel')?.value||'';
+  const dispatch=document.getElementById('dispatch-method')?.value||'';
+  return !(channel==='Offline'||dispatch==='walkin'||dispatch==='hand');
+}
+function recalcAutoShipping(){
+  const shipEl=document.getElementById('shipping');
+  if(!shipEl)return;
+  if(_shipManual)return;              // user typed a figure — never clobber it
+  if(!items.length||!autoShipEligible()){shipEl.value='0';return;}
+  shipEl.value=totalQty()*50;
+}
 function addItem(){
   itemId++;
   items.push({id:itemId,prodNo:'',desc:'Unstitched Suit',hsn:'540754',qty:1,unitPrice:0});
-  // Auto-set shipping: ₹50 per qty unit, only if channel is not Offline and dispatch is not walkin
-  const channel=document.getElementById('sale-channel')?.value||'';
-  const dispatch=document.getElementById('dispatch-method')?.value||'';
-  const isOffline=channel==='Offline'||dispatch==='walkin'||dispatch==='hand';
-  if(!isOffline){
-    const shipEl=document.getElementById('shipping');
-    if(shipEl){
-      // Only auto-set if user hasn't manually overridden (value is a multiple of 50 or 0)
-      const cur=parseFloat(shipEl.value)||0;
-      const prevQty=totalQty()-1; // before this item was pushed, qty was one less
-      const expected=prevQty*50;
-      if(cur===0||cur===expected){
-        shipEl.value=totalQty()*50;
-      }
-    }
-  }
+  recalcAutoShipping();
   renderItems();
 }
 function removeItem(id){
-  const removedQty=(items.find(i=>i.id===id)?.qty||1);
   items=items.filter(i=>i.id!==id);
-  // Recalculate auto-shipping
-  const channel=document.getElementById('sale-channel')?.value||'';
-  const dispatch=document.getElementById('dispatch-method')?.value||'';
-  const isOffline=channel==='Offline'||dispatch==='walkin'||dispatch==='hand';
-  if(!isOffline&&items.length>0){
-    const shipEl=document.getElementById('shipping');
-    if(shipEl){
-      const cur=parseFloat(shipEl.value)||0;
-      const expected=(totalQty()+removedQty)*50; // what it was before removal
-      if(cur===expected||cur===0){shipEl.value=totalQty()*50;}
-    }
-  }else if(items.length===0){
-    const shipEl=document.getElementById('shipping');
-    if(shipEl)shipEl.value='0';
-  }
+  recalcAutoShipping();
   renderItems();
 }
 function renderItems(){
@@ -2897,20 +2920,7 @@ function updateItem(id,f,v){
   const tot=document.getElementById('itot-'+id);
   if(tot)tot.textContent='₹'+((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN');
   // Re-run auto-shipping when qty changes
-  if(f==='qty'){
-    const channel=document.getElementById('sale-channel')?.value||'';
-    const dispatch=document.getElementById('dispatch-method')?.value||'';
-    const isOffline=channel==='Offline'||dispatch==='walkin'||dispatch==='hand';
-    if(!isOffline){
-      const shipEl=document.getElementById('shipping');
-      if(shipEl){
-        const cur=parseFloat(shipEl.value)||0;
-        const tq=totalQty();
-        // Only auto-update if value looks like it was auto-set (multiple of 50)
-        if(cur===0||cur%50===0){shipEl.value=tq*50;}
-      }
-    }
-  }
+  if(f==='qty')recalcAutoShipping();
   recalc();
 }
 function lookupProduct(rowId,val){
@@ -3055,22 +3065,10 @@ function setChannel(el,val){
   document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
   el.classList.add('active');selChannel=val;
   const sc=document.getElementById('sale-channel');if(sc)sc.value=val;
-  // Auto-manage shipping based on channel
-  const shipEl=document.getElementById('shipping');
-  if(shipEl){
-    if(val==='Offline'){
-      shipEl.value='0';
-    }else{
-      // Restore auto-shipping if currently 0 and there are items
-      const cur=parseFloat(shipEl.value)||0;
-      if(cur===0&&items.length>0){
-        const dispatch=document.getElementById('dispatch-method')?.value||'';
-        if(dispatch!=='walkin'&&dispatch!=='hand'){
-          shipEl.value=totalQty()*50;
-        }
-      }
-    }
-  }
+  // Auto-manage shipping based on channel. Offline forces ₹0 and CLEARS any manual override,
+  // since there is no shipping to charge on a counter sale.
+  if(val==='Offline')_shipManual=false;
+  recalcAutoShipping();
   recalc();
 }
 function updateTaxType(){
@@ -3089,20 +3087,11 @@ function updateDispatchFields(){
   const showCourier=method==='courier';
   if(trackRow)trackRow.style.display=showTracking?'':'none';
   if(courierRow)courierRow.style.display=showCourier?'block':'none';
-  // Auto-manage shipping based on dispatch method
-  const shipEl=document.getElementById('shipping');
-  if(shipEl){
-    if(method==='walkin'||method==='hand'){
-      shipEl.value='0';
-    }else{
-      // Restore auto-shipping if currently 0 and items present and channel not Offline
-      const cur=parseFloat(shipEl.value)||0;
-      const channel=document.getElementById('sale-channel')?.value||'';
-      if(cur===0&&items.length>0&&channel!=='Offline'){
-        shipEl.value=items.length*50;
-      }
-    }
-  }
+  // Auto-manage shipping based on dispatch method. Walk-in/hand force ₹0 and clear any manual
+  // override. (Also fixes a latent bug: this branch used items.length*50 instead of totalQty()*50,
+  // undercharging shipping whenever any line had qty > 1.)
+  if(method==='walkin'||method==='hand')_shipManual=false;
+  recalcAutoShipping();
   recalc();
 }
 
@@ -3226,6 +3215,16 @@ function generateInvoice(){
     toast('⚠️ Order value ≥ ₹50,000 — E-way Bill required at ewaybillgst.gov.in before dispatch',7000);
   }
   lsSet('vc_ctr',invCtr);
+
+  // v14.28.0 BUGFIX: the money fields are now cleared the moment the invoice is committed.
+  // generateInvoice() never reset them — only ↺ / "+ New Invoice" did — so starting the next
+  // invoice without tapping either carried the previous shipping figure straight onto it.
+  // The rest of the form is deliberately left intact so the preview above stays readable.
+  const shEl=document.getElementById('shipping');if(shEl)shEl.value='0';
+  const diEl=document.getElementById('discount');if(diEl)diEl.value='0';
+  const scEl=document.getElementById('shipping-cost');if(scEl)scEl.value='0';
+  _shipManual=false;
+
   toast('✅ Invoice '+invNo+' saved!');
   // Scroll to "+ New Invoice" button so it's easy to start another
   setTimeout(()=>{const nb=document.getElementById('new-invoice-btn');if(nb)nb.scrollIntoView({behavior:'smooth',block:'center'});},600);
@@ -3249,6 +3248,7 @@ function resetInvoiceForm(){
   const sh=document.getElementById('shipping');if(sh)sh.value='0';
   const di=document.getElementById('discount');if(di)di.value='0';
   const sc2=document.getElementById('shipping-cost');if(sc2)sc2.value='0';
+  _shipManual=false;
   const dm=document.getElementById('dispatch-method');if(dm)dm.value='';
   const cn=document.getElementById('courier-name');if(cn)cn.value='';
   updateDispatchFields();
@@ -3501,6 +3501,25 @@ function renderSales(){
     // For Shipped/Pending filters, skip Cancelled/Returned invoices
     if(sf==='Shipped'&&!isShippedOrDelivered)return false;
     if(sf==='Pending'&&isShippedOrDelivered)return false;
+
+    // v14.28.0: shipping-status filters.
+    // Delivered  = a tracking number reports Delivered.
+    // In Transit = tracking data exists but nothing has been delivered yet.
+    // No Tracking= no tracking number at all. Hand-delivery and walk-in orders are EXCLUDED —
+    //              they are never meant to carry tracking, and including them would bury the
+    //              orders that genuinely need a number entered. Cancelled/Returned also excluded.
+    if(sf==='Delivered'||sf==='InTransit'||sf==='NoTracking'){
+      if(invSt!=='Active')return false;
+      const anyDelivered=trackNos.some(t=>/^delivered$/i.test(trackingData[t]?.status||''));
+      const anyData=trackNos.some(t=>trackingData[t]?.status);
+      if(sf==='Delivered'&&!anyDelivered)return false;
+      if(sf==='InTransit'&&(!anyData||anyDelivered))return false;
+      if(sf==='NoTracking'){
+        const dm=inv.dispatchMethod||'';
+        if(dm==='walkin'||dm==='hand')return false;
+        if(trackNos.length>0)return false;
+      }
+    }
     if(q&&!inv.custName?.toLowerCase().includes(q)&&!inv.invNo?.toLowerCase().includes(q)&&!(inv.itemsSummary||'').toLowerCase().includes(q))return false;
     // Religion filter
     if(_salesReligionFilter&&_salesReligionFilter!=='All'){
@@ -8122,6 +8141,160 @@ function bulkPrintLabels(){
   const w=window.open(url,'_blank');
   if(!w){toast('⚠️ Popup blocked — allow popups in browser settings',5000);URL.revokeObjectURL(url);}
   else{setTimeout(()=>URL.revokeObjectURL(url),30000);}
+}
+
+// ═══════════════════════════════════════════
+// PARTNER REPORT (v14.28.0)
+// Select any invoices on the Sales page (any dates), tap 📤 Partner Report. Builds ONE WhatsApp
+// message grouped by DISPATCH DATE, listing each article by Product No. with cost → sale, the
+// shipping charged to the customer, and our own shipping cost where the batch split has set it.
+// Profit is uniform and deliberately simple — no GST handling, this is a partner's record, not a
+// CA's return:   profit = sale − cost + shipping charged − shipping cost
+// ═══════════════════════════════════════════
+let _prMsg='';
+
+// PIN → city via India Post's free public endpoint (no key, no signup). Cached forever in
+// vc_pincity — a PIN's district does not change, and the cache is what makes a repeat report
+// instant instead of a dozen sequential network round-trips.
+async function pinToCity(pin){
+  pin=String(pin||'').replace(/\D/g,'');
+  if(pin.length!==6)return'';
+  const cache=lsGet('vc_pincity',{});
+  if(cache[pin]!==undefined)return cache[pin];
+  try{
+    const r=await fetch('https://api.postalpincode.in/pincode/'+pin);
+    const j=await r.json();
+    const po=j?.[0]?.PostOffice?.[0];
+    const city=po?(po.District||po.Block||''):'';
+    cache[pin]=city;lsSet('vc_pincity',cache);
+    return city;
+  }catch(e){
+    return''; // offline or lookup failed — report still sends, just without the city
+  }
+}
+
+const _prMoney=n=>'₹'+Math.round(n).toLocaleString('en-IN');
+
+async function showPartnerReport(){
+  const sel=getSelectedInvoices();
+  if(!sel.length){toast('⚠️ Select at least one invoice');return;}
+  if(!S.partnerWa){toast('⚠️ Add the Partner WhatsApp Number in Settings first',5000);return;}
+
+  const modal=document.getElementById('partner-report-modal');
+  const statusEl=document.getElementById('pr-status');
+  const prevEl=document.getElementById('pr-preview');
+  if(prevEl)prevEl.value='';
+  if(statusEl)statusEl.textContent='Looking up cities…';
+  modal.classList.add('open');
+
+  // Resolve every distinct PIN once, in parallel
+  const pins=[...new Set(sel.map(i=>String(i.custPin||'').replace(/\D/g,'')).filter(p=>p.length===6))];
+  const cityMap={};
+  await Promise.all(pins.map(async p=>{cityMap[p]=await pinToCity(p);}));
+
+  // Group by dispatch date. Invoices with no dispatch date fall into their own bucket rather than
+  // being dropped — they are still real orders the partner needs to see.
+  const groups={};
+  sel.forEach(inv=>{
+    const k=inv.dispatchDate||'';
+    (groups[k]=groups[k]||[]).push(inv);
+  });
+  const keys=Object.keys(groups).sort((a,b)=>{
+    if(!a)return 1; if(!b)return -1;      // undated bucket last
+    return a<b?-1:a>b?1:0;                 // ISO yyyy-mm-dd sorts correctly as a string
+  });
+
+  const L=[];
+  let gCost=0,gSale=0,gShipIn=0,gShipOut=0;
+
+  keys.forEach(k=>{
+    L.push('━━━━━━━━━━━━━━━');
+    L.push('📅 *'+(k?fmtDate(k):'No dispatch date')+'*');
+    L.push('');
+
+    let dCost=0,dSale=0,dShipIn=0,dShipOut=0;
+
+    groups[k].forEach((inv,n)=>{
+      const pin=String(inv.custPin||'').replace(/\D/g,'');
+      const city=cityMap[pin]||'';
+      L.push((n+1)+') *'+(inv.custName||'—')+'*'+(city?' — '+city:''));
+
+      const arr=expandItems(inv.itemsArr)||[];
+      arr.forEach(it=>{
+        const qty=parseInt(it.qty)||1;
+        const cost=(parseFloat(it.costPrice)||0)*qty;
+        const sale=(parseFloat(it.unitPrice)||0)*qty;
+        dCost+=cost;dSale+=sale;
+        const label=it.prodNo?('#'+it.prodNo):(it.desc||'Suit');
+        L.push('   '+label+(qty>1?' x'+qty:'')+': cost '+_prMoney(cost)+' → sold '+_prMoney(sale));
+      });
+
+      const shipIn=parseFloat(inv.shipping)||0;
+      const shipOut=parseFloat(inv.shippingCost)||0;
+      dShipIn+=shipIn;dShipOut+=shipOut;
+      if(shipIn)L.push('   Shipping charged: '+_prMoney(shipIn));
+      if(shipOut)L.push('   Shipping cost: '+_prMoney(shipOut));
+      L.push('');
+    });
+
+    const dProfit=dSale-dCost+dShipIn-dShipOut;
+    gCost+=dCost;gSale+=dSale;gShipIn+=dShipIn;gShipOut+=dShipOut;
+
+    L.push('_Subtotal — '+groups[k].length+' order'+(groups[k].length!==1?'s':'')+'_');
+    L.push('Cost: '+_prMoney(dCost)+'  |  Sale: '+_prMoney(dSale));
+    L.push('Shipping charged: '+_prMoney(dShipIn)+'  |  Shipping cost: '+_prMoney(dShipOut));
+    L.push('*Profit: '+_prMoney(dProfit)+'*');
+    L.push('');
+  });
+
+  const gProfit=gSale-gCost+gShipIn-gShipOut;
+  L.push('━━━━━━━━━━━━━━━');
+  L.push('*TOTAL — '+sel.length+' order'+(sel.length!==1?'s':'')+'*');
+  L.push('Cost: '+_prMoney(gCost));
+  L.push('Sale: '+_prMoney(gSale));
+  L.push('Shipping charged: '+_prMoney(gShipIn));
+  L.push('Shipping cost: '+_prMoney(gShipOut));
+  L.push('*PROFIT: '+_prMoney(gProfit)+'*');
+
+  _prMsg=L.join('\n');
+  if(prevEl)prevEl.value=_prMsg;
+
+  const missingCity=sel.filter(i=>{
+    const p=String(i.custPin||'').replace(/\D/g,'');
+    return p.length!==6||!cityMap[p];
+  }).length;
+  const missingCost=sel.filter(i=>(expandItems(i.itemsArr)||[]).some(it=>!parseFloat(it.costPrice))).length;
+  const notes=[];
+  if(missingCity)notes.push(missingCity+' without city (PIN missing or lookup failed)');
+  if(missingCost)notes.push(missingCost+' with a missing cost price');
+  if(statusEl){
+    statusEl.innerHTML=sel.length+' order'+(sel.length!==1?'s':'')+' across '+keys.length+' date'+(keys.length!==1?'s':'')+'.'+
+      (notes.length?'<br/><span style="color:#c47b00;">⚠️ '+notes.join(' · ')+'</span>':'');
+  }
+}
+
+function sendPartnerReport(){
+  const txt=(document.getElementById('pr-preview')?.value||_prMsg).trim();
+  if(!txt){toast('⚠️ Nothing to send');return;}
+  const ph=String(S.partnerWa||'').replace(/\D/g,'');
+  if(!ph){toast('⚠️ Add the Partner WhatsApp Number in Settings');return;}
+  window.open('https://wa.me/'+ph+'?text='+encodeURIComponent(txt),'_blank');
+  document.getElementById('partner-report-modal').classList.remove('open');
+}
+
+function copyPartnerReport(){
+  const txt=(document.getElementById('pr-preview')?.value||_prMsg).trim();
+  if(!txt)return;
+  const done=()=>toast('📋 Report copied');
+  if(navigator.clipboard?.writeText){
+    navigator.clipboard.writeText(txt).then(done).catch(()=>{
+      const t=document.getElementById('pr-preview');
+      if(t){t.removeAttribute('readonly');t.select();document.execCommand('copy');t.setAttribute('readonly','');done();}
+    });
+  }else{
+    const t=document.getElementById('pr-preview');
+    if(t){t.removeAttribute('readonly');t.select();document.execCommand('copy');t.setAttribute('readonly','');done();}
+  }
 }
 
 // ═══════════════════════════════════════════
