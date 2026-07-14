@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.28.0
+APP: Vismaad Creations v14.28.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 14-Jul-2026 — v14.28.0: (1) PARTNER REPORT — select any invoices on the Sales page (any dates, free-form) and tap 📤 Partner Report to build ONE WhatsApp message for a record-keeping partner, grouped by DISPATCH DATE (ascending, undated orders bucketed last rather than dropped). Each article is listed by Product No. with cost → sale; then shipping charged to the customer and our own shipping cost (from the existing batch-split, omitted when 0). Per-date subtotal and a grand total, each carrying a profit line. Profit is uniform and deliberately simple — sale − cost + shipping charged − shipping cost — with NO GST handling anywhere: this is a partner's record, not a CA's return. City is resolved from the customer PIN via India Post's free public endpoint (api.postalpincode.in, no key, no signup), cached permanently in vc_pincity since a PIN's district never changes; a failed lookup or offline device degrades to a blank city and the report still sends. Preview modal is editable before sending, with Copy alongside Send. Partner number stored once in Settings (S.partnerWa) and kept localStorage-only, matching how waNumber is already handled — personal numbers never reach the Settings sheet. Warns in-modal when orders are missing a city or a cost price.
+LAST_CHANGE: 14-Jul-2026 — v14.28.1: BUGFIX — SALES PAGE FILTER DID NOTHING. Root cause was a key-casing mismatch in trackingData. The India Post import uppercased its keys (line ~8533), but the Track123 refresh and the sheet-sync merge stored them verbatim, so the same object held both 'CD123IN' and 'cd123in' style keys. renderSales() has always looked tracking up by UPPERCASE, so any record written by the other two paths simply returned undefined — the invoice was read as having no tracking data at all and fell through to the manual isShipped flag. Result: Shipped, In Transit, Delivered and No Tracking all misclassified, and No Tracking listed invoices that plainly had a number on them. Fixes, one pass: (1) tdGet(t) — a single case-tolerant lookup helper; every READ of trackingData across the app (sales filter, sales status badge, dashboard pending orders, delivery-review list, tracking page, Track123 refresh, India Post import push) now routes through it, so no future call site can reintroduce this. (2) Both offending WRITE paths now normalise the key to uppercase, and drop the stale mixed-case duplicate if one exists. (3) One-time in-place migration on boot rewrites historic lowercase keys in vc_tracking to uppercase; where both casings exist for one number, a Delivered record is never lost and otherwise the newer updatedAt wins. (4) Search box and religion filter moved ABOVE the Cancelled/Returned branches — those two returned early, so typing a name while Cancelled was selected silently ignored what you typed. Every dropdown option now combines with search and religion. (5) Cancelled/Returned are now genuinely excluded from the Shipped and Pending filters — the comment claimed this since v14.23.0 but the code never enforced it, so a cancelled order still showed up under Pending. (6) Removed the dead double-assignment of isShippedOrDelivered (the first expression returned a status string, was immediately overwritten, and only survived because .some() coerced it).
+PREV_CHANGE: 14-Jul-2026 — v14.28.0: (1) PARTNER REPORT — select any invoices on the Sales page (any dates, free-form) and tap 📤 Partner Report to build ONE WhatsApp message for a record-keeping partner, grouped by DISPATCH DATE (ascending, undated orders bucketed last rather than dropped). Each article is listed by Product No. with cost → sale; then shipping charged to the customer and our own shipping cost (from the existing batch-split, omitted when 0). Per-date subtotal and a grand total, each carrying a profit line. Profit is uniform and deliberately simple — sale − cost + shipping charged − shipping cost — with NO GST handling anywhere: this is a partner's record, not a CA's return. City is resolved from the customer PIN via India Post's free public endpoint (api.postalpincode.in, no key, no signup), cached permanently in vc_pincity since a PIN's district never changes; a failed lookup or offline device degrades to a blank city and the report still sends. Preview modal is editable before sending, with Copy alongside Send. Partner number stored once in Settings (S.partnerWa) and kept localStorage-only, matching how waNumber is already handled — personal numbers never reach the Settings sheet. Warns in-modal when orders are missing a city or a cost price.
 (2) BUGFIX — SHIPPING CARRIED OVER TO THE NEXT INVOICE. generateInvoice() never reset the money fields; only ↺ / "+ New Invoice" did. Starting the next invoice without tapping either left the previous shipping figure in place. The auto-shipping guard then cemented it: it decided whether a value was a manual override by testing whether it equalled prevQty*50, so a carried-over ₹100 matched neither that nor 0, was mistaken for a deliberate override, and survived indefinitely. Two-item invoices reproduced it every time; single-item ones (₹50) happened to match the expected value and silently self-corrected, which is why it looked intermittent. Fixed on both sides: shipping/discount/shipping-cost are now cleared the moment an invoice is committed, and the override is tracked explicitly via _shipManual (set ONLY when the user types in the field) instead of being inferred from the value. All four auto-shipping call sites (addItem, removeItem, qty change, channel change, dispatch change) now route through one recalcAutoShipping() helper — which also fixes a latent bug where the dispatch-method branch used items.length*50 instead of totalQty()*50, undercharging shipping whenever any line had qty > 1.
 (3) SALES SHIPPING-STATUS FILTERS — the Sales filter dropdown gains In Transit (tracking data exists, nothing delivered yet), Delivered (a tracking number reports Delivered), and No Tracking (no tracking number at all). No Tracking excludes hand-delivery and walk-in orders, which are never meant to carry a number and would otherwise bury the orders that genuinely need one; Cancelled/Returned are excluded from all three.
 PREV_CHANGE: 11-Jul-2026 — v14.27.0: LINKED PRODUCT STOCK POOLING. Linked products now share ONE physical stock pool — previously linkedProducts was cosmetic only (a 🔗 badge from the name-similarity suggester) and no stock code ever read it, so selling 3 articles of #2 when #2 held 2 clamped #2 to 0, silently swallowed the 3rd article and left linked #1 untouched at 2. (1) getStockPool(p) — breadth-first walk of the linkedProducts graph, TRANSITIVE: 1—3 and 2—3 makes {1,2,3} one pool even though acceptLink only ever writes the two ends it was given, so 1 and 2 are not directly linked. Returns the invoiced product first, siblings ascending by prodNo. (2) deductStock — takes what the invoiced product holds, then SPILLS the overflow onto pool siblings in prodNo order; returns {variantId, spill[], short, touched[]}. qtySold is credited to whichever product PHYSICALLY supplied each unit, so P&L/aging on the sibling is correct; the invoice line still names the product you typed. (3) The spill is RECORDED on the invoice item (itemsArr[i].spill) — it cannot be recomputed at delete/return time because stock levels move on; expandItems preserves it through the sheet round-trip (same treatment variantId got in v14.26.0), flattenForSheet already JSON-stringifies itemsArr so it rides along. (4) restoreStock(p,variantId,qty,spill) reverses the spill EXACTLY, giving each sibling back precisely what it supplied; called with no spill it behaves as it did pre-v14.27.0. (5) NEVER STALLS — if the whole pool is empty (you have the article but the software does not), the sale still saves: qty floors at 0, qtySold still climbs, qtyOriginal ratchets, and a non-blocking toast reports the shortfall. No modal, no block. (6) Invoice save reordered — deduction now runs BEFORE `saved` is constructed so the spill lands on the item; touched-product sync set widened to include drained siblings. (7) All six stock call sites made pool-aware: saveInvoice, _doDeleteInvoice, _applyInvoiceStatus (Returned), _doMarkSoldStandalone, _doLinkToInvoice (writes spill back onto the invoice item), _undoMarkSold (undo now reverses the pool). (8) Inventory card 🔗 badge shows the COMPUTED transitive pool plus a shared 'Pool: N' total, so what you see matches what deductStock will draw from. NOTE: sales made before this version cannot be repaired automatically — the old clamp overwrote qtyOriginal via its Math.max ratchet, which absorbed the over-sale and left no recoverable record of the true intake. Correct the affected products by hand in the inventory editor.
@@ -1580,7 +1581,34 @@ let suppliers = lsGet('vc_sup',[]);
 let bills     = lsGet('vc_bills',[]);
 let supplierTxns = lsGet('vc_stxn',[]);
 let purchases = lsGet('vc_pur',[]);
-let trackingData = lsGet('vc_tracking',{});  // keyed by tracking number
+let trackingData = lsGet('vc_tracking',{});  // keyed by tracking number (UPPERCASE — see migration below)
+// v14.28.1 MIGRATION — historic records were saved with inconsistent key casing (India Post import
+// uppercased; Track123 and the sheet-sync merge stored verbatim). renderSales() looked up by
+// uppercase, so lowercase-keyed records were invisible and every shipping filter misread them.
+// Normalise once, in place. Where both casings exist for the same number, the newer updatedAt wins.
+(function migrateTrackingKeys(){
+  try{
+    let changed=false;
+    Object.keys(trackingData).forEach(k=>{
+      const K=String(k).trim().toUpperCase();
+      if(K===k)return;
+      changed=true;
+      const cur=trackingData[K],inc=trackingData[k];
+      if(!K){delete trackingData[k];return;}
+      if(!cur){trackingData[K]=inc;}
+      else{
+        const ct=cur.updatedAt?new Date(cur.updatedAt).getTime():0;
+        const it=inc.updatedAt?new Date(inc.updatedAt).getTime():0;
+        const curDeliv=/^delivered$/i.test(cur.status||'');
+        const incDeliv=/^delivered$/i.test(inc.status||'');
+        if(incDeliv&&!curDeliv)trackingData[K]=inc;        // never lose a Delivered
+        else if(!curDeliv&&it>ct)trackingData[K]=inc;      // otherwise newest wins
+      }
+      delete trackingData[k];
+    });
+    if(changed)lsSet('vc_tracking',trackingData);
+  }catch(e){console.warn('tracking key migration failed',e);}
+})();
 let invCtr = parseInt(lsGet('vc_ctr','0'))||0;
 // C2: per-FY GST invoice counter (only used when GST is enabled)
 function getGSTInvCtr(){
@@ -2243,7 +2271,10 @@ async function syncAll(manual){
       }
     });
     Object.entries(remTrackingMap).forEach(([key,rd])=>{
-      const local=trackingData[key];
+      // v14.28.1: normalise key to uppercase — renderSales() looks up by uppercase
+      const K=String(key).trim().toUpperCase();
+      if(!K)return;
+      const local=trackingData[K]||trackingData[key];
       const remTime=rd.updatedAt?new Date(rd.updatedAt).getTime():0;
       const locTime=local&&local.updatedAt?new Date(local.updatedAt).getTime():0;
       // Never overwrite a locally-Delivered status with a non-Delivered remote entry
@@ -2251,7 +2282,10 @@ async function syncAll(manual){
       const remDelivered=(rd.status||'').toLowerCase().includes('delivered');
       if(localDelivered&&!remDelivered)return; // lock delivered
       // Remote wins if newer OR equal (avoids stale local persisting indefinitely)
-      if(!local||remTime>=locTime)trackingData[key]=rd;
+      if(!local||remTime>=locTime){
+        if(key!==K&&trackingData[key])delete trackingData[key];
+        trackingData[K]=rd;
+      }
     });
     saveTracking();
 
@@ -3443,6 +3477,15 @@ function setSort(btn,sort){
   if(btn){btn.style.background='var(--brown)';btn.style.color='#fff';}
   renderSales();
 }
+// v14.28.1: tracking keys were written inconsistently — India Post import uppercased them,
+// Track123 and the sheet-sync merge stored them verbatim. renderSales() looks up by UPPERCASE,
+// so any lowercase-keyed record was invisible and every shipping filter misclassified.
+// tdGet() tolerates either casing; new writes are normalised to uppercase.
+function tdGet(t){
+  if(!t)return undefined;
+  const k=String(t).trim();
+  return trackingData[k.toUpperCase()]||trackingData[k]||undefined;
+}
 function applySortToList(list){
   return[...list].sort((a,b)=>{
     const da=a.invDate||'',db=b.invDate||'';
@@ -3484,23 +3527,45 @@ function renderSales(){
   const deduped=Object.values(seen).map(inv=>{
     return dupNos.has(inv.invNo||String(inv.id))?{...inv,_dupWarning:true}:inv;
   });
+  // v14.28.1: search + religion are applied FIRST so they combine with every dropdown option.
+  // Previously the Cancelled/Returned branches returned early, silently ignoring the search box.
+  const _religionOverrides=(_salesReligionFilter&&_salesReligionFilter!=='All')?lsGet('vc_religion_overrides',{}):null;
   salesFiltered=applySortToList(deduped.filter(inv=>{
+    // ── Text search ──
+    if(q&&!inv.custName?.toLowerCase().includes(q)&&!inv.invNo?.toLowerCase().includes(q)&&!(inv.itemsSummary||'').toLowerCase().includes(q))return false;
+    // ── Religion filter ──
+    if(_religionOverrides){
+      const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+      const rel=_religionOverrides[ph]||detectReligion(inv.custName||'');
+      if(rel!==_salesReligionFilter)return false;
+    }
+    if(!sf)return true; // "All"
+
     // Use unified status for filter (tracking wins over manual)
     const invSt=inv.invoiceStatus||'Active';
     const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
-    let isShippedOrDelivered=false;
-    if(trackNos.length>0&&trackNos.some(t=>trackingData[t])){
-      isShippedOrDelivered=trackNos.some(t=>{const s=(trackingData[t]?.status||'');return/^delivered$/i.test(s)||s;});
-      // For filter: "Shipped" = any tracking data present (in transit or delivered)
-      isShippedOrDelivered=trackNos.some(t=>trackingData[t]?.status);
-    }else{
-      isShippedOrDelivered=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
-    }
+    // v14.28.1: tdGet() — case-insensitive lookup. Direct trackingData[t] missed every
+    // record whose key was stored lowercase, so shipped invoices were read as unshipped.
+    const anyData=trackNos.some(t=>tdGet(t)?.status);
+    const anyDelivered=trackNos.some(t=>/^delivered$/i.test(tdGet(t)?.status||''));
+    // "Shipped" = any tracking data present (in transit or delivered), else the manual flag
+    const isShippedOrDelivered=anyData
+      ?true
+      :(inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped');
+
     if(sf==='Cancelled')return invSt==='Cancelled';
     if(sf==='Returned')return invSt==='Returned';
-    // For Shipped/Pending filters, skip Cancelled/Returned invoices
-    if(sf==='Shipped'&&!isShippedOrDelivered)return false;
-    if(sf==='Pending'&&isShippedOrDelivered)return false;
+
+    // v14.28.1: Cancelled/Returned are now genuinely excluded from Shipped/Pending —
+    // the comment claimed this but the code never enforced it.
+    if(sf==='Shipped'){
+      if(invSt!=='Active')return false;
+      return isShippedOrDelivered;
+    }
+    if(sf==='Pending'){
+      if(invSt!=='Active')return false;
+      return !isShippedOrDelivered;
+    }
 
     // v14.28.0: shipping-status filters.
     // Delivered  = a tracking number reports Delivered.
@@ -3510,23 +3575,13 @@ function renderSales(){
     //              orders that genuinely need a number entered. Cancelled/Returned also excluded.
     if(sf==='Delivered'||sf==='InTransit'||sf==='NoTracking'){
       if(invSt!=='Active')return false;
-      const anyDelivered=trackNos.some(t=>/^delivered$/i.test(trackingData[t]?.status||''));
-      const anyData=trackNos.some(t=>trackingData[t]?.status);
-      if(sf==='Delivered'&&!anyDelivered)return false;
-      if(sf==='InTransit'&&(!anyData||anyDelivered))return false;
+      if(sf==='Delivered')return anyDelivered;
+      if(sf==='InTransit')return anyData&&!anyDelivered;
       if(sf==='NoTracking'){
         const dm=inv.dispatchMethod||'';
         if(dm==='walkin'||dm==='hand')return false;
-        if(trackNos.length>0)return false;
+        return trackNos.length===0;
       }
-    }
-    if(q&&!inv.custName?.toLowerCase().includes(q)&&!inv.invNo?.toLowerCase().includes(q)&&!(inv.itemsSummary||'').toLowerCase().includes(q))return false;
-    // Religion filter
-    if(_salesReligionFilter&&_salesReligionFilter!=='All'){
-      const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
-      const overrides=lsGet('vc_religion_overrides',{});
-      const rel=overrides[ph]||detectReligion(inv.custName||'');
-      if(rel!==_salesReligionFilter)return false;
     }
     return true;
   }));
@@ -3541,10 +3596,10 @@ function renderSales(){
     const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
     let unifiedStatus='No Tracking'; // default
     if(trackNos.length>0){
-      const statuses=trackNos.map(t=>trackingData[t]?.status||'');
+      const statuses=trackNos.map(t=>tdGet(t)?.status||'');
       const allDelivered=statuses.every(s=>/^delivered$/i.test(s));
       const anyDelivered=statuses.some(s=>/^delivered$/i.test(s));
-      const anyOverdue=trackNos.some((t,i)=>trackingData[t]&&isTrackingOverdue(trackingData[t],inv.invDate));
+      const anyOverdue=trackNos.some((t,i)=>tdGet(t)&&isTrackingOverdue(tdGet(t),inv.invDate));
       const anyInTransit=statuses.some(s=>s&&!/^delivered$/i.test(s));
       if(allDelivered) unifiedStatus='Delivered';
       else if(anyDelivered&&trackNos.length>1) unifiedStatus='Part Delivered';
@@ -4936,10 +4991,10 @@ function renderDashboard(){
     let isShipped=false;
     let isOverdue=false;
     if(trackNos.length>0){
-      const statuses=trackNos.map(t=>trackingData[t]?.status||'');
-      const hasTrackData=trackNos.some(t=>trackingData[t]&&trackingData[t].status);
-      const withData=trackNos.filter(t=>trackingData[t]&&trackingData[t].status);
-      const allWithDataDelivered=withData.length>0&&withData.every(t=>/^delivered$/i.test(trackingData[t].status||''));
+      const statuses=trackNos.map(t=>tdGet(t)?.status||'');
+      const hasTrackData=trackNos.some(t=>tdGet(t)&&tdGet(t).status);
+      const withData=trackNos.filter(t=>tdGet(t)&&tdGet(t).status);
+      const allWithDataDelivered=withData.length>0&&withData.every(t=>/^delivered$/i.test(tdGet(t).status||''));
       if(allWithDataDelivered)dashStatus='Delivered';
       else if(statuses.some(s=>/^delivered$/i.test(s))&&trackNos.length>1)dashStatus='Part Delivered';
       else if(hasTrackData){
@@ -4953,10 +5008,10 @@ function renderDashboard(){
       }
       if(dashStatus!=='Delivered'){
         isOverdue=trackNos.some(t=>{
-          const td=trackingData[t];
+          const td=tdGet(t);
           return td?isTrackingOverdue(td,inv.invDate):false;
         });
-        if(!isOverdue&&isShipped&&!trackNos.some(t=>trackingData[t])){
+        if(!isOverdue&&isShipped&&!trackNos.some(t=>tdGet(t))){
           const ref=new Date((inv.invDate||'')+'T12:00:00');
           if(!isNaN(ref))isOverdue=Math.floor((Date.now()-ref.getTime())/864e5)>6;
         }
@@ -6377,7 +6432,7 @@ function _doExport(type,from,to,label){
         // Unified status: check all tracking numbers
         const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
         if(trackNos.length>0){
-          const statuses=trackNos.map(t=>(trackingData[t]?.status||''));
+          const statuses=trackNos.map(t=>(tdGet(t)?.status||''));
           if(statuses.every(s=>/^delivered$/i.test(s)))return 'Delivered';
           if(statuses.some(s=>/^delivered$/i.test(s)))return 'Part Delivered';
           const inTransit=statuses.find(s=>s&&!/^delivered$/i.test(s));
@@ -6990,7 +7045,7 @@ function getFestivalMessage(festKey,custName,approx,inv,trackNo,trackIndex,total
       pkgPrefix='Package '+trackIndex+' of '+totalTracks+' for your order has been delivered. ';
       // Check if ALL packages are now delivered
       const allNos=(inv&&inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
-      const allDone=allNos.length>0&&allNos.every(t=>{const td=trackingData&&trackingData[t];return td&&/^delivered$/i.test(td.status||'');});
+      const allDone=allNos.length>0&&allNos.every(t=>{const td=tdGet(t);return td&&/^delivered$/i.test(td.status||'');});
       if(allDone)allDeliveredSuffix=' All your packages for this order are now delivered.';
     }
     // Days early calculation — for this specific tracking number if provided, else earliest
@@ -7001,13 +7056,13 @@ function getFestivalMessage(festKey,custName,approx,inv,trackNo,trackIndex,total
         const promised=new Date(dispRaw+'T00:00:00');
         promised.setDate(promised.getDate()+10);
         let deliveredDate=null;
-        if(trackNo&&trackingData&&trackingData[trackNo.toUpperCase()]){
-          const td=trackingData[trackNo.toUpperCase()];
+        if(trackNo&&tdGet(trackNo)){
+          const td=tdGet(trackNo);
           if(td.deliveredOn)deliveredDate=new Date(td.deliveredOn+'T00:00:00');
         } else {
           const trackNos=(inv&&inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
           trackNos.forEach(t=>{
-            const td=trackingData&&trackingData[t];
+            const td=tdGet(t);
             if(td&&td.deliveredOn){
               const d=new Date(td.deliveredOn+'T00:00:00');
               if(!deliveredDate||d<deliveredDate)deliveredDate=d;
@@ -7147,7 +7202,7 @@ function getPendingDeliveryReviews(dateFilter,showSkipped){
     const allNos=inv.tracking.split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
     const totalTracks=allNos.length;
     allNos.forEach(function(t,idx){
-      const td=trackingData[t];
+      const td=tdGet(t);
       if(!td||!/^delivered$/i.test(td.status||''))return;
       const msgKey='delivery_review_'+t;
       if(hasSentMsg(phone,msgKey,yr))return;
@@ -7167,7 +7222,7 @@ function getDeliveredTrackNos(){
     if(!inv.tracking)return;
     const allNos=inv.tracking.split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
     allNos.forEach(function(t){
-      const td=trackingData[t];
+      const td=tdGet(t);
       if(td&&/^delivered$/i.test(td.status||''))result.push(t);
     });
   });
@@ -7178,7 +7233,7 @@ function getDeliveredInvNos(){
   return invoices.filter(inv=>{
     if(!inv.tracking)return false;
     const nos=inv.tracking.split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
-    return nos.length>0&&nos.every(t=>{const td=trackingData[t];return td&&/^delivered$/i.test(td.status||'');});
+    return nos.length>0&&nos.every(t=>{const td=tdGet(t);return td&&/^delivered$/i.test(td.status||'');});
   }).map(inv=>inv.invNo);
 }
 
@@ -8550,7 +8605,7 @@ function handleTrackingImport(e){
         saveTracking();
         // Push each updated article as its own sheet row using confirmed batch write
         const updatedArts=rows.map(r=>(r[colArticle]||'').toString().trim().toUpperCase()).filter(Boolean);
-        const trackRecords=updatedArts.filter(art=>trackingData[art]).map(art=>({id:art,...trackingData[art]}));
+        const trackRecords=updatedArts.filter(art=>tdGet(art)).map(art=>({id:art,...tdGet(art)}));
         renderTrackingPage();
         renderSales(); // refresh badges
         // Check for newly-delivered items and show review popup if any
@@ -8579,7 +8634,7 @@ function buildTrackingPage(){
   const courierItems=getCourierTrackedInvoices().filter(i=>_activeCourierIds.has(String(i.id)));
   const courierNos=[...new Set(courierItems.map(i=>i._singleTracking.trim().toUpperCase()))];
   const courierTotal=courierNos.length;
-  const courierNonDelivered=courierNos.filter(t=>{const td=trackingData[t];return!td||!td.source||isGhostTrackingRecord(td)||!/^delivered$/i.test(td.status||'');}).length;
+  const courierNonDelivered=courierNos.filter(t=>{const td=tdGet(t);return!td||!td.source||isGhostTrackingRecord(td)||!/^delivered$/i.test(td.status||'');}).length;
   const key=S.track123Key1||S.track123Key2||'';
   return`<div class="card" style="margin-bottom:14px;">
     <div class="card-title">📡 India Post — Bulk Tracking</div>
@@ -12252,8 +12307,8 @@ async function refreshCourierTracking(){
   // Build map of trackNo2192courierCode (respects dispatchMethod fallback via _courierCode)
   const courierMap={};
   items.forEach(i=>{ courierMap[i._singleTracking.trim().toUpperCase()]=i._courierCode; });
-  const newNos=allNos.filter(t=>!trackingData[t]||!trackingData[t].source);
-  const existingNos=allNos.filter(t=>trackingData[t]&&trackingData[t].source==='track123');
+  const newNos=allNos.filter(t=>!tdGet(t)||!tdGet(t).source);
+  const existingNos=allNos.filter(t=>tdGet(t)&&tdGet(t).source==='track123');
 
   let registered=0;
   // Register new numbers (consumes quota)
@@ -12284,10 +12339,14 @@ async function refreshCourierTracking(){
     const batch=toQuery.slice(i,i+BATCH);
     const results=await track123Query(batch);
     Object.entries(results).forEach(([tn,td])=>{
-      const existing=trackingData[tn];
+      // v14.28.1: normalise key to uppercase so renderSales() lookups resolve
+      const TN=String(tn).trim().toUpperCase();
+      if(!TN)return;
+      const existing=trackingData[TN]||trackingData[tn];
       // Never overwrite a locally-Delivered status
       if(existing&&/^delivered$/i.test(existing.status||'')&&!/^delivered$/i.test(td.status||''))return;
-      trackingData[tn]=td;
+      if(tn!==TN&&trackingData[tn])delete trackingData[tn];
+      trackingData[TN]=td;
       updated++;
     });
   }
