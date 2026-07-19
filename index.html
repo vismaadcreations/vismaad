@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.28.1
+APP: Vismaad Creations v14.29.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 14-Jul-2026 — v14.28.1: BUGFIX — SALES PAGE FILTER DID NOTHING. Root cause was a key-casing mismatch in trackingData. The India Post import uppercased its keys (line ~8533), but the Track123 refresh and the sheet-sync merge stored them verbatim, so the same object held both 'CD123IN' and 'cd123in' style keys. renderSales() has always looked tracking up by UPPERCASE, so any record written by the other two paths simply returned undefined — the invoice was read as having no tracking data at all and fell through to the manual isShipped flag. Result: Shipped, In Transit, Delivered and No Tracking all misclassified, and No Tracking listed invoices that plainly had a number on them. Fixes, one pass: (1) tdGet(t) — a single case-tolerant lookup helper; every READ of trackingData across the app (sales filter, sales status badge, dashboard pending orders, delivery-review list, tracking page, Track123 refresh, India Post import push) now routes through it, so no future call site can reintroduce this. (2) Both offending WRITE paths now normalise the key to uppercase, and drop the stale mixed-case duplicate if one exists. (3) One-time in-place migration on boot rewrites historic lowercase keys in vc_tracking to uppercase; where both casings exist for one number, a Delivered record is never lost and otherwise the newer updatedAt wins. (4) Search box and religion filter moved ABOVE the Cancelled/Returned branches — those two returned early, so typing a name while Cancelled was selected silently ignored what you typed. Every dropdown option now combines with search and religion. (5) Cancelled/Returned are now genuinely excluded from the Shipped and Pending filters — the comment claimed this since v14.23.0 but the code never enforced it, so a cancelled order still showed up under Pending. (6) Removed the dead double-assignment of isShippedOrDelivered (the first expression returned a status string, was immediately overwritten, and only survived because .some() coerced it).
+LAST_CHANGE: 19-Jul-2026 — v14.29.0: COURIER DETECTION + TRACKING SEARCH. (1) DTDC AWBs of the form digit+letter+8-10 digits (e.g. 7D132636790) matched none of the four patterns in detectCourier(), so it returned null and getCourierInfo() fell back to the invoice-level dispatchMethod. On a multi-package invoice whose FIRST parcel went India Post, the second DTDC number silently inherited 'indiapost' — the WhatsApp message quoted India Post, and getCourierTrackedInvoices() filed it under India Post so it never appeared in the DTDC/Blue Dart tracking list. Added /^\\d[A-Z]\\d{8,10}$/ → dtdc; cannot collide with the existing rules (India Post UPU needs two leading letters plus a two-letter suffix, Blue Dart is pure-numeric). (2) COURIER PROMPT — every tracking number whose format detectCourier() cannot identify now opens a mobile-friendly picker (DTDC / Blue Dart / India Post / Other Courier) instead of silently inheriting the dispatch method. The answer is stored PER-AWB on the invoice in a new courierOverride map keyed by uppercased tracking number, so it never overwrites the invoice-level dispatchMethod and multi-courier invoices stay correct. Consulted after regex detection and before the dispatchMethod fallback, threaded through getCourierInfo/groupTrackingByCourier/buildTrackingMessage/buildFollowupTrackingMessage, the four tracking-page courier badges, getCourierTrackedInvoices (so Track123 registers the right carrier) and the P&L courier grouping. Wired into both entry paths: generateInvoice (prompts BEFORE the invoice counter or stock is touched, so cancelling mid-prompt leaves nothing half-written) and saveInvoiceEdit; both are now async. Persisted via JSON-stringify in flattenForSheet, parsed on load and in both sync-merge branches (remote-newer merges remote keys over local; no-timestamp branch fills blanks only), so per-AWB couriers survive cross-device. Invoices without courierOverride behave exactly as before. (3) TRACKING / INVOICE NO. search field added to the tracking status page alongside the existing customer and location filters — substring match on the tracking number and invoice number, debounced 200ms, combines with (does not replace) the status, date, name and location filters, and is cleared by Clear Filters. Full-width stacked on mobile, inline on desktop. (4) Dispatch dropdowns now label walk-in as 'Walk-in / Collected in person (QR code needed)' at all three sites, flagging that this method prints a UPI QR instead of an invoice. Hand Delivery and Walk-in remain SEPARATE values — merging them would have changed printed-invoice wording and forced the UPI QR onto hand-delivery orders. (5) Sale Channel 'None' chip removed (meaningless beside the other options); existing blank channels are untouched and the edit modal keeps '— Not specified —'. resetInvoiceForm no longer auto-activates the first chip, which after the removal would have silently selected WhatsApp on every new invoice. NOTE: historic invoices whose unrecognised AWBs were already misfiled are left as-is by design — 7D-prefix numbers self-correct via the new regex, other unrecognised formats keep their inherited courier until the invoice is edited.
+PREV_CHANGE: 14-Jul-2026 — v14.28.1: BUGFIX — SALES PAGE FILTER DID NOTHING. Root cause was a key-casing mismatch in trackingData. The India Post import uppercased its keys (line ~8533), but the Track123 refresh and the sheet-sync merge stored them verbatim, so the same object held both 'CD123IN' and 'cd123in' style keys. renderSales() has always looked tracking up by UPPERCASE, so any record written by the other two paths simply returned undefined — the invoice was read as having no tracking data at all and fell through to the manual isShipped flag. Result: Shipped, In Transit, Delivered and No Tracking all misclassified, and No Tracking listed invoices that plainly had a number on them. Fixes, one pass: (1) tdGet(t) — a single case-tolerant lookup helper; every READ of trackingData across the app (sales filter, sales status badge, dashboard pending orders, delivery-review list, tracking page, Track123 refresh, India Post import push) now routes through it, so no future call site can reintroduce this. (2) Both offending WRITE paths now normalise the key to uppercase, and drop the stale mixed-case duplicate if one exists. (3) One-time in-place migration on boot rewrites historic lowercase keys in vc_tracking to uppercase; where both casings exist for one number, a Delivered record is never lost and otherwise the newer updatedAt wins. (4) Search box and religion filter moved ABOVE the Cancelled/Returned branches — those two returned early, so typing a name while Cancelled was selected silently ignored what you typed. Every dropdown option now combines with search and religion. (5) Cancelled/Returned are now genuinely excluded from the Shipped and Pending filters — the comment claimed this since v14.23.0 but the code never enforced it, so a cancelled order still showed up under Pending. (6) Removed the dead double-assignment of isShippedOrDelivered (the first expression returned a status string, was immediately overwritten, and only survived because .some() coerced it).
 PREV_CHANGE: 14-Jul-2026 — v14.28.0: (1) PARTNER REPORT — select any invoices on the Sales page (any dates, free-form) and tap 📤 Partner Report to build ONE WhatsApp message for a record-keeping partner, grouped by DISPATCH DATE (ascending, undated orders bucketed last rather than dropped). Each article is listed by Product No. with cost → sale; then shipping charged to the customer and our own shipping cost (from the existing batch-split, omitted when 0). Per-date subtotal and a grand total, each carrying a profit line. Profit is uniform and deliberately simple — sale − cost + shipping charged − shipping cost — with NO GST handling anywhere: this is a partner's record, not a CA's return. City is resolved from the customer PIN via India Post's free public endpoint (api.postalpincode.in, no key, no signup), cached permanently in vc_pincity since a PIN's district never changes; a failed lookup or offline device degrades to a blank city and the report still sends. Preview modal is editable before sending, with Copy alongside Send. Partner number stored once in Settings (S.partnerWa) and kept localStorage-only, matching how waNumber is already handled — personal numbers never reach the Settings sheet. Warns in-modal when orders are missing a city or a cost price.
 (2) BUGFIX — SHIPPING CARRIED OVER TO THE NEXT INVOICE. generateInvoice() never reset the money fields; only ↺ / "+ New Invoice" did. Starting the next invoice without tapping either left the previous shipping figure in place. The auto-shipping guard then cemented it: it decided whether a value was a manual override by testing whether it equalled prevQty*50, so a carried-over ₹100 matched neither that nor 0, was mistaken for a deliberate override, and survived indefinitely. Two-item invoices reproduced it every time; single-item ones (₹50) happened to match the expected value and silently self-corrected, which is why it looked intermittent. Fixed on both sides: shipping/discount/shipping-cost are now cleared the moment an invoice is committed, and the override is tracked explicitly via _shipManual (set ONLY when the user types in the field) instead of being inferred from the value. All four auto-shipping call sites (addItem, removeItem, qty change, channel change, dispatch change) now route through one recalcAutoShipping() helper — which also fixes a latent bug where the dispatch-method branch used items.length*50 instead of totalQty()*50, undercharging shipping whenever any line had qty > 1.
 (3) SALES SHIPPING-STATUS FILTERS — the Sales filter dropdown gains In Transit (tracking data exists, nothing delivered yet), Delivered (a tracking number reports Delivered), and No Tracking (no tracking number at all). No Tracking excludes hand-delivery and walk-in orders, which are never meant to carry a number and would otherwise bury the orders that genuinely need one; Cancelled/Returned are excluded from all three.
@@ -553,7 +554,7 @@ body.gst-mode .gst-only{display:block;}
         <option value="bluedart">Blue Dart</option>
         <option value="courier">Other Courier</option>
         <option value="hand">Hand Delivery</option>
-        <option value="walkin">Walk-in / Collected in person</option>
+        <option value="walkin">Walk-in / Collected in person (QR code needed)</option>
       </select>
     </div>
     <div id="dispatch-tracking-row" class="row2" style="display:none;">
@@ -567,7 +568,6 @@ body.gst-mode .gst-only{display:block;}
     <div class="fg">
       <label>Sale Channel <span style="font-weight:400;color:#aaa;">(optional)</span></label>
       <div class="channel-chips">
-        <div class="chip" onclick="setChannel(this,'')">None</div>
         <div class="chip" onclick="setChannel(this,'WhatsApp')">WhatsApp</div>
         <div class="chip" onclick="setChannel(this,'Instagram')">Instagram</div>
         <div class="chip" onclick="setChannel(this,'Facebook')">Facebook</div>
@@ -972,7 +972,7 @@ body.gst-mode .gst-only{display:block;}
         <option value="bluedart">Blue Dart</option>
         <option value="courier">Other Courier</option>
         <option value="hand">Hand Delivery</option>
-        <option value="walkin">Walk-in / Collected in person</option>
+        <option value="walkin">Walk-in / Collected in person (QR code needed)</option>
       </select></div>
 
     <div class="fg"><label>Tracking Number <span style="font-weight:400;color:#aaa;">(comma-separate for multiple packages)</span></label>
@@ -1481,6 +1481,24 @@ body.gst-mode .gst-only{display:block;}
   </div>
 </div>
 
+<!-- ════ COURIER PICKER MODAL (v14.29.0) ════ -->
+<div class="modal-bg" id="courier-pick-modal">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-title">📦 Which courier?</div>
+    <div style="font-size:13px;color:#555;margin-bottom:6px;line-height:1.6;">
+      This tracking number's format was not recognised. Select the courier so tracking links and status updates work correctly.
+    </div>
+    <div id="courier-pick-no" style="font-family:monospace;font-size:14px;font-weight:700;color:var(--brown);background:var(--goldp);border-radius:8px;padding:9px 11px;margin-bottom:14px;word-break:break-all;text-align:center;"></div>
+    <div id="courier-pick-progress" style="font-size:11px;color:#888;text-align:center;margin-bottom:10px;"></div>
+    <div style="display:flex;flex-direction:column;gap:9px;">
+      <button class="btn btn-p" onclick="_courierPickChoose('dtdc')" style="width:100%;">DTDC</button>
+      <button class="btn btn-p" onclick="_courierPickChoose('bluedart')" style="width:100%;">Blue Dart</button>
+      <button class="btn btn-o" onclick="_courierPickChoose('indiapost')" style="width:100%;">India Post</button>
+      <button class="btn btn-o" onclick="_courierPickChoose('courier')" style="width:100%;">Other Courier</button>
+    </div>
+  </div>
+</div>
+
 <!-- ════ UPI QR PRINT MODAL ════ -->
 <div class="modal-bg" id="upi-qr-modal">
   <div class="modal" style="max-width:400px;">
@@ -1576,6 +1594,7 @@ function uid(){return Date.now()*10000+Math.floor(Math.random()*9999);}
 // ═══════════════════════════════════════════
 let S      = lsGet('vc_s',{});
 let invoices  = lsGet('vc_inv',[]);
+invoices.forEach(function(_iv){ if(_iv&&_iv.courierOverride&&typeof _iv.courierOverride==='string'){ try{const _o=JSON.parse(_iv.courierOverride);_iv.courierOverride=(_o&&typeof _o==='object')?_o:{};}catch(e){_iv.courierOverride={};} } });
 let inventory = lsGet('vc_stk',[]);
 let suppliers = lsGet('vc_sup',[]);
 let bills     = lsGet('vc_bills',[]);
@@ -1723,6 +1742,41 @@ function closeConfirmModal(){
   _confirmOkCb=null;
   if(_confirmCancelCb){_confirmCancelCb();_confirmCancelCb=null;}
 }
+// ═══ COURIER PICKER (v14.29.0) ═══
+// Asks which courier an unrecognised tracking number belongs to.
+// Resolves to a courier code string. Mobile-friendly modal (never window.prompt).
+let _courierPickResolve=null;
+function _courierPickChoose(code){
+  const r=_courierPickResolve;_courierPickResolve=null;
+  const m=document.getElementById('courier-pick-modal');if(m)m.classList.remove('open');
+  if(r)r(code);
+}
+function askCourierFor(trackNo,idx,total){
+  return new Promise(function(resolve){
+    const el=document.getElementById('courier-pick-no');
+    if(el)el.textContent=trackNo;
+    const pg=document.getElementById('courier-pick-progress');
+    if(pg)pg.textContent=(total&&total>1)?('Number '+idx+' of '+total):'';
+    _courierPickResolve=resolve;
+    const m=document.getElementById('courier-pick-modal');
+    if(m)m.classList.add('open');
+    else resolve('');
+  });
+}
+// Prompts for every tracking number whose format detectCourier() cannot identify.
+// Returns the updated override map; existing answers are not re-asked.
+async function resolveUnknownCouriers(trackNos,existing){
+  const map={...(existing||{})};
+  const unknown=trackNos.map(t=>String(t).trim()).filter(Boolean)
+    .filter(t=>!detectCourier(t)&&!map[t.toUpperCase()]);
+  for(let i=0;i<unknown.length;i++){
+    const t=unknown[i];
+    const code=await askCourierFor(t,i+1,unknown.length);
+    if(code)map[t.toUpperCase()]=code;
+  }
+  return map;
+}
+
 function fmtNum(n){return(parseFloat(n)||0).toLocaleString('en-IN');}
 function fmtDate(d){
   if(!d)return'';
@@ -1909,6 +1963,7 @@ function flattenForSheet(data){
   if(typeof flat.itemsArr==='object')flat.itemsArr=JSON.stringify(flat.itemsArr);
   if(Array.isArray(flat.linkedProducts))flat.linkedProducts=JSON.stringify(flat.linkedProducts);
   if(Array.isArray(flat.linkedInvoices))flat.linkedInvoices=JSON.stringify(flat.linkedInvoices);
+  if(flat.courierOverride&&typeof flat.courierOverride==='object')flat.courierOverride=JSON.stringify(flat.courierOverride);
   return flat;
 }
 function makePayload(flat){
@@ -2058,6 +2113,7 @@ async function syncAll(manual){
             if(r.custPhone)local.custPhone=r.custPhone;
             if(r.custAddress)local.custAddress=r.custAddress;
             if(r.dispatchMethod)local.dispatchMethod=r.dispatchMethod;
+            if(r.courierOverride){const _co=expandCourierOverride(r.courierOverride);if(Object.keys(_co).length)local.courierOverride={...(local.courierOverride||{}),..._co};}
             if(r.courierName)local.courierName=r.courierName;
             if(r.notes)local.notes=r.notes;
             if(r.religion)local.religion=r.religion;
@@ -2076,6 +2132,7 @@ async function syncAll(manual){
             if(r.custPhone&&!local.custPhone)local.custPhone=r.custPhone;
             if(r.custAddress&&!local.custAddress)local.custAddress=r.custAddress;
             if(r.dispatchMethod&&!local.dispatchMethod)local.dispatchMethod=r.dispatchMethod;
+            if(r.courierOverride){const _co2=expandCourierOverride(r.courierOverride);if(Object.keys(_co2).length)local.courierOverride={..._co2,...(local.courierOverride||{})};}
             if(r.courierName&&!local.courierName)local.courierName=r.courierName;
             if(r.notes&&!local.notes)local.notes=r.notes;
             if(r.religion&&!local.religion)local.religion=r.religion;
@@ -3132,13 +3189,22 @@ function updateDispatchFields(){
 // ═══════════════════════════════════════════
 // GENERATE INVOICE
 // ═══════════════════════════════════════════
-function generateInvoice(){
+async function generateInvoice(){
   const custName=document.getElementById('c-name')?.value.trim();
   const custState=document.getElementById('c-state')?.value;
   if(!custName){toast('⚠️ Enter customer name');return;}
   if(!custState){toast('⚠️ Select customer state');return;}
   if(isGSTEnabled()&&!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
   if(items.every(i=>!i.unitPrice)){toast('⚠️ Add at least one suit with price');return;}
+
+  // v14.29.0: resolve unrecognised tracking-number formats BEFORE any state is mutated
+  // (invoice counter, stock) so cancelling mid-prompt leaves nothing half-written.
+  let _courierOverride={};
+  {
+    const _tk=document.getElementById('tracking')?.value||'';
+    const _nos=_tk.split(',').map(function(t){return t.trim();}).filter(Boolean);
+    if(_nos.length)_courierOverride=await resolveUnknownCouriers(_nos,{});
+  }
 
   // Derive correct next number (C2: GST mode uses FY-scoped INV/YY-YY/NNN format)
   let invNo;
@@ -3215,6 +3281,7 @@ function generateInvoice(){
     custName,custPhone,custWhatsapp,custGstin,custAddress,custPin,custState,isIntra,
     shipping:ship,shippingCost,discount:disc,tracking,dispatchDate,
     dispatchMethod,courierName,channel,
+    courierOverride:_courierOverride,
     grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
     itemCount:validItems.length,
     itemsSummary:validItems.map(i=>`${i.desc}${i.variantLabel?' ('+i.variantLabel+')':''} x${i.qty} @₹${i.unitPrice}`).join(' | '),
@@ -3289,7 +3356,6 @@ function resetInvoiceForm(){
   const sc=document.getElementById('sale-channel');if(sc)sc.value='';
   selChannel='';
   document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
-  const fc=document.querySelector('.chip');if(fc)fc.classList.add('active');
   items=[];itemId=0;addItem();
   const ips=document.getElementById('inv-preview-section');if(ips)ips.style.display='none';
   const sb=document.getElementById('summary-box');if(sb)sb.innerHTML='<div style="color:#aaa;text-align:center;padding:16px;">Add items above</div>';
@@ -4581,7 +4647,7 @@ function debouncedRenderSales(){
   if(_salesSearchTimer)clearTimeout(_salesSearchTimer);
   _salesSearchTimer=setTimeout(function(){_salesSearchTimer=null;renderSales();},250);
 }
-function saveInvoiceEdit(){
+async function saveInvoiceEdit(){
   const inv=invoices.find(i=>String(i.id)===editingInvId);if(!inv)return;
   const sc=parseFloat(document.getElementById('edit-ship-charged').value)||0;
   const di=parseFloat(document.getElementById('edit-discount').value)||0;
@@ -4614,6 +4680,12 @@ function saveInvoiceEdit(){
   // Dispatch
   inv.dispatchMethod=document.getElementById('edit-dispatch').value;
   inv.tracking=newTracking;
+  // v14.29.0: ask which courier owns any tracking number whose format is unrecognised,
+  // so it is never silently inherited from the invoice-level dispatch method.
+  {
+    const _nos=newTracking.split(',').map(function(t){return t.trim();}).filter(Boolean);
+    if(_nos.length)inv.courierOverride=await resolveUnknownCouriers(_nos,inv.courierOverride);
+  }
   inv.channel=document.getElementById('edit-channel').value;
   // Notes (internal only)
   inv.notes=document.getElementById('edit-notes').value;
@@ -5578,7 +5650,7 @@ function buildBulkEditPage(){
               <option value="bluedart" ${inv.dispatchMethod==='bluedart'?'selected':''}>Blue Dart</option>
               <option value="courier" ${inv.dispatchMethod==='courier'?'selected':''}>Other Courier</option>
               <option value="hand" ${inv.dispatchMethod==='hand'?'selected':''}>Hand Delivery</option>
-              <option value="walkin" ${inv.dispatchMethod==='walkin'?'selected':''}>Walk-in</option>
+              <option value="walkin" ${inv.dispatchMethod==='walkin'?'selected':''}>Walk-in / Collected in person (QR code needed)</option>
             </select></div>
           <div class="fg"><label>Tracking No.</label>
             <input id="be-tracking-${i}" value="${inv.tracking||''}"/></div>
@@ -8675,6 +8747,7 @@ let _trackFilterStatus='all'; // all|delivered|intransit|overdue|awaiting|notrac
 let _trackSortBy='invdate_desc'; // invdate_desc|invdate_asc|bookeddate_desc|bookeddate_asc|status
 let _trackDateFilter='all'; // all|30|60|90
 let _trackSearchName=''; // customer name substring search
+let _trackSearchNo='';   // v14.29.0: tracking number / invoice no substring search
 let _trackSearchLoc='';  // delivery location (state/address) substring search
 
 // Render the tracking results table into the sub-page
@@ -8821,7 +8894,7 @@ function renderTrackingPage(){
       // Show parcel label if multi-tracking invoice
       const multiNos=(inv.tracking||'').split(',').filter(t=>t.trim()).length;
       const parcelNote=multiNos>1?`<span style="font-size:11px;color:var(--gold);margin-left:6px;">pkg ${(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean).indexOf(inv._singleTracking)+1}/${multiNos}</span>`:'';
-      const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||'indiapost';
+      const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||((inv.courierOverride||{})[String(inv._singleTracking||'').toUpperCase()])||'indiapost';
       const courierBadge=isNoTracking?'':courierCode==='dtdc'?'<span style="font-size:10px;background:#fff3cd;color:#856404;border-radius:4px;padding:1px 5px;margin-left:5px;">DTDC</span>':courierCode==='bluedart'?'<span style="font-size:10px;background:#cfe2ff;color:#084298;border-radius:4px;padding:1px 5px;margin-left:5px;">Blue Dart</span>':'<span style="font-size:10px;background:#e8e8e8;color:#555;border-radius:4px;padding:1px 5px;margin-left:5px;">India Post</span>';
       const trackDisplay=isNoTracking?'':inv._singleTracking||inv.tracking;
       const locLine=inv.custState?(inv.custAddress?inv.custAddress.split(/[\n,]/)[0].trim()+', ':'')+inv.custState:'';
@@ -8862,7 +8935,7 @@ function renderTrackingPage(){
       const trackDisplay=inv._singleTracking||inv.tracking;
       const multiNos=(inv.tracking||'').split(',').filter(t=>t.trim()).length;
       const pkgLabel=multiNos>1?` <span style="font-size:10px;color:var(--gold);">pkg ${(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean).indexOf(inv._singleTracking)+1}/${multiNos}</span>`:'';
-      const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||'indiapost';
+      const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||((inv.courierOverride||{})[String(inv._singleTracking||'').toUpperCase()])||'indiapost';
       const courierBadge=!isNoTracking?(courierCode==='dtdc'?'<span style="font-size:10px;background:#fff3cd;color:#856404;border-radius:4px;padding:1px 5px;margin-left:4px;">DTDC</span>':courierCode==='bluedart'?'<span style="font-size:10px;background:#cfe2ff;color:#084298;border-radius:4px;padding:1px 5px;margin-left:4px;">Blue Dart</span>':'<span style="font-size:10px;background:#e8e8e8;color:#555;border-radius:4px;padding:1px 5px;margin-left:4px;">IP</span>'):'';
       const locCell=inv.custState?esc2((inv.custAddress?inv.custAddress.split(/[\n,]/)[0].trim()+', ':'')+inv.custState):'—';
       if(isNoTracking){
@@ -8939,7 +9012,7 @@ function _renderTrackingFilterBar(area,annotated,filtered){
   if(isSearchFocused){
     // Just update the count span
     const countEl=document.getElementById('tk-count-line');
-    if(countEl)countEl.textContent='Showing '+filtered.length+' of '+annotated.length+' shipments'+((_trackFilterStatus!=='all'||_trackDateFilter!=='all'||_trackSearchName||_trackSearchLoc)?' (filtered)':'');
+    if(countEl)countEl.textContent='Showing '+filtered.length+' of '+annotated.length+' shipments'+((_trackFilterStatus!=='all'||_trackDateFilter!=='all'||_trackSearchNo||_trackSearchName||_trackSearchLoc)?' (filtered)':'');
     return;
   }
   const statusOptions=[
@@ -8977,6 +9050,12 @@ function _renderTrackingFilterBar(area,annotated,filtered){
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:10px;">
       <div style="flex:1;min-width:150px;">
+        <div style="font-size:11px;color:#888;margin-bottom:4px;font-weight:600;">TRACKING / INVOICE NO.</div>
+        <input id="tk-search-no" type="search" placeholder="Search tracking or invoice&hellip;" value="${_trackSearchNo.replace(/"/g,'&quot;')}"
+          oninput="setTrackSearchNo(this.value)"
+          style="width:100%;padding:7px 8px;border-radius:8px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;box-sizing:border-box;"/>
+      </div>
+      <div style="flex:1;min-width:150px;">
         <div style="font-size:11px;color:#888;margin-bottom:4px;font-weight:600;">CUSTOMER NAME</div>
         <input id="tk-search-name" type="search" placeholder="Search customer…" value="${_trackSearchName.replace(/"/g,'&quot;')}"
           oninput="setTrackSearchName(this.value)"
@@ -8988,10 +9067,10 @@ function _renderTrackingFilterBar(area,annotated,filtered){
           oninput="setTrackSearchLoc(this.value)"
           style="width:100%;padding:7px 8px;border-radius:8px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;box-sizing:border-box;"/>
       </div>
-      ${(_trackFilterStatus!=='all'||_trackDateFilter!=='all'||_trackSearchName||_trackSearchLoc)?
+      ${(_trackFilterStatus!=='all'||_trackDateFilter!=='all'||_trackSearchNo||_trackSearchName||_trackSearchLoc)?
         `<button class="btn btn-o btn-sm" style="height:36px;margin-bottom:1px;" onclick="clearTrackFilters()">✕ Clear</button>`:''}
     </div>
-    <div id="tk-count-line" style="font-size:12px;color:#888;margin-top:8px;">Showing ${filtered.length} of ${annotated.length} shipments${(_trackFilterStatus!=='all'||_trackDateFilter!=='all'||_trackSearchName||_trackSearchLoc)?' (filtered)':''}</div>
+    <div id="tk-count-line" style="font-size:12px;color:#888;margin-top:8px;">Showing ${filtered.length} of ${annotated.length} shipments${(_trackFilterStatus!=='all'||_trackDateFilter!=='all'||_trackSearchNo||_trackSearchName||_trackSearchLoc)?' (filtered)':''}</div>
   </div>`;
 }
 
@@ -9003,6 +9082,7 @@ function renderTrackingResults(){
   let filtered=annotated;
   if(cutoff)filtered=filtered.filter(({inv})=>new Date(inv.invDate+'T00:00:00').getTime()>=cutoff);
   if(_trackFilterStatus!=='all')filtered=filtered.filter(({cat})=>cat===_trackFilterStatus);
+  if(_trackSearchNo.trim()){const q=_trackSearchNo.trim().toLowerCase();filtered=filtered.filter(({inv})=>(inv._singleTracking||inv.tracking||'').toLowerCase().includes(q)||(inv.invNo||'').toLowerCase().includes(q));}
   if(_trackSearchName.trim()){const q=_trackSearchName.trim().toLowerCase();filtered=filtered.filter(({inv})=>(inv.custName||'').toLowerCase().includes(q));}
   if(_trackSearchLoc.trim()){const q=_trackSearchLoc.trim().toLowerCase();filtered=filtered.filter(({inv})=>(inv.custState||'').toLowerCase().includes(q)||(inv.custAddress||'').toLowerCase().includes(q));}
   filtered.sort((a,b)=>{
@@ -9015,7 +9095,7 @@ function renderTrackingResults(){
   });
   // Update count line without touching inputs
   const countEl=document.getElementById('tk-count-line');
-  if(countEl)countEl.textContent='Showing '+filtered.length+' of '+annotated.length+' shipments'+((_trackFilterStatus!=='all'||_trackDateFilter!=='all'||_trackSearchName||_trackSearchLoc)?' (filtered)':'');
+  if(countEl)countEl.textContent='Showing '+filtered.length+' of '+annotated.length+' shipments'+((_trackFilterStatus!=='all'||_trackDateFilter!=='all'||_trackSearchNo||_trackSearchName||_trackSearchLoc)?' (filtered)':'');
   // Re-render results area
   const esc2=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const isMobile=window.innerWidth<768;
@@ -9040,7 +9120,7 @@ function renderTrackingResults(){
       const stBadge=isNoTracking?'<span class="badge b-yellow">📭 No Tracking</span>':isAwaiting?'<span class="badge b-yellow">⏳ Awaiting Update</span>':isDelivered?'<span class="badge b-green">Delivered</span>':isOD?'<span class="badge b-red">⚠️ Overdue</span>':'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
       const multiNos=(inv.tracking||'').split(',').filter(t=>t.trim()).length;
       const parcelNote=multiNos>1?`<span style="font-size:11px;color:var(--gold);margin-left:6px;">pkg ${(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean).indexOf(inv._singleTracking)+1}/${multiNos}</span>`:'';
-      const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||'indiapost';
+      const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||((inv.courierOverride||{})[String(inv._singleTracking||'').toUpperCase()])||'indiapost';
       const courierBadge=isNoTracking?'':courierCode==='dtdc'?'<span style="font-size:10px;background:#fff3cd;color:#856404;border-radius:4px;padding:1px 5px;margin-left:5px;">DTDC</span>':courierCode==='bluedart'?'<span style="font-size:10px;background:#cfe2ff;color:#084298;border-radius:4px;padding:1px 5px;margin-left:5px;">Blue Dart</span>':'<span style="font-size:10px;background:#e8e8e8;color:#555;border-radius:4px;padding:1px 5px;margin-left:5px;">India Post</span>';
       const locLine=inv.custState?(inv.custAddress?inv.custAddress.split(/[\n,]/)[0].trim()+', ':'')+inv.custState:'';
       const _tkItems=expandItems(inv.itemsArr||[]);
@@ -9070,7 +9150,7 @@ function renderTrackingResults(){
       const trackDisplay=isNoTracking?'—':inv._singleTracking||inv.tracking;
       const multiNos=(inv.tracking||'').split(',').filter(t=>t.trim()).length;
       const pkgLabel=multiNos>1?` <span style="font-size:10px;color:var(--gold);">pkg ${(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean).indexOf(inv._singleTracking)+1}/${multiNos}</span>`:'';
-      const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||'indiapost';
+      const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||((inv.courierOverride||{})[String(inv._singleTracking||'').toUpperCase()])||'indiapost';
       const courierBadge=isNoTracking?'':courierCode==='dtdc'?'<span style="font-size:10px;background:#fff3cd;color:#856404;border-radius:4px;padding:1px 5px;margin-left:4px;">DTDC</span>':courierCode==='bluedart'?'<span style="font-size:10px;background:#cfe2ff;color:#084298;border-radius:4px;padding:1px 5px;margin-left:4px;">Blue Dart</span>':'<span style="font-size:10px;background:#e8e8e8;color:#555;border-radius:4px;padding:1px 5px;margin-left:4px;">IP</span>';
       const locCell=inv.custState?esc2((inv.custAddress?inv.custAddress.split(/[\n,]/)[0].trim()+', ':'')+inv.custState):'—';
       const _tkItems2=expandItems(inv.itemsArr||[]);
@@ -9090,9 +9170,11 @@ function renderTrackingResults(){
 function setTrackFilter(v){_trackFilterStatus=v;renderTrackingPage();}
 function setTrackDateFilter(v){_trackDateFilter=v;renderTrackingPage();}
 function setTrackSort(v){_trackSortBy=v;renderTrackingPage();}
+let _tkNoTimer=null;
+function setTrackSearchNo(v){_trackSearchNo=v;if(_tkNoTimer)clearTimeout(_tkNoTimer);_tkNoTimer=setTimeout(function(){_tkNoTimer=null;renderTrackingResults();},200);}
 function setTrackSearchName(v){_trackSearchName=v;renderTrackingResults();}
 function setTrackSearchLoc(v){_trackSearchLoc=v;renderTrackingResults();}
-function clearTrackFilters(){_trackFilterStatus='all';_trackDateFilter='all';_trackSearchName='';_trackSearchLoc='';renderTrackingPage();}
+function clearTrackFilters(){_trackFilterStatus='all';_trackDateFilter='all';_trackSearchNo='';_trackSearchName='';_trackSearchLoc='';renderTrackingPage();}
 
 // ═══════════════════════════════════════════
 // PULL-TO-REFRESH — main scroll area + sub-page scroll area
@@ -10393,7 +10475,7 @@ function renderDSReport(){
   const courierBreakdown={};
   filtered.forEach(r=>{
     if(!r.inv.tracking)return;
-    const courier=r.inv.dispatchMethod||detectCourier(r.inv.tracking.split(',')[0]?.trim()||'')||'Unknown';
+    const courier=detectCourier(r.inv.tracking.split(',')[0]?.trim()||'')||((r.inv.courierOverride||{})[String(r.inv.tracking.split(',')[0]||'').trim().toUpperCase()])||r.inv.dispatchMethod||'Unknown';
     const key=r.dsSupName+'||'+courier;
     if(!courierBreakdown[key])courierBreakdown[key]={sup:r.dsSupName,courier,articles:0,trackingNos:[]};
     courierBreakdown[key].articles+=r.qty;
@@ -12003,13 +12085,15 @@ function detectCourier(trackNo){
   if(/^[A-Z]{2}\d{8}$/.test(t))return 'dtdc';               // e.g. DO12345678
   if(/^[A-Z]\d{8}$/.test(t))return 'dtdc';                  // e.g. Z12345678
   if(/^\d{10,11}$/.test(t))return 'bluedart';               // pure numeric 10-11 digits
+  if(/^\d[A-Z]\d{8,10}$/.test(t))return 'dtdc';             // v14.29.0: e.g. 7D132636790 (digit + letter + 8-10 digits)
   return null;                                               // unrecognized — caller should use dispatchMethod
 }
 
 // Returns {name, trackUrl, courierCode} for a tracking number.
 // dispatchMethod (optional) is used as fallback when regex detection returns null.
-function getCourierInfo(trackNo, dispatchMethod){
-  const c=detectCourier(trackNo)||(dispatchMethod||'');
+function getCourierInfo(trackNo, dispatchMethod, courierOverride){
+  const _ov=courierOverride&&trackNo?courierOverride[String(trackNo).trim().toUpperCase()]:'';
+  const c=detectCourier(trackNo)||_ov||(dispatchMethod||'');
   if(c==='dtdc')return{name:'DTDC',trackUrl:'https://www.dtdc.in/tracking.asp?TrkType=consignment&strCnno='+encodeURIComponent(trackNo.trim()),courierCode:'dtdc'};
   if(c==='bluedart')return{name:'Blue Dart',trackUrl:'https://www.bluedart.com/tracking?handler=tnt&action=awbview&parcelid='+encodeURIComponent(trackNo.trim()),courierCode:'bluedart'};
   // Default India Post
@@ -12017,11 +12101,11 @@ function getCourierInfo(trackNo, dispatchMethod){
 }
 
 // Group tracking numbers by courier — returns [{courierCode, name, trackUrl, nos:[]}]
-function groupTrackingByCourier(trackNos,dispatchMethod){
+function groupTrackingByCourier(trackNos,dispatchMethod,courierOverride){
   const groups=[];
   const map={};
   trackNos.forEach(function(t,i){
-    const info=getCourierInfo(t,dispatchMethod);
+    const info=getCourierInfo(t,dispatchMethod,courierOverride);
     const key=info.courierCode;
     if(!map[key]){map[key]={courierCode:key,name:info.name,trackUrl:info.trackUrl,nos:[],indices:[]};groups.push(map[key]);}
     map[key].nos.push(t);
@@ -12146,6 +12230,13 @@ function checkTrack123MonthReset(){
   if(!lsGet(resetKey,false)){
     lsSet('vc_t123_k1_exhausted',false);
   }
+}
+
+// v14.29.0: parse courierOverride from sheet (JSON string) or local (object)
+function expandCourierOverride(v){
+  if(!v)return{};
+  if(typeof v==='object')return v;
+  try{const o=JSON.parse(v);return(o&&typeof o==='object')?o:{};}catch(e){return{};}
 }
 
 // Get all invoices that have DTDC or Blue Dart tracking numbers (not India Post)
