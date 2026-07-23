@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.30.0
+APP: Vismaad Creations v14.31.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 22-Jul-2026 — v14.30.0: DROPSHIP ITEMS NO LONGER TOUCH INVENTORY STOCK. A product added to an invoice by name/number and then tagged as dropship (it.dsSupId set, including the '__pending__' placeholder before a supplier is picked) was still being deducted from inventory at save, because every stock call site keyed off prodNo alone and never read the DS flag. This was wrong for BOTH full-DS invoices (all articles tagged) and partial-DS invoices (some tagged), since deduction runs per-item in a loop. Fixed symmetrically so stock always reflects only what physically ships from our own godown: (1) isDS(it) helper — single source of truth (dsSupId truthy). (2) Invoice save skips deductStock for DS items — spill set to [], qtySold/linkedInvoices/qtyOriginal untouched for them; non-DS items deduct exactly as before. (3) Invoice-delete restore and Returned-status restore both skip DS items — they never deducted, so restoring would have INVENTED phantom stock; this is the mirror of the save fix. (4) _flipItemDS(inv,it,toDS) — shared engine for DS status changes on an ALREADY-SAVED invoice (where stock was, or must now be, moved). non-DS→DS: restoreStock using the item's recorded spill, decrement qtySold, drop invoice from linkedInvoices, clear it.spill. DS→non-DS: deductStock, write the new it.spill, credit qtySold, add to linkedInvoices, ratchet qtyOriginal; never stalls — if that article's stock is now 0 (sold as DS meanwhile), qty floors at 0, qtySold still climbs and a shortfall toast fires, matching v14.27.0 pool behaviour. Guards against double-apply (acts only on a genuine state change) and no-prodNo items. (5) Bulk 'Mark as Dropship' routes every newly-tagged item through _flipItemDS(toDS=true) so previously-deducted stock is handed back; already-DS items skipped by the existing guard. (6) Edit-invoice DS toggle (toggleEditDSItem) routes through _flipItemDS in BOTH directions and persists the invoice + touched products via gsWriteConfirmed. The live invoice-builder toggle (toggleDSItem) needs no stock logic — that item is not yet saved, and the save fix skips it. Spill survives the sheet round-trip via expandItems, so a later delete/return of an invoice whose item was flipped DS→non-DS reverses exactly what the re-deduction took. NOTE: invoices dropshipped before this version that had already (wrongly) deducted stock are not auto-repaired — re-toggle the DS flag off and on via the edit modal, or correct the product by hand in the inventory editor.
+LAST_CHANGE: 23-Jul-2026 — v14.31.0: GST CORRECTNESS + RETURNS/CANCELLATIONS + PER-AWB COURIER IN MESSAGES. (1) COURIER OVERRIDE NEVER REACHED THE WHATSAPP MESSAGE. v14.29.0 threaded courierOverride through getCourierInfo/groupTrackingByCourier but NOT into buildTrackingMessage/buildFollowupTrackingMessage, which lacked the parameter entirely; all five internal calls and all three call sites dropped it. A two-package invoice whose first parcel went India Post and whose second AWB had an unrecognised format quoted India Post for BOTH, even after the picker stored the right carrier. Added the 5th param to both builders, passed it through every internal call, and supplied inv.courierOverride at all three call sites. Tracking-page badges were already correct; only the message was wrong. (2) gstSplit(grand,ship,disc) — NEW single source of truth for the tax split on a stored invoice: suits 5% (HSN 540754), shipping 18% (SAC 9965), prices GST-inclusive. Every reporting path now routes through it. Previously the GSTR summary export divided the ENTIRE grand total (shipping included) by 1.05, and the detailed sales register divided shipping by 1.05 — both UNDER-DECLARED output tax on every Tax Invoice carrying shipping (on Rs100 shipping the printed invoice said Rs15.25, the export said Rs4.76), so the invoice handed to the customer and the return contradicted each other. P&L gstOnSuits had the same flat-1.05 form and mis-stated the suit component. (3) GST export headers were hardcoded 'CGST 2.5% / SGST 2.5% / IGST 5%' — one column now legitimately carries two rates, so labels are rate-neutral and two new columns break out Suits Taxable @5% and Shipping Taxable @18%. FY subtotal and grand-total accumulators widened 6->8 slots to match. (4) RETURNS/CANCELLATIONS WERE COUNTED AS FULL REVENUE. Neither the P&L nor either export filtered on invoiceStatus (the tracking page and dashboard already did), so a cancelled order still contributed turnover, taxable value and output GST. Treated differently by surface, deliberately: the P&L now DROPS Cancelled/Returned outright (it answers what we actually earned) and skips their credit notes too, or the reversal would subtract the same sale twice — count and value shown as an 'Excluded' line plus a card-title note so the omission is never silent. The GST export KEEPS invoice + credit note (the orthodox treatment) but now warns loudly when a Cancelled/Returned Tax Invoice has NO credit note, which is the case that silently declares tax on a sale that never happened, since the manual Status button sets the status without creating one. (5) Credit notes issued OUTSIDE the exported range used to vanish silently — the deduction was skipped by an early return. They still are not deducted (a reversal belongs to its own filing period, which is correct) but the export now lists them so an invoice-in-March / CN-in-April straddle is visible rather than a trap. (6) CN gstReversed/taxableReversed used a flat /1.05, ignoring 18% shipping on the referenced invoice; now pro-rated at that invoice's own blended rate via gstSplit. This also feeds P&L totalCreditGST, so the error had been propagating into ITC and net-tax figures. (7) printInvoice read raw data.isIntra — after a sheet round-trip that is the STRING "false", which is truthy, so a reprinted INTER-state Tax Invoice showed CGST+SGST instead of IGST (wrong place of supply on a tax document). Now coerced with the same pattern used everywhere else. (8) printInvoice recomputed from itemsArr, but makePayload strips itemsArr to [] on oversized invoices while preserving totals — such an invoice re-fetched from the sheet reprinted with a zeroed GST table beside a non-zero grand total. Falls back to the stored grand via gstSplit when items are missing. (9) STOCK NOW MOVES ON THE TRANSITION, NOT THE DESTINATION. Cancelled restored nothing (only Returned did), so goods that never shipped stayed deducted and qtySold stayed inflated; Returned->Returned restored twice; and the Reactivate button never re-deducted, inventing stock on every round trip. _applyInvoiceStatus now computes _wasVoid/_nowVoid, no-ops on an unchanged status, restores only on Active->void, and re-deducts (pool-aware, spill recorded, shortfall toast, never stalls) on void->Active. (10) Detailed sales register gains an 'Invoice Status' column (Active/Cancelled/Returned), distinct from the existing delivery Status. NOTE: nothing has been filed yet, so no revised return is needed; all figures are correct from this version forward. Invoices cancelled before this version did not restore stock — correct those products by hand in the inventory editor, or toggle the status off and back on.
+PREV_CHANGE: 22-Jul-2026 — v14.30.0: DROPSHIP ITEMS NO LONGER TOUCH INVENTORY STOCK. A product added to an invoice by name/number and then tagged as dropship (it.dsSupId set, including the '__pending__' placeholder before a supplier is picked) was still being deducted from inventory at save, because every stock call site keyed off prodNo alone and never read the DS flag. This was wrong for BOTH full-DS invoices (all articles tagged) and partial-DS invoices (some tagged), since deduction runs per-item in a loop. Fixed symmetrically so stock always reflects only what physically ships from our own godown: (1) isDS(it) helper — single source of truth (dsSupId truthy). (2) Invoice save skips deductStock for DS items — spill set to [], qtySold/linkedInvoices/qtyOriginal untouched for them; non-DS items deduct exactly as before. (3) Invoice-delete restore and Returned-status restore both skip DS items — they never deducted, so restoring would have INVENTED phantom stock; this is the mirror of the save fix. (4) _flipItemDS(inv,it,toDS) — shared engine for DS status changes on an ALREADY-SAVED invoice (where stock was, or must now be, moved). non-DS→DS: restoreStock using the item's recorded spill, decrement qtySold, drop invoice from linkedInvoices, clear it.spill. DS→non-DS: deductStock, write the new it.spill, credit qtySold, add to linkedInvoices, ratchet qtyOriginal; never stalls — if that article's stock is now 0 (sold as DS meanwhile), qty floors at 0, qtySold still climbs and a shortfall toast fires, matching v14.27.0 pool behaviour. Guards against double-apply (acts only on a genuine state change) and no-prodNo items. (5) Bulk 'Mark as Dropship' routes every newly-tagged item through _flipItemDS(toDS=true) so previously-deducted stock is handed back; already-DS items skipped by the existing guard. (6) Edit-invoice DS toggle (toggleEditDSItem) routes through _flipItemDS in BOTH directions and persists the invoice + touched products via gsWriteConfirmed. The live invoice-builder toggle (toggleDSItem) needs no stock logic — that item is not yet saved, and the save fix skips it. Spill survives the sheet round-trip via expandItems, so a later delete/return of an invoice whose item was flipped DS→non-DS reverses exactly what the re-deduction took. NOTE: invoices dropshipped before this version that had already (wrongly) deducted stock are not auto-repaired — re-toggle the DS flag off and on via the edit modal, or correct the product by hand in the inventory editor.
 PREV_CHANGE: 19-Jul-2026 — v14.29.0: COURIER DETECTION + TRACKING SEARCH. (1) DTDC AWBs of the form digit+letter+8-10 digits (e.g. 7D132636790) matched none of the four patterns in detectCourier(), so it returned null and getCourierInfo() fell back to the invoice-level dispatchMethod. On a multi-package invoice whose FIRST parcel went India Post, the second DTDC number silently inherited 'indiapost' — the WhatsApp message quoted India Post, and getCourierTrackedInvoices() filed it under India Post so it never appeared in the DTDC/Blue Dart tracking list. Added /^\\d[A-Z]\\d{8,10}$/ → dtdc; cannot collide with the existing rules (India Post UPU needs two leading letters plus a two-letter suffix, Blue Dart is pure-numeric). (2) COURIER PROMPT — every tracking number whose format detectCourier() cannot identify now opens a mobile-friendly picker (DTDC / Blue Dart / India Post / Other Courier) instead of silently inheriting the dispatch method. The answer is stored PER-AWB on the invoice in a new courierOverride map keyed by uppercased tracking number, so it never overwrites the invoice-level dispatchMethod and multi-courier invoices stay correct. Consulted after regex detection and before the dispatchMethod fallback, threaded through getCourierInfo/groupTrackingByCourier/buildTrackingMessage/buildFollowupTrackingMessage, the four tracking-page courier badges, getCourierTrackedInvoices (so Track123 registers the right carrier) and the P&L courier grouping. Wired into both entry paths: generateInvoice (prompts BEFORE the invoice counter or stock is touched, so cancelling mid-prompt leaves nothing half-written) and saveInvoiceEdit; both are now async. Persisted via JSON-stringify in flattenForSheet, parsed on load and in both sync-merge branches (remote-newer merges remote keys over local; no-timestamp branch fills blanks only), so per-AWB couriers survive cross-device. Invoices without courierOverride behave exactly as before. (3) TRACKING / INVOICE NO. search field added to the tracking status page alongside the existing customer and location filters — substring match on the tracking number and invoice number, debounced 200ms, combines with (does not replace) the status, date, name and location filters, and is cleared by Clear Filters. Full-width stacked on mobile, inline on desktop. (4) Dispatch dropdowns now label walk-in as 'Walk-in / Collected in person (QR code needed)' at all three sites, flagging that this method prints a UPI QR instead of an invoice. Hand Delivery and Walk-in remain SEPARATE values — merging them would have changed printed-invoice wording and forced the UPI QR onto hand-delivery orders. (5) Sale Channel 'None' chip removed (meaningless beside the other options); existing blank channels are untouched and the edit modal keeps '— Not specified —'. resetInvoiceForm no longer auto-activates the first chip, which after the removal would have silently selected WhatsApp on every new invoice. NOTE: historic invoices whose unrecognised AWBs were already misfiled are left as-is by design — 7D-prefix numbers self-correct via the new regex, other unrecognised formats keep their inherited courier until the invoice is edited.
 PREV_CHANGE: 14-Jul-2026 — v14.28.1: BUGFIX — SALES PAGE FILTER DID NOTHING. Root cause was a key-casing mismatch in trackingData. The India Post import uppercased its keys (line ~8533), but the Track123 refresh and the sheet-sync merge stored them verbatim, so the same object held both 'CD123IN' and 'cd123in' style keys. renderSales() has always looked tracking up by UPPERCASE, so any record written by the other two paths simply returned undefined — the invoice was read as having no tracking data at all and fell through to the manual isShipped flag. Result: Shipped, In Transit, Delivered and No Tracking all misclassified, and No Tracking listed invoices that plainly had a number on them. Fixes, one pass: (1) tdGet(t) — a single case-tolerant lookup helper; every READ of trackingData across the app (sales filter, sales status badge, dashboard pending orders, delivery-review list, tracking page, Track123 refresh, India Post import push) now routes through it, so no future call site can reintroduce this. (2) Both offending WRITE paths now normalise the key to uppercase, and drop the stale mixed-case duplicate if one exists. (3) One-time in-place migration on boot rewrites historic lowercase keys in vc_tracking to uppercase; where both casings exist for one number, a Delivered record is never lost and otherwise the newer updatedAt wins. (4) Search box and religion filter moved ABOVE the Cancelled/Returned branches — those two returned early, so typing a name while Cancelled was selected silently ignored what you typed. Every dropdown option now combines with search and religion. (5) Cancelled/Returned are now genuinely excluded from the Shipped and Pending filters — the comment claimed this since v14.23.0 but the code never enforced it, so a cancelled order still showed up under Pending. (6) Removed the dead double-assignment of isShippedOrDelivered (the first expression returned a status string, was immediately overwritten, and only survived because .some() coerced it).
 PREV_CHANGE: 14-Jul-2026 — v14.28.0: (1) PARTNER REPORT — select any invoices on the Sales page (any dates, free-form) and tap 📤 Partner Report to build ONE WhatsApp message for a record-keeping partner, grouped by DISPATCH DATE (ascending, undated orders bucketed last rather than dropped). Each article is listed by Product No. with cost → sale; then shipping charged to the customer and our own shipping cost (from the existing batch-split, omitted when 0). Per-date subtotal and a grand total, each carrying a profit line. Profit is uniform and deliberately simple — sale − cost + shipping charged − shipping cost — with NO GST handling anywhere: this is a partner's record, not a CA's return. City is resolved from the customer PIN via India Post's free public endpoint (api.postalpincode.in, no key, no signup), cached permanently in vc_pincity since a PIN's district never changes; a failed lookup or offline device degrades to a blank city and the report still sends. Preview modal is editable before sending, with Copy alongside Send. Partner number stored once in Settings (S.partnerWa) and kept localStorage-only, matching how waNumber is already handled — personal numbers never reach the Settings sheet. Warns in-modal when orders are missing a city or a cost price.
@@ -3112,6 +3113,30 @@ function selectInvoiceVariant(rowId, variantId, variantLabel) {
     }
   }
 }
+// v14.31.0 — SINGLE SOURCE OF TRUTH for the GST split on a STORED invoice.
+// Suits: 5% (HSN 540754). Shipping: 18% (SAC 9965). Prices are GST-INCLUSIVE.
+// grand = suitsIncl - discount + ship, so suitBase is recovered as grand - ship.
+// Returns all components; callers must never re-derive tax with a flat divisor.
+function gstSplit(grand,ship,disc){
+  grand=parseFloat(grand)||0; ship=parseFloat(ship)||0; disc=parseFloat(disc)||0;
+  const shipIncl=Math.max(0,ship);
+  const suitBase=Math.max(0,parseFloat((grand-shipIncl).toFixed(2))); // already net of discount
+  const suitTaxable=parseFloat((suitBase/1.05).toFixed(2));
+  const suitGST=parseFloat((suitBase-suitTaxable).toFixed(2));
+  const shipTaxable=parseFloat((shipIncl/1.18).toFixed(2));
+  const shipGST=parseFloat((shipIncl-shipTaxable).toFixed(2));
+  return{
+    suitBase,suitTaxable,suitGST,
+    shipIncl,shipTaxable,shipGST,
+    taxable:parseFloat((suitTaxable+shipTaxable).toFixed(2)),
+    gst:parseFloat((suitGST+shipGST).toFixed(2)),
+    grand:parseFloat((suitBase+shipIncl).toFixed(2))
+  };
+}
+// v14.31.0 — status helpers. Cancelled/Returned must never count as revenue.
+function invStatusOf(inv){return (inv&&inv.invoiceStatus)||'Active';}
+function isVoidInvoice(inv){const st=invStatusOf(inv);return st==='Cancelled'||st==='Returned';}
+
 function calcTotals(arr,ship,disc){
   const suits=arr.reduce((s,i)=>s+(i.qty||1)*(i.unitPrice||0),0);
   // Suits taxed at 5% GST (HSN 540754); shipping taxed at 18% GST (SAC 9965)
@@ -3384,14 +3409,21 @@ function buildInvoiceHTML(data){
 
   const{suitsTotal,grandIncl,taxableExcl,gstAmt,suitTaxable,suitGST,shipTaxable,shipGST}=calcTotals(itemsArr,storedShipping,storedDiscount);
   const displayGrand=storedGrand>0?storedGrand:grandIncl;
-  // Re-derive split GST from stored grand for display consistency
-  const displaySuitBase=Math.max(0,suitsTotal-storedDiscount);
-  const displaySuitTaxable=parseFloat((displaySuitBase/1.05).toFixed(2));
-  const displaySuitGST=parseFloat((displaySuitBase-displaySuitTaxable).toFixed(2));
+  // v14.31.0: makePayload strips itemsArr to [] on oversized invoices while preserving
+  // totals, so a large invoice re-fetched from the sheet used to reprint with a GST table
+  // of zeros beside a non-zero grand total. Fall back to the STORED grand in that case.
+  const _itemsLost=(!itemsArr||itemsArr.length===0)&&storedGrand>0;
+  const _sp=gstSplit(displayGrand,storedShipping,storedDiscount);
+  const displaySuitBase=_itemsLost?_sp.suitBase:Math.max(0,suitsTotal-storedDiscount);
+  const displaySuitTaxable=_itemsLost?_sp.suitTaxable:parseFloat((displaySuitBase/1.05).toFixed(2));
+  const displaySuitGST=_itemsLost?_sp.suitGST:parseFloat((displaySuitBase-displaySuitTaxable).toFixed(2));
   const displayShipTaxable=storedShipping>0?parseFloat((storedShipping/1.18).toFixed(2)):0;
   const displayShipGST=storedShipping>0?parseFloat((storedShipping-displayShipTaxable).toFixed(2)):0;
   const displayTaxable=parseFloat((displaySuitTaxable+displayShipTaxable).toFixed(2));
   const displayGST=parseFloat((displaySuitGST+displayShipGST).toFixed(2));
+  // v14.31.0: isIntra arrives from the sheet as the STRING "false", which is truthy —
+  // an inter-state invoice reprinted after sync showed CGST+SGST instead of IGST.
+  const _isIntra=data.isIntra===true||data.isIntra==='true'||data.custState==='Punjab';
 
   const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
   const fd=d=>{
@@ -3441,7 +3473,7 @@ function buildInvoiceHTML(data){
   // H3: discount shown above GST summary (pre-tax deduction)
   const discRow=storedDiscount>0?'<tr><td colspan="'+discColspan+'" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: Discount (pre-GST)</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−'+f(storedDiscount)+'</td></tr>':'';
   const hsnSuit=[...new Set(validItems.map(i=>i.hsn||'540754'))].join('/');
-  const gstRows=data.isIntra
+  const gstRows=_isIntra
     ?'<tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">'+hsnSuit+'</td><td style="padding:3px 8px;">'+f(displaySuitTaxable)+'</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">'+f(displaySuitGST/2)+'</td></tr>'
      +'<tr><td style="padding:3px 8px;">SGST</td><td style="padding:3px 8px;">'+hsnSuit+'</td><td style="padding:3px 8px;">'+f(displaySuitTaxable)+'</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">'+f(displaySuitGST/2)+'</td></tr>'
      +(storedShipping>0?'<tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">9965</td><td style="padding:3px 8px;">'+f(displayShipTaxable)+'</td><td style="padding:3px 8px;">9%</td><td style="padding:3px 8px;">'+f(displayShipGST/2)+'</td></tr>':'')
@@ -3482,7 +3514,7 @@ function buildInvoiceHTML(data){
         <div style="font-size:12px;color:#555;"><strong>FY:</strong> ${data.fy||''}</div>
         ${gstMode?'<div style="font-size:11px;color:#555;margin-top:4px;"><strong>Place of Supply:</strong> '+(data.custState||'—')+' ('+getStateCode(data.custState||'')+')</div>':''}
         ${gstMode?'<div style="font-size:11px;color:#555;"><strong>Reverse Charge:</strong> No</div>':''}
-        ${gstMode?'<div style="margin-top:5px;display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:'+(data.isIntra?'#dff0d8':'#e8f4fd')+';color:'+(data.isIntra?'#27ae60':'#2980b9')+';">'+(data.isIntra?'Intra-State (Punjab)':'Inter-State')+'</div>':''}
+        ${gstMode?'<div style="margin-top:5px;display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:'+(_isIntra?'#dff0d8':'#e8f4fd')+';color:'+(_isIntra?'#27ae60':'#2980b9')+';">'+(_isIntra?'Intra-State (Punjab)':'Inter-State')+'</div>':''}
       </div>
     </div>
     <hr style="border:none;border-top:2px solid #5c3d1e;margin:12px 0;"/>
@@ -4220,7 +4252,7 @@ function shareTrackingWhatsApp(){
   const trackRaw=inv.tracking||'';
   if(!trackRaw){toast('⚠️ No tracking number on this invoice');return;}
   const trackNos=trackRaw.split(',').map(t=>t.trim()).filter(Boolean);
-  const msg=buildTrackingMessage(trackNos,inv.custName,inv.dispatchDate,inv.dispatchMethod);
+  const msg=buildTrackingMessage(trackNos,inv.custName,inv.dispatchDate,inv.dispatchMethod,inv.courierOverride);
   const url='https://wa.me/'+ph+'?text='+encodeURIComponent(msg);
   window.open(url,'_blank');
   closeShareModal();
@@ -4745,10 +4777,10 @@ async function saveInvoiceEdit(){
         let msg;
         if(!oldTracking.trim()||oldNos.length===0){
           // First time adding tracking — use full dispatch message
-          msg=buildTrackingMessage(allNos,inv.custName,inv.dispatchDate,inv.dispatchMethod);
+          msg=buildTrackingMessage(allNos,inv.custName,inv.dispatchDate,inv.dispatchMethod,inv.courierOverride);
         }else{
           // Additional packages added — use followup message
-          msg=buildFollowupTrackingMessage(addedNos,allNos,inv.custName,inv.dispatchMethod);
+          msg=buildFollowupTrackingMessage(addedNos,allNos,inv.custName,inv.dispatchMethod,inv.courierOverride);
         }
         window.open('https://wa.me/'+ph+'?text='+encodeURIComponent(msg),'_blank');
         // Save to sheet after opening WhatsApp
@@ -4894,8 +4926,20 @@ function saveCreditNote(){
     creditAmount:amt,
     // GST reversal — only for Tax Invoices
     isGST:gst,
-    gstReversed:gst?parseFloat((amt-amt/1.05).toFixed(2)):0,
-    taxableReversed:gst?parseFloat((amt/1.05).toFixed(2)):amt,
+    // v14.31.0: a flat /1.05 ignored that shipping on the referenced invoice bore 18%.
+    // Credit the invoice's own blended rate, pro-rated to the amount being reversed.
+    gstReversed:gst?(function(){
+      const _g=parseFloat(refInv.grandTotal)||0;
+      if(_g<=0)return parseFloat((amt-amt/1.05).toFixed(2));
+      const _sp=gstSplit(_g,refInv.shipping,refInv.discount);
+      return parseFloat((_sp.gst*(amt/_g)).toFixed(2));
+    })():0,
+    taxableReversed:gst?(function(){
+      const _g=parseFloat(refInv.grandTotal)||0;
+      if(_g<=0)return parseFloat((amt/1.05).toFixed(2));
+      const _sp=gstSplit(_g,refInv.shipping,refInv.discount);
+      return parseFloat((amt-_sp.gst*(amt/_g)).toFixed(2));
+    })():amt,
     notes:document.getElementById('cn-notes')?.value||'',
     updatedAt:new Date().toISOString(),
   };
@@ -4920,13 +4964,54 @@ function saveCreditNote(){
 
 // Apply Cancelled/Returned status to an invoice; optionally restore stock for Returns
 function _applyInvoiceStatus(inv,newStatus){
+  // v14.31.0: stock must move on the TRANSITION, not on the destination state.
+  // Previously Returned→Returned restored a second time, and Cancelled/Returned→Active
+  // (the ↺ Reactivate button) never re-deducted, so stock was invented on every round trip.
+  const _prevStatus=invStatusOf(inv);
+  if(_prevStatus===newStatus){toast('Already marked as '+newStatus);return;}
+  const _wasVoid=_prevStatus==='Cancelled'||_prevStatus==='Returned';
+  const _nowVoid=newStatus==='Cancelled'||newStatus==='Returned';
   inv.invoiceStatus=newStatus;
   inv.invUpdatedAt=new Date().toISOString();
   save();
   renderSales();
-  // Restore inventory stock for Returns
+  // Re-deduct when an invoice comes back to life (Active) after stock was handed back.
+  if(_wasVoid&&!_nowVoid){
+    const _items=expandItems(inv.itemsArr||[]);
+    const _touched2=new Set();
+    let _short=0;
+    _items.forEach(it=>{
+      if(isDS(it))return;
+      if(!it.prodNo)return;
+      const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(it.prodNo));
+      if(!p)return;
+      const qty=parseInt(it.qty)||1;
+      const res=deductStock(p,it.variantId,qty);
+      it.spill=res.spill||[];
+      if(res.short)_short+=res.short;
+      (res.touched||[]).forEach(n=>_touched2.add(n));
+      p.qtySold=(parseInt(p.qtySold)||0)+Math.max(0,qty-(it.spill.reduce((s,x)=>s+(parseInt(x.qty)||0),0)));
+      p.qtyOriginal=Math.max(parseInt(p.qtyOriginal)||0,(parseInt(p.qty)||0)+(parseInt(p.qtySold)||0));
+      p.updatedAt=new Date().toISOString();
+    });
+    if(_touched2.size){
+      saveStk();
+      inventory.filter(p=>_touched2.has(parseInt(p.prodNo))).forEach(p=>{
+        gsWriteConfirmed(SHEETS.inventory,flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Inventory sync failed for #'+p.prodNo+' — tap sync to retry');});
+      });
+    }
+    save();
+    gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{if(!ok)toast('⚠️ Invoice status saved locally — sheet sync pending');});
+    renderTrackingPage&&renderTrackingPage();
+    renderDashboard&&renderDashboard();
+    toast('✅ Invoice reactivated'+(_short>0?' · ⚠️ '+_short+' item(s) short in stock':' · stock re-deducted'));
+    return;
+  }
+  // Restore inventory stock for Returns AND Cancellations.
+  // v14.31.0: Cancelled previously restored nothing, so goods that never shipped stayed
+  // deducted and qtySold stayed inflated — inventory and COGS both drifted.
   let restored=0;
-  if(newStatus==='Returned'){
+  if(_nowVoid&&!_wasVoid){
     const items=expandItems(inv.itemsArr||[]);
     const _touched=new Set(); // v14.27.0: includes LINKED siblings the spill drained
     items.forEach(it=>{
@@ -5925,6 +6010,17 @@ function renderPLContent(filtInv,filtPur){
   const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
   const pct=(a,b)=>b>0?parseFloat(((a/b)*100).toFixed(1)):0;
 
+  // v14.31.0: Cancelled/Returned invoices are NOT revenue. They were previously summed at
+  // full grandTotal into grossRevRaw, output GST and COGS, so a cancelled order inflated
+  // both turnover and tax. The P&L answers "what did we actually earn", so they are dropped
+  // outright here (unlike the GST export, which keeps invoice + credit note by design).
+  // Their credit notes must be dropped too, or the reversal would double-count.
+  const _plAllInv=filtInv;
+  const _voidIds=new Set(_plAllInv.filter(isVoidInvoice).map(i=>String(i.id)));
+  const _voidCount=_voidIds.size;
+  const _voidAmt=parseFloat(_plAllInv.filter(isVoidInvoice).reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0).toFixed(2));
+  filtInv=_plAllInv.filter(i=>!isVoidInvoice(i));
+
   // ── CREDIT NOTES deducted from revenue ──
   // Derive date range from the filtered invoices passed in
   const _invDates=filtInv.map(i=>String(i.invDate||'').slice(0,10)).filter(Boolean).sort();
@@ -5932,6 +6028,9 @@ function renderPLContent(filtInv,filtPur){
   const _cnTo=_invDates[_invDates.length-1]||'9999-99-99';
   const filtCNs=creditNotes.filter(cn=>{
     if(!cn.cnDate)return false;
+    // v14.31.0: the invoice this CN reverses was already removed above — deducting the CN
+    // as well would subtract the same sale twice.
+    if(_voidIds.has(String(cn.refInvId)))return false;
     const d=String(cn.cnDate).slice(0,10);
     return _cnFrom?d>=_cnFrom&&d<=_cnTo:true;
   });
@@ -5946,9 +6045,9 @@ function renderPLContent(filtInv,filtPur){
   const nonGstInvs    = filtInv.filter(i=>!(i.isGST===true||i.isGST==='true'));
   const anyGST        = gstInvs.length>0;
   const gstOnSuits    = parseFloat(gstInvs.reduce((s,i)=>{
-    const shipGST=parseFloat((parseFloat(i.shipping||0)-parseFloat(i.shipping||0)/1.18).toFixed(2));
-    const totalGST=parseFloat(i.grandTotal||0)-parseFloat((parseFloat(i.grandTotal||0)/1.05).toFixed(2));
-    return s+(totalGST-shipGST);
+    // v14.31.0: via gstSplit — the old form divided the WHOLE grand (shipping included)
+    // by 1.05 and then subtracted shipping tax, which mis-stated the suit component.
+    return s+gstSplit(i.grandTotal,i.shipping,i.discount).suitGST;
   },0).toFixed(2));
   const shipCharged   = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.shipping)||0),0).toFixed(2));
   const gstOnShip     = parseFloat(gstInvs.reduce((s,i)=>{const sh=parseFloat(i.shipping||0);return s+(sh-sh/1.18);},0).toFixed(2));
@@ -6038,10 +6137,11 @@ function renderPLContent(filtInv,filtPur){
     </div>
 
     <div class="card">
-      <div class="card-title">📊 P&L Statement — ${filtInv.length} invoice(s)</div>
+      <div class="card-title">📊 P&L Statement — ${filtInv.length} invoice(s)${_voidCount>0?' · '+_voidCount+' cancelled/returned excluded':''}</div>
 
       ${head('💰 Revenue')}
-      ${row('Gross Sales collected from customers (incl. 5% GST)',grossRevRaw)}
+      ${_voidCount>0?subrow('Excluded: '+_voidCount+' Cancelled/Returned invoice(s)',_voidAmt,'#888'):''}
+      ${row('Gross Sales collected from customers (incl. GST)',grossRevRaw)}
       ${totalCreditAmt>0?subrow('Less: Credit Notes issued ('+filtCNs.length+')',totalCreditAmt,'#c0392b'):''}
       ${totalCreditAmt>0?row('Net Revenue after Credit Notes',grossRev):''}
       ${subrow('GST on Suits collected (Output GST)',gstOnSuits,'#c0392b')}
@@ -6333,8 +6433,16 @@ function _doExport(type,from,to,label){
 
   if(type==='gst'){
     // C1: only Tax Invoices belong in a GST return
-    const gstFiltered=filtered.filter(i=>i.isGST===true||i.isGST==='true');
-    const bosCount=filtered.length-gstFiltered.length;
+    const gstAll=filtered.filter(i=>i.isGST===true||i.isGST==='true');
+    const bosCount=filtered.length-gstAll.length;
+    // v14.31.0: Cancelled/Returned Tax Invoices are reversed by their Credit Note, which is
+    // deducted below. Keeping the invoice AND its CN is the orthodox GST treatment. But a
+    // void invoice with NO credit note would leave output tax declared on a sale that never
+    // happened — warn loudly rather than silently misfiling.
+    const gstFiltered=gstAll;
+    const _cnByRef={};
+    creditNotes.forEach(cn=>{const k=String(cn.refInvId||'');if(k)_cnByRef[k]=true;});
+    const _voidNoCN=gstAll.filter(i=>isVoidInvoice(i)&&!_cnByRef[String(i.id)]);
     // L1: warn if date range contained mixed document types
     if(bosCount>0){
       toast('ℹ️ '+bosCount+' Bill(s) of Supply excluded from GST export — only Tax Invoices included',6000);
@@ -6355,12 +6463,16 @@ function _doExport(type,from,to,label){
 
       const grand=parseFloat(inv.grandTotal)||0;
 
-      // Recalculate taxable and GST from grandTotal — most reliable since grandTotal is always stored
-      const taxable=parseFloat((grand/1.05).toFixed(2));
-      const gst=parseFloat((grand-taxable).toFixed(2));
+      // v14.31.0: suits 5% + shipping 18% via gstSplit — a flat /1.05 under-declared
+      // output tax on every invoice carrying shipping.
+      const sp=gstSplit(grand,inv.shipping,inv.discount);
+      const taxable=sp.taxable;
+      const gst=sp.gst;
 
       g.grossRev+=grand;
       g.taxable+=taxable;
+      g.suitTaxable=(g.suitTaxable||0)+sp.suitTaxable;
+      g.shipTaxable=(g.shipTaxable||0)+sp.shipTaxable;
       g.totalGST+=gst;
       g.creditAmt=g.creditAmt||0;
       g.creditGST=g.creditGST||0;
@@ -6372,10 +6484,17 @@ function _doExport(type,from,to,label){
     });
 
     // Deduct credit notes from the month they were issued
+    const _cnOutOfRange=[];
     creditNotes.forEach(cn=>{
       if(!cn.cnDate)return;
       const isoMon=cn.cnDate?String(cn.cnDate).slice(0,7):'Unknown';
-      if(!byMonth[isoMon])return; // only deduct if within the filtered period
+      if(!byMonth[isoMon]){
+        // v14.31.0: a CN issued outside the exported range used to vanish silently.
+        // Only flag it when the invoice it reverses IS inside the range.
+        const _ref=invoices.find(i=>String(i.id)===String(cn.refInvId));
+        if(_ref&&gstFiltered.indexOf(_ref)!==-1)_cnOutOfRange.push(cn.cnNo+' ('+fmtDate(cn.cnDate)+') vs '+(_ref.invNo||''));
+        return;
+      }
       const g=byMonth[isoMon];
       const cAmt=parseFloat(cn.creditAmount)||0;
       const cGST=(cn.isGST===true||cn.isGST==='true')?parseFloat(cn.gstReversed||0):0;
@@ -6395,10 +6514,13 @@ function _doExport(type,from,to,label){
       }catch{return isoMon;}
     }
 
+    // v14.31.0: rate-neutral headers — a single column now carries both 5% (suits)
+    // and 18% (shipping) tax, so the old '2.5%'/'5%' labels misdescribed their contents.
     const hdr=[
       'Month','No. of Invoices',
       'Gross Revenue (₹)','Taxable Value (₹)',
-      'CGST 2.5% (₹)','SGST 2.5% (₹)','IGST 5% (₹)',
+      'Suits Taxable @5% (₹)','Shipping Taxable @18% (₹)',
+      'CGST (₹)','SGST (₹)','IGST (₹)',
       'Total GST (₹)'
     ];
 
@@ -6412,7 +6534,7 @@ function _doExport(type,from,to,label){
       return'FY '+fyStart+'-'+String(fyStart+1).slice(2);
     }
     const allRows=[];
-    let curFY='',fyAccum=[0,0,0,0,0,0];
+    let curFY='',fyAccum=[0,0,0,0,0,0,0,0];
     let fyInvCount=0;
     sortedMonths.forEach((g,i)=>{
       const fy=getFYLabel(g.isoMon);
@@ -6420,28 +6542,35 @@ function _doExport(type,from,to,label){
         // Insert FY subtotal row
         const fyTot=[curFY+' TOTAL',fyInvCount,...fyAccum.map(v=>+v.toFixed(2))];
         allRows.push(fyTot);
-        fyAccum=[0,0,0,0,0,0];fyInvCount=0;
+        fyAccum=[0,0,0,0,0,0,0,0];fyInvCount=0;
       }
       curFY=fy;
-      const row=[monLabel(g.isoMon),g.invoices,+g.grossRev.toFixed(2),+g.taxable.toFixed(2),+g.cgst.toFixed(2),+g.sgst.toFixed(2),+g.igst.toFixed(2),+g.totalGST.toFixed(2)];
+      const row=[monLabel(g.isoMon),g.invoices,+g.grossRev.toFixed(2),+g.taxable.toFixed(2),+(g.suitTaxable||0).toFixed(2),+(g.shipTaxable||0).toFixed(2),+g.cgst.toFixed(2),+g.sgst.toFixed(2),+g.igst.toFixed(2),+g.totalGST.toFixed(2)];
       allRows.push(row);
-      fyAccum[0]+=g.grossRev;fyAccum[1]+=g.taxable;fyAccum[2]+=g.cgst;fyAccum[3]+=g.sgst;fyAccum[4]+=g.igst;fyAccum[5]+=g.totalGST;
+      fyAccum[0]+=g.grossRev;fyAccum[1]+=g.taxable;fyAccum[2]+=(g.suitTaxable||0);fyAccum[3]+=(g.shipTaxable||0);fyAccum[4]+=g.cgst;fyAccum[5]+=g.sgst;fyAccum[6]+=g.igst;fyAccum[7]+=g.totalGST;
       fyInvCount+=g.invoices;
     });
     // Last FY subtotal
     if(curFY){allRows.push([curFY+' TOTAL',fyInvCount,...fyAccum.map(v=>+v.toFixed(2))]);}
 
     // Grand total row
-    const totRow=['GRAND TOTAL', gstFiltered.length, 0, 0, 0, 0, 0, 0];
-    sortedMonths.forEach(g=>{totRow[2]+=g.grossRev;totRow[3]+=g.taxable;totRow[4]+=g.cgst;totRow[5]+=g.sgst;totRow[6]+=g.igst;totRow[7]+=g.totalGST;});
-    for(let i=2;i<8;i++)totRow[i]=+totRow[i].toFixed(2);
+    const totRow=['GRAND TOTAL', gstFiltered.length, 0, 0, 0, 0, 0, 0, 0, 0];
+    sortedMonths.forEach(g=>{totRow[2]+=g.grossRev;totRow[3]+=g.taxable;totRow[4]+=(g.suitTaxable||0);totRow[5]+=(g.shipTaxable||0);totRow[6]+=g.cgst;totRow[7]+=g.sgst;totRow[8]+=g.igst;totRow[9]+=g.totalGST;});
+    for(let i=2;i<10;i++)totRow[i]=+totRow[i].toFixed(2);
     allRows.push(totRow);
 
     const ws=XLSX.utils.aoa_to_sheet([hdr,...allRows]);
-    ws['!cols']=[{wch:16},{wch:14},{wch:20},{wch:16},{wch:14},{wch:14},{wch:14},{wch:14}];
+    ws['!cols']=[{wch:16},{wch:14},{wch:20},{wch:16},{wch:20},{wch:22},{wch:14},{wch:14},{wch:14},{wch:14}];
     XLSX.utils.book_append_sheet(wb,ws,'GST Summary');
     XLSX.writeFile(wb,'Vismaad_GST_'+label.replace(/[\s/]/g,'_')+'.xlsx');
     toast('✅ GST summary — '+gstFiltered.length+' Tax Invoice(s) across '+sortedMonths.length+' month(s)'+( bosCount>0?' · '+bosCount+' BOS excluded':'' ));
+    // v14.31.0 warnings — these change what you file, so they must not be silent
+    if(_voidNoCN.length){
+      setTimeout(()=>toast('⚠️ '+_voidNoCN.length+' Cancelled/Returned Tax Invoice(s) have NO Credit Note — output tax is still declared on them: '+_voidNoCN.slice(0,4).map(i=>i.invNo).join(', ')+(_voidNoCN.length>4?'…':'')+'. Issue Credit Notes before filing.',12000),700);
+    }
+    if(_cnOutOfRange.length){
+      setTimeout(()=>toast('ℹ️ '+_cnOutOfRange.length+' Credit Note(s) fall outside this range and were NOT deducted here — they belong to their own filing period: '+_cnOutOfRange.slice(0,3).join(', ')+(_cnOutOfRange.length>3?'…':''),12000),1600);
+    }
     return;
   }
 
@@ -6475,6 +6604,7 @@ function _doExport(type,from,to,label){
     'Sale Channel',
     'Dispatch Method',
     'Tracking Number',
+    'Invoice Status',
     'Status'
   ];
   const rows=filtered.map(inv=>{
@@ -6488,11 +6618,13 @@ function _doExport(type,from,to,label){
     const dispMap={indiapost:'India Post Parcel',dtdc:'DTDC',bluedart:'Blue Dart',courier:inv.courierName||'Other Courier',hand:'Hand Delivery',walkin:'Walk-in / Collected in person','':(inv.tracking?'India Post Parcel':'Not specified')};
 
     // GST calculations — only meaningful for Tax Invoices
+    // v14.31.0: shipping is SAC 9965 @18%, not 5% — the old /1.05 under-stated shipping tax.
+    const _sp=gstSplit(grand,ship,disc);
     const suitIncl=parseFloat((grand-ship+disc).toFixed(2));
-    const suitGST=gst?parseFloat((suitIncl-suitIncl/1.05).toFixed(2)):0;
-    const suitExcl=gst?parseFloat((suitIncl/1.05).toFixed(2)):suitIncl;
-    const shipGST=gst?parseFloat((ship-ship/1.05).toFixed(2)):0;
-    const shipExcl=gst?parseFloat((ship/1.05).toFixed(2)):ship;
+    const suitGST=gst?_sp.suitGST:0;
+    const suitExcl=gst?_sp.suitTaxable:suitIncl;
+    const shipGST=gst?_sp.shipGST:0;
+    const shipExcl=gst?_sp.shipTaxable:ship;
     const itcCost=gst?parseFloat((costIncl-costIncl/1.05).toFixed(2)):0;
     const costExcl=gst?parseFloat((costIncl/1.05).toFixed(2)):costIncl;
     const itcShip=gst?parseFloat((shipActual-shipActual/1.18).toFixed(2)):0;
@@ -6528,6 +6660,7 @@ function _doExport(type,from,to,label){
       inv.channel||'',
       dispMap[inv.dispatchMethod||'']||'',
       (inv.tracking||'').split(',').map(t=>t.trim()).filter(Boolean).join(' / '),
+      invStatusOf(inv), // v14.31.0: Active / Cancelled / Returned — void rows must be visible in the register
       (function(){
         // Unified status: check all tracking numbers
         const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
@@ -12192,16 +12325,16 @@ function groupTrackingByCourier(trackNos,dispatchMethod,courierOverride){
 }
 
 // Build tracking instruction text for WhatsApp messages (initial dispatch)
-function buildTrackingMessage(trackNos,custName,dispatchDate,dispatchMethod){
+function buildTrackingMessage(trackNos,custName,dispatchDate,dispatchMethod,courierOverride){
   const multiPkg=trackNos.length>1;
-  const groups=groupTrackingByCourier(trackNos,dispatchMethod);
+  const groups=groupTrackingByCourier(trackNos,dispatchMethod,courierOverride);
   const mixedCourier=groups.length>1;
 
   // Package lines — always show Package N: tracking when multi-package
   let pkgLines='';
   if(multiPkg){
     pkgLines=trackNos.map(function(t,i){
-      const info=getCourierInfo(t,dispatchMethod);
+      const info=getCourierInfo(t,dispatchMethod,courierOverride);
       return'Package '+(i+1)+' ('+info.name+'): '+t;
     }).join('\n');
   }else{
@@ -12225,7 +12358,7 @@ function buildTrackingMessage(trackNos,custName,dispatchDate,dispatchMethod){
       return pkgNums+': Use tracking number to track';
     }).join('\n');
   }else{
-    const info=getCourierInfo(trackNos[0],dispatchMethod);
+    const info=getCourierInfo(trackNos[0],dispatchMethod,courierOverride);
     if(info.courierCode==='indiapost')trackLines='Track at www.indiapost.gov.in (Track Consignment) using number: '+trackNos[0];
     else if(info.courierCode==='dtdc')trackLines='Track at www.dtdc.in using number: '+trackNos[0];
     else if(info.courierCode==='bluedart')trackLines='Track at www.bluedart.com using waybill number: '+trackNos[0];
@@ -12250,11 +12383,11 @@ function buildTrackingMessage(trackNos,custName,dispatchDate,dispatchMethod){
 
 // Build followup tracking message when additional packages are added to an existing invoice
 // newNos = newly added tracking numbers; allNos = all tracking numbers on invoice (for Package N numbering)
-function buildFollowupTrackingMessage(newNos,allNos,custName,dispatchMethod){
-  const groups=groupTrackingByCourier(newNos,dispatchMethod);
+function buildFollowupTrackingMessage(newNos,allNos,custName,dispatchMethod,courierOverride){
+  const groups=groupTrackingByCourier(newNos,dispatchMethod,courierOverride);
   const pkgLines=newNos.map(function(t){
     const pkgNum=allNos.indexOf(t)+1; // 1-based position in full list
-    const info=getCourierInfo(t,dispatchMethod);
+    const info=getCourierInfo(t,dispatchMethod,courierOverride);
     return'Package '+pkgNum+' ('+info.name+'): '+t;
   }).join('\n');
   const trackLines=groups.map(function(g){
