@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.29.0
+APP: Vismaad Creations v14.30.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 19-Jul-2026 — v14.29.0: COURIER DETECTION + TRACKING SEARCH. (1) DTDC AWBs of the form digit+letter+8-10 digits (e.g. 7D132636790) matched none of the four patterns in detectCourier(), so it returned null and getCourierInfo() fell back to the invoice-level dispatchMethod. On a multi-package invoice whose FIRST parcel went India Post, the second DTDC number silently inherited 'indiapost' — the WhatsApp message quoted India Post, and getCourierTrackedInvoices() filed it under India Post so it never appeared in the DTDC/Blue Dart tracking list. Added /^\\d[A-Z]\\d{8,10}$/ → dtdc; cannot collide with the existing rules (India Post UPU needs two leading letters plus a two-letter suffix, Blue Dart is pure-numeric). (2) COURIER PROMPT — every tracking number whose format detectCourier() cannot identify now opens a mobile-friendly picker (DTDC / Blue Dart / India Post / Other Courier) instead of silently inheriting the dispatch method. The answer is stored PER-AWB on the invoice in a new courierOverride map keyed by uppercased tracking number, so it never overwrites the invoice-level dispatchMethod and multi-courier invoices stay correct. Consulted after regex detection and before the dispatchMethod fallback, threaded through getCourierInfo/groupTrackingByCourier/buildTrackingMessage/buildFollowupTrackingMessage, the four tracking-page courier badges, getCourierTrackedInvoices (so Track123 registers the right carrier) and the P&L courier grouping. Wired into both entry paths: generateInvoice (prompts BEFORE the invoice counter or stock is touched, so cancelling mid-prompt leaves nothing half-written) and saveInvoiceEdit; both are now async. Persisted via JSON-stringify in flattenForSheet, parsed on load and in both sync-merge branches (remote-newer merges remote keys over local; no-timestamp branch fills blanks only), so per-AWB couriers survive cross-device. Invoices without courierOverride behave exactly as before. (3) TRACKING / INVOICE NO. search field added to the tracking status page alongside the existing customer and location filters — substring match on the tracking number and invoice number, debounced 200ms, combines with (does not replace) the status, date, name and location filters, and is cleared by Clear Filters. Full-width stacked on mobile, inline on desktop. (4) Dispatch dropdowns now label walk-in as 'Walk-in / Collected in person (QR code needed)' at all three sites, flagging that this method prints a UPI QR instead of an invoice. Hand Delivery and Walk-in remain SEPARATE values — merging them would have changed printed-invoice wording and forced the UPI QR onto hand-delivery orders. (5) Sale Channel 'None' chip removed (meaningless beside the other options); existing blank channels are untouched and the edit modal keeps '— Not specified —'. resetInvoiceForm no longer auto-activates the first chip, which after the removal would have silently selected WhatsApp on every new invoice. NOTE: historic invoices whose unrecognised AWBs were already misfiled are left as-is by design — 7D-prefix numbers self-correct via the new regex, other unrecognised formats keep their inherited courier until the invoice is edited.
+LAST_CHANGE: 22-Jul-2026 — v14.30.0: DROPSHIP ITEMS NO LONGER TOUCH INVENTORY STOCK. A product added to an invoice by name/number and then tagged as dropship (it.dsSupId set, including the '__pending__' placeholder before a supplier is picked) was still being deducted from inventory at save, because every stock call site keyed off prodNo alone and never read the DS flag. This was wrong for BOTH full-DS invoices (all articles tagged) and partial-DS invoices (some tagged), since deduction runs per-item in a loop. Fixed symmetrically so stock always reflects only what physically ships from our own godown: (1) isDS(it) helper — single source of truth (dsSupId truthy). (2) Invoice save skips deductStock for DS items — spill set to [], qtySold/linkedInvoices/qtyOriginal untouched for them; non-DS items deduct exactly as before. (3) Invoice-delete restore and Returned-status restore both skip DS items — they never deducted, so restoring would have INVENTED phantom stock; this is the mirror of the save fix. (4) _flipItemDS(inv,it,toDS) — shared engine for DS status changes on an ALREADY-SAVED invoice (where stock was, or must now be, moved). non-DS→DS: restoreStock using the item's recorded spill, decrement qtySold, drop invoice from linkedInvoices, clear it.spill. DS→non-DS: deductStock, write the new it.spill, credit qtySold, add to linkedInvoices, ratchet qtyOriginal; never stalls — if that article's stock is now 0 (sold as DS meanwhile), qty floors at 0, qtySold still climbs and a shortfall toast fires, matching v14.27.0 pool behaviour. Guards against double-apply (acts only on a genuine state change) and no-prodNo items. (5) Bulk 'Mark as Dropship' routes every newly-tagged item through _flipItemDS(toDS=true) so previously-deducted stock is handed back; already-DS items skipped by the existing guard. (6) Edit-invoice DS toggle (toggleEditDSItem) routes through _flipItemDS in BOTH directions and persists the invoice + touched products via gsWriteConfirmed. The live invoice-builder toggle (toggleDSItem) needs no stock logic — that item is not yet saved, and the save fix skips it. Spill survives the sheet round-trip via expandItems, so a later delete/return of an invoice whose item was flipped DS→non-DS reverses exactly what the re-deduction took. NOTE: invoices dropshipped before this version that had already (wrongly) deducted stock are not auto-repaired — re-toggle the DS flag off and on via the edit modal, or correct the product by hand in the inventory editor.
+PREV_CHANGE: 19-Jul-2026 — v14.29.0: COURIER DETECTION + TRACKING SEARCH. (1) DTDC AWBs of the form digit+letter+8-10 digits (e.g. 7D132636790) matched none of the four patterns in detectCourier(), so it returned null and getCourierInfo() fell back to the invoice-level dispatchMethod. On a multi-package invoice whose FIRST parcel went India Post, the second DTDC number silently inherited 'indiapost' — the WhatsApp message quoted India Post, and getCourierTrackedInvoices() filed it under India Post so it never appeared in the DTDC/Blue Dart tracking list. Added /^\\d[A-Z]\\d{8,10}$/ → dtdc; cannot collide with the existing rules (India Post UPU needs two leading letters plus a two-letter suffix, Blue Dart is pure-numeric). (2) COURIER PROMPT — every tracking number whose format detectCourier() cannot identify now opens a mobile-friendly picker (DTDC / Blue Dart / India Post / Other Courier) instead of silently inheriting the dispatch method. The answer is stored PER-AWB on the invoice in a new courierOverride map keyed by uppercased tracking number, so it never overwrites the invoice-level dispatchMethod and multi-courier invoices stay correct. Consulted after regex detection and before the dispatchMethod fallback, threaded through getCourierInfo/groupTrackingByCourier/buildTrackingMessage/buildFollowupTrackingMessage, the four tracking-page courier badges, getCourierTrackedInvoices (so Track123 registers the right carrier) and the P&L courier grouping. Wired into both entry paths: generateInvoice (prompts BEFORE the invoice counter or stock is touched, so cancelling mid-prompt leaves nothing half-written) and saveInvoiceEdit; both are now async. Persisted via JSON-stringify in flattenForSheet, parsed on load and in both sync-merge branches (remote-newer merges remote keys over local; no-timestamp branch fills blanks only), so per-AWB couriers survive cross-device. Invoices without courierOverride behave exactly as before. (3) TRACKING / INVOICE NO. search field added to the tracking status page alongside the existing customer and location filters — substring match on the tracking number and invoice number, debounced 200ms, combines with (does not replace) the status, date, name and location filters, and is cleared by Clear Filters. Full-width stacked on mobile, inline on desktop. (4) Dispatch dropdowns now label walk-in as 'Walk-in / Collected in person (QR code needed)' at all three sites, flagging that this method prints a UPI QR instead of an invoice. Hand Delivery and Walk-in remain SEPARATE values — merging them would have changed printed-invoice wording and forced the UPI QR onto hand-delivery orders. (5) Sale Channel 'None' chip removed (meaningless beside the other options); existing blank channels are untouched and the edit modal keeps '— Not specified —'. resetInvoiceForm no longer auto-activates the first chip, which after the removal would have silently selected WhatsApp on every new invoice. NOTE: historic invoices whose unrecognised AWBs were already misfiled are left as-is by design — 7D-prefix numbers self-correct via the new regex, other unrecognised formats keep their inherited courier until the invoice is edited.
 PREV_CHANGE: 14-Jul-2026 — v14.28.1: BUGFIX — SALES PAGE FILTER DID NOTHING. Root cause was a key-casing mismatch in trackingData. The India Post import uppercased its keys (line ~8533), but the Track123 refresh and the sheet-sync merge stored them verbatim, so the same object held both 'CD123IN' and 'cd123in' style keys. renderSales() has always looked tracking up by UPPERCASE, so any record written by the other two paths simply returned undefined — the invoice was read as having no tracking data at all and fell through to the manual isShipped flag. Result: Shipped, In Transit, Delivered and No Tracking all misclassified, and No Tracking listed invoices that plainly had a number on them. Fixes, one pass: (1) tdGet(t) — a single case-tolerant lookup helper; every READ of trackingData across the app (sales filter, sales status badge, dashboard pending orders, delivery-review list, tracking page, Track123 refresh, India Post import push) now routes through it, so no future call site can reintroduce this. (2) Both offending WRITE paths now normalise the key to uppercase, and drop the stale mixed-case duplicate if one exists. (3) One-time in-place migration on boot rewrites historic lowercase keys in vc_tracking to uppercase; where both casings exist for one number, a Delivered record is never lost and otherwise the newer updatedAt wins. (4) Search box and religion filter moved ABOVE the Cancelled/Returned branches — those two returned early, so typing a name while Cancelled was selected silently ignored what you typed. Every dropdown option now combines with search and religion. (5) Cancelled/Returned are now genuinely excluded from the Shipped and Pending filters — the comment claimed this since v14.23.0 but the code never enforced it, so a cancelled order still showed up under Pending. (6) Removed the dead double-assignment of isShippedOrDelivered (the first expression returned a status string, was immediately overwritten, and only survived because .some() coerced it).
 PREV_CHANGE: 14-Jul-2026 — v14.28.0: (1) PARTNER REPORT — select any invoices on the Sales page (any dates, free-form) and tap 📤 Partner Report to build ONE WhatsApp message for a record-keeping partner, grouped by DISPATCH DATE (ascending, undated orders bucketed last rather than dropped). Each article is listed by Product No. with cost → sale; then shipping charged to the customer and our own shipping cost (from the existing batch-split, omitted when 0). Per-date subtotal and a grand total, each carrying a profit line. Profit is uniform and deliberately simple — sale − cost + shipping charged − shipping cost — with NO GST handling anywhere: this is a partner's record, not a CA's return. City is resolved from the customer PIN via India Post's free public endpoint (api.postalpincode.in, no key, no signup), cached permanently in vc_pincity since a PIN's district never changes; a failed lookup or offline device degrades to a blank city and the report still sends. Preview modal is editable before sending, with Copy alongside Send. Partner number stored once in Settings (S.partnerWa) and kept localStorage-only, matching how waNumber is already handled — personal numbers never reach the Settings sheet. Warns in-modal when orders are missing a city or a cost price.
 (2) BUGFIX — SHIPPING CARRIED OVER TO THE NEXT INVOICE. generateInvoice() never reset the money fields; only ↺ / "+ New Invoice" did. Starting the next invoice without tapping either left the previous shipping figure in place. The auto-shipping guard then cemented it: it decided whether a value was a manual override by testing whether it equalled prevQty*50, so a carried-over ₹100 matched neither that nor 0, was mistaken for a deliberate override, and survived indefinitely. Two-item invoices reproduced it every time; single-item ones (₹50) happened to match the expected value and silently self-corrected, which is why it looked intermittent. Fixed on both sides: shipping/discount/shipping-cost are now cleared the moment an invoice is committed, and the override is tracked explicitly via _shipManual (set ONLY when the user types in the field) instead of being inferred from the value. All four auto-shipping call sites (addItem, removeItem, qty change, channel change, dispatch change) now route through one recalcAutoShipping() helper — which also fixes a latent bug where the dispatch-method branch used items.length*50 instead of totalQty()*50, undercharging shipping whenever any line had qty > 1.
@@ -3257,6 +3258,7 @@ async function generateInvoice(){
   const _poolTouched=new Set();
   const _spillNotes=[];let _shortNotes=[];
   validItems.forEach(it=>{
+    if(isDS(it)){it.spill=[];return;} // v14.30.0: dropshipped — ships from supplier, never touch our stock
     const num=parseInt(it.prodNo);if(!num)return;
     const prod=inventory.find(p=>parseInt(p.prodNo)===num);if(!prod)return;
     const r=deductStock(prod,it.variantId,it.qty||1);
@@ -3784,10 +3786,12 @@ function bulkMarkDropshipped(){
       lsSet('vc_sup',JSON.stringify(suppliers));
       gsWriteConfirmed(SHEETS.suppliers,newSup);
     }
+    const _dsTouched=new Set(); // v14.30.0: products whose stock we hand back
     sel.forEach(inv=>{
       const arr=expandItems(inv.itemsArr);
       arr.forEach(it=>{
         if(it.dsSupId)return;
+        _flipItemDS(inv,it,true).forEach(n=>_dsTouched.add(n)); // non-DS → DS: restore stock BEFORE tagging
         it.dsSupId=supId;
         it.dsSupName=supName;
         it.dsDate=inv.invDate||new Date().toISOString().slice(0,10);
@@ -3796,7 +3800,12 @@ function bulkMarkDropshipped(){
       inv.itemsArr=arr;
       inv.invUpdatedAt=new Date().toISOString();
     });
-    save();renderSales();
+    save();
+    if(_dsTouched.size){
+      saveStk();
+      inventory.filter(p=>_dsTouched.has(parseInt(p.prodNo))).forEach(p=>gsWriteConfirmed(SHEETS.inventory,flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Stock #'+p.prodNo+' sheet sync failed — tap sync to retry');}));
+    }
+    renderSales();
     toast('📦 Marking '+sel.length+' invoice(s) as dropshipped…');
     (async()=>{
       let ok=0;
@@ -3937,6 +3946,7 @@ function _doDeleteInvoice(inv){
   const items = Array.isArray(inv.itemsArr) ? inv.itemsArr : [];
   const _touched=new Set(); // v14.27.0: includes LINKED siblings the spill drained
   items.forEach(it=>{
+    if(isDS(it))return; // v14.30.0: never deducted (dropshipped) — restoring would invent phantom stock
     const num=parseInt(it.prodNo);if(!num)return;
     const prod=inventory.find(p=>parseInt(p.prodNo)===num);if(!prod)return;
     const soldQty=parseInt(it.qty)||1;
@@ -4059,21 +4069,38 @@ function toggleEditDSItem(invId,itemIdx,checked){
   const inv=invoices.find(i=>String(i.id)===String(invId));if(!inv)return;
   const arr=expandItems(inv.itemsArr);
   if(!arr[itemIdx])return;
-  if(checked){
-    arr[itemIdx].dsSupId='__pending__';
-    arr[itemIdx].dsSupName='';
-    arr[itemIdx].dsDate=inv.invDate||today();
-    arr[itemIdx].dsPaid=false;
-    arr[itemIdx].dsUpfront=false;
+  const it=arr[itemIdx];
+  const wasDS=isDS(it);
+  // v14.30.0: move stock to match the flip on this already-saved invoice
+  let _touched=new Set();
+  if(checked&&!wasDS){
+    _touched=_flipItemDS(inv,it,true);   // non-DS → DS: restore our stock (uses current spill)
+    it.dsSupId='__pending__';
+    it.dsSupName='';
+    it.dsDate=inv.invDate||today();
+    it.dsPaid=false;
+    it.dsUpfront=false;
+  }else if(!checked&&wasDS){
+    it.dsSupId='';
+    it.dsSupName='';
+    it.dsDate='';
+    it.dsPaid=false;
+    it.dsPaidDate='';
+    it.dsUpfront=false;
+    _touched=_flipItemDS(inv,it,false);  // DS → non-DS: deduct from our stock, record fresh spill
   }else{
-    arr[itemIdx].dsSupId='';
-    arr[itemIdx].dsSupName='';
-    arr[itemIdx].dsDate='';
-    arr[itemIdx].dsPaid=false;
-    arr[itemIdx].dsPaidDate='';
-    arr[itemIdx].dsUpfront=false;
+    // no genuine state change — keep the fields consistent, move no stock
+    if(checked){it.dsSupId=it.dsSupId||'__pending__';it.dsDate=it.dsDate||inv.invDate||today();}
+    else{it.dsSupId='';it.dsSupName='';it.dsDate='';it.dsPaid=false;it.dsPaidDate='';it.dsUpfront=false;}
   }
   inv.itemsArr=arr;
+  inv.invUpdatedAt=new Date().toISOString();
+  save();
+  gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{if(!ok)toast('⚠️ Invoice saved locally but sheet sync failed — tap sync to retry');});
+  if(_touched.size){
+    saveStk();
+    inventory.filter(p=>_touched.has(parseInt(p.prodNo))).forEach(p=>gsWriteConfirmed(SHEETS.inventory,flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Stock #'+p.prodNo+' sheet sync failed — tap sync to retry');}));
+  }
   renderEditDSItems(inv);
 }
 
@@ -4903,6 +4930,7 @@ function _applyInvoiceStatus(inv,newStatus){
     const items=expandItems(inv.itemsArr||[]);
     const _touched=new Set(); // v14.27.0: includes LINKED siblings the spill drained
     items.forEach(it=>{
+      if(isDS(it))return; // v14.30.0: dropshipped — never deducted, so nothing to restore
       if(!it.prodNo)return;
       const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(it.prodNo));
       if(!p)return;
@@ -11285,6 +11313,55 @@ function recalcProductQtyFromVariants(p) {
   // Update qty display in edit modal
   const qtyEl = document.getElementById('iem-qty');
   if (qtyEl) { qtyEl.value = total; qtyEl.style.background = '#f0e8d8'; }
+}
+
+// v14.30.0 — an item is dropshipped when it carries a supplier tag; the
+// '__pending__' placeholder (DS marked, supplier not yet chosen) counts too.
+function isDS(it){ return !!(it && it.dsSupId); }
+
+// v14.30.0 — move stock to match a DS status change on an ALREADY-SAVED invoice.
+// toDS=true  (non-DS → DS):    the article is no longer coming from our godown —
+//                              restore whatever this item deducted (using its
+//                              recorded spill), decrement qtySold, unlink invoice.
+// toDS=false (DS → non-DS):    the article now ships from our own stock — deduct
+//                              it, record the fresh spill on the item, credit
+//                              qtySold, link invoice, ratchet qtyOriginal. Never
+//                              stalls if stock is 0 (matches v14.27.0 pool rules).
+// Returns a Set of touched prodNos (siblings included). Guards double-apply and
+// no-prodNo items. Does NOT persist — caller saves + syncs.
+function _flipItemDS(inv,it,toDS){
+  const touched=new Set();
+  const num=parseInt(it&&it.prodNo);
+  if(!num)return touched;
+  const prod=inventory.find(p=>parseInt(p.prodNo)===num);
+  if(!prod)return touched;
+  const qty=parseInt(it.qty)||1;
+  if(toDS){
+    // non-DS → DS : hand the stock back exactly as it was taken
+    const sp=Array.isArray(it.spill)?it.spill:[];
+    const spilled=sp.reduce((s,x)=>s+(parseInt(x.qty)||0),0);
+    restoreStock(prod,it.variantId,qty,sp).forEach(n=>touched.add(n));
+    prod.qtySold=Math.max(0,(parseInt(prod.qtySold)||0)-Math.max(0,qty-spilled));
+    if(Array.isArray(prod.linkedInvoices))
+      prod.linkedInvoices=prod.linkedInvoices.filter(id=>String(id)!==String(inv.id));
+    it.spill=[]; // nothing of ours is out any more
+    prod.updatedAt=new Date().toISOString();
+    touched.add(num);
+  }else{
+    // DS → non-DS : the article now comes from our stock — deduct it
+    const r=deductStock(prod,it.variantId,qty);
+    it.spill=r.spill;
+    r.touched.forEach(n=>touched.add(n));
+    const spilled=r.spill.reduce((s,x)=>s+(parseInt(x.qty)||0),0);
+    prod.qtySold=(parseInt(prod.qtySold)||0)+(qty-spilled);
+    if(!Array.isArray(prod.linkedInvoices))prod.linkedInvoices=[];
+    if(!prod.linkedInvoices.includes(String(inv.id)))prod.linkedInvoices.push(String(inv.id));
+    prod.qtyOriginal=Math.max(parseInt(prod.qtyOriginal)||0,(parseInt(prod.qty)||0)+(parseInt(prod.qtySold)||0));
+    prod.updatedAt=new Date().toISOString();
+    touched.add(num);
+    if(r.short>0)setTimeout(()=>toast('⚠️ #'+num+' short by '+r.short+' — stock hit 0'),700);
+  }
+  return touched;
 }
 
 function addVariant() {
