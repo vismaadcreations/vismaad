@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.31.0
+APP: Vismaad Creations v14.32.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 23-Jul-2026 — v14.31.0: GST CORRECTNESS + RETURNS/CANCELLATIONS + PER-AWB COURIER IN MESSAGES. (1) COURIER OVERRIDE NEVER REACHED THE WHATSAPP MESSAGE. v14.29.0 threaded courierOverride through getCourierInfo/groupTrackingByCourier but NOT into buildTrackingMessage/buildFollowupTrackingMessage, which lacked the parameter entirely; all five internal calls and all three call sites dropped it. A two-package invoice whose first parcel went India Post and whose second AWB had an unrecognised format quoted India Post for BOTH, even after the picker stored the right carrier. Added the 5th param to both builders, passed it through every internal call, and supplied inv.courierOverride at all three call sites. Tracking-page badges were already correct; only the message was wrong. (2) gstSplit(grand,ship,disc) — NEW single source of truth for the tax split on a stored invoice: suits 5% (HSN 540754), shipping 18% (SAC 9965), prices GST-inclusive. Every reporting path now routes through it. Previously the GSTR summary export divided the ENTIRE grand total (shipping included) by 1.05, and the detailed sales register divided shipping by 1.05 — both UNDER-DECLARED output tax on every Tax Invoice carrying shipping (on Rs100 shipping the printed invoice said Rs15.25, the export said Rs4.76), so the invoice handed to the customer and the return contradicted each other. P&L gstOnSuits had the same flat-1.05 form and mis-stated the suit component. (3) GST export headers were hardcoded 'CGST 2.5% / SGST 2.5% / IGST 5%' — one column now legitimately carries two rates, so labels are rate-neutral and two new columns break out Suits Taxable @5% and Shipping Taxable @18%. FY subtotal and grand-total accumulators widened 6->8 slots to match. (4) RETURNS/CANCELLATIONS WERE COUNTED AS FULL REVENUE. Neither the P&L nor either export filtered on invoiceStatus (the tracking page and dashboard already did), so a cancelled order still contributed turnover, taxable value and output GST. Treated differently by surface, deliberately: the P&L now DROPS Cancelled/Returned outright (it answers what we actually earned) and skips their credit notes too, or the reversal would subtract the same sale twice — count and value shown as an 'Excluded' line plus a card-title note so the omission is never silent. The GST export KEEPS invoice + credit note (the orthodox treatment) but now warns loudly when a Cancelled/Returned Tax Invoice has NO credit note, which is the case that silently declares tax on a sale that never happened, since the manual Status button sets the status without creating one. (5) Credit notes issued OUTSIDE the exported range used to vanish silently — the deduction was skipped by an early return. They still are not deducted (a reversal belongs to its own filing period, which is correct) but the export now lists them so an invoice-in-March / CN-in-April straddle is visible rather than a trap. (6) CN gstReversed/taxableReversed used a flat /1.05, ignoring 18% shipping on the referenced invoice; now pro-rated at that invoice's own blended rate via gstSplit. This also feeds P&L totalCreditGST, so the error had been propagating into ITC and net-tax figures. (7) printInvoice read raw data.isIntra — after a sheet round-trip that is the STRING "false", which is truthy, so a reprinted INTER-state Tax Invoice showed CGST+SGST instead of IGST (wrong place of supply on a tax document). Now coerced with the same pattern used everywhere else. (8) printInvoice recomputed from itemsArr, but makePayload strips itemsArr to [] on oversized invoices while preserving totals — such an invoice re-fetched from the sheet reprinted with a zeroed GST table beside a non-zero grand total. Falls back to the stored grand via gstSplit when items are missing. (9) STOCK NOW MOVES ON THE TRANSITION, NOT THE DESTINATION. Cancelled restored nothing (only Returned did), so goods that never shipped stayed deducted and qtySold stayed inflated; Returned->Returned restored twice; and the Reactivate button never re-deducted, inventing stock on every round trip. _applyInvoiceStatus now computes _wasVoid/_nowVoid, no-ops on an unchanged status, restores only on Active->void, and re-deducts (pool-aware, spill recorded, shortfall toast, never stalls) on void->Active. (10) Detailed sales register gains an 'Invoice Status' column (Active/Cancelled/Returned), distinct from the existing delivery Status. NOTE: nothing has been filed yet, so no revised return is needed; all figures are correct from this version forward. Invoices cancelled before this version did not restore stock — correct those products by hand in the inventory editor, or toggle the status off and back on.
+LAST_CHANGE: 16-Aug-2026 — v14.32.0: INVENTORY SORT NEWEST-FIRST + FABRIC→HSN CLASSIFICATION + TWO-WAY MARGIN CALCULATOR. (1) INVENTORY REGISTER now lists newest products first (descending prodNo) via a sort on the filtered list inside renderInventory; the aging grid (age-sorted) and all internal ascending sorts are untouched. (2) PER-PRODUCT HSN. Every product now carries its own hsn field instead of every invoice line inheriting the hardcoded 540754. Add/Edit forms gained an HSN dropdown (HSN_OPTIONS: 12 fibre-specific 5% headings across Ch.50/51/52/53/54/55/58/60 shown as 'code — label') that is FREELY user-overridable and preserves any legacy/custom code not in the list. As you type the product NAME (or fabric type), guessHsnFromName() scans fibre keywords (FABRIC_HSN_RULES, ordered by specificity so silk/velvet/linen resolve before generic cotton/synthetic) and auto-selects the matching HSN — but ONLY until the user touches the dropdown (_hsnManual flag), so a deliberate choice is never clobbered; opening an existing product sets the flag pre-armed so name edits don't rewrite its stored HSN. lookupProduct + lookupProductByName copy the product's hsn onto the invoice item (visible HSN field now has id ihsn-{rowId}), so the correct code flows into the printed invoice and GST export automatically. Rate is UNCHANGED — under GST 2.0 (eff. 22-Sep-2025) all fabric headings, incl. Ch.58 velvet/pile cut from 12%, are a flat 5%, so gstSplit and every tax path are unaffected; only the CODE varies by fibre. hsn persists via flattenProduct's {...p} spread; parseInventoryRow's {...r} preserves it on load; Apps Script auto-adds the Inventory column on first write — no Code.gs change. Products without hsn fall back to 540754 exactly as before (backward-compatible, nothing to migrate). The suggested 8-digit codes are representative subheadings at 5%; the field stays editable if a CA prefers a more specific line. (3) TWO-WAY MARGIN. Add/Edit forms gained a 'Margin % over cost' field wired bidirectionally to cost & sell: typing a margin fills Sell = round(cost × (1 + margin/100)) to the nearest ₹1 (cost 100 + 30% = 130); typing a Sell price shows the implied margin = round((sell−cost)/cost×100, 1 dp), flagging below-cost pricing in red. Sell price stays fully overridable. Margin is DERIVED, never stored — the inventory register now shows the live margin% (green/red) beside cost and an HSN badge per row, so both are visible at a glance without opening the editor. NOTE: existing products keep HSN 540754 until you open them and pick the correct fabric/HSN (or let the name-detection suggest it on your next edit); no bulk migration is performed. PREV_CHANGE: 23-Jul-2026 — v14.31.0: GST CORRECTNESS + RETURNS/CANCELLATIONS + PER-AWB COURIER IN MESSAGES. (1) COURIER OVERRIDE NEVER REACHED THE WHATSAPP MESSAGE. v14.29.0 threaded courierOverride through getCourierInfo/groupTrackingByCourier but NOT into buildTrackingMessage/buildFollowupTrackingMessage, which lacked the parameter entirely; all five internal calls and all three call sites dropped it. A two-package invoice whose first parcel went India Post and whose second AWB had an unrecognised format quoted India Post for BOTH, even after the picker stored the right carrier. Added the 5th param to both builders, passed it through every internal call, and supplied inv.courierOverride at all three call sites. Tracking-page badges were already correct; only the message was wrong. (2) gstSplit(grand,ship,disc) — NEW single source of truth for the tax split on a stored invoice: suits 5% (HSN 540754), shipping 18% (SAC 9965), prices GST-inclusive. Every reporting path now routes through it. Previously the GSTR summary export divided the ENTIRE grand total (shipping included) by 1.05, and the detailed sales register divided shipping by 1.05 — both UNDER-DECLARED output tax on every Tax Invoice carrying shipping (on Rs100 shipping the printed invoice said Rs15.25, the export said Rs4.76), so the invoice handed to the customer and the return contradicted each other. P&L gstOnSuits had the same flat-1.05 form and mis-stated the suit component. (3) GST export headers were hardcoded 'CGST 2.5% / SGST 2.5% / IGST 5%' — one column now legitimately carries two rates, so labels are rate-neutral and two new columns break out Suits Taxable @5% and Shipping Taxable @18%. FY subtotal and grand-total accumulators widened 6->8 slots to match. (4) RETURNS/CANCELLATIONS WERE COUNTED AS FULL REVENUE. Neither the P&L nor either export filtered on invoiceStatus (the tracking page and dashboard already did), so a cancelled order still contributed turnover, taxable value and output GST. Treated differently by surface, deliberately: the P&L now DROPS Cancelled/Returned outright (it answers what we actually earned) and skips their credit notes too, or the reversal would subtract the same sale twice — count and value shown as an 'Excluded' line plus a card-title note so the omission is never silent. The GST export KEEPS invoice + credit note (the orthodox treatment) but now warns loudly when a Cancelled/Returned Tax Invoice has NO credit note, which is the case that silently declares tax on a sale that never happened, since the manual Status button sets the status without creating one. (5) Credit notes issued OUTSIDE the exported range used to vanish silently — the deduction was skipped by an early return. They still are not deducted (a reversal belongs to its own filing period, which is correct) but the export now lists them so an invoice-in-March / CN-in-April straddle is visible rather than a trap. (6) CN gstReversed/taxableReversed used a flat /1.05, ignoring 18% shipping on the referenced invoice; now pro-rated at that invoice's own blended rate via gstSplit. This also feeds P&L totalCreditGST, so the error had been propagating into ITC and net-tax figures. (7) printInvoice read raw data.isIntra — after a sheet round-trip that is the STRING "false", which is truthy, so a reprinted INTER-state Tax Invoice showed CGST+SGST instead of IGST (wrong place of supply on a tax document). Now coerced with the same pattern used everywhere else. (8) printInvoice recomputed from itemsArr, but makePayload strips itemsArr to [] on oversized invoices while preserving totals — such an invoice re-fetched from the sheet reprinted with a zeroed GST table beside a non-zero grand total. Falls back to the stored grand via gstSplit when items are missing. (9) STOCK NOW MOVES ON THE TRANSITION, NOT THE DESTINATION. Cancelled restored nothing (only Returned did), so goods that never shipped stayed deducted and qtySold stayed inflated; Returned->Returned restored twice; and the Reactivate button never re-deducted, inventing stock on every round trip. _applyInvoiceStatus now computes _wasVoid/_nowVoid, no-ops on an unchanged status, restores only on Active->void, and re-deducts (pool-aware, spill recorded, shortfall toast, never stalls) on void->Active. (10) Detailed sales register gains an 'Invoice Status' column (Active/Cancelled/Returned), distinct from the existing delivery Status. NOTE: nothing has been filed yet, so no revised return is needed; all figures are correct from this version forward. Invoices cancelled before this version did not restore stock — correct those products by hand in the inventory editor, or toggle the status off and back on.
 PREV_CHANGE: 22-Jul-2026 — v14.30.0: DROPSHIP ITEMS NO LONGER TOUCH INVENTORY STOCK. A product added to an invoice by name/number and then tagged as dropship (it.dsSupId set, including the '__pending__' placeholder before a supplier is picked) was still being deducted from inventory at save, because every stock call site keyed off prodNo alone and never read the DS flag. This was wrong for BOTH full-DS invoices (all articles tagged) and partial-DS invoices (some tagged), since deduction runs per-item in a loop. Fixed symmetrically so stock always reflects only what physically ships from our own godown: (1) isDS(it) helper — single source of truth (dsSupId truthy). (2) Invoice save skips deductStock for DS items — spill set to [], qtySold/linkedInvoices/qtyOriginal untouched for them; non-DS items deduct exactly as before. (3) Invoice-delete restore and Returned-status restore both skip DS items — they never deducted, so restoring would have INVENTED phantom stock; this is the mirror of the save fix. (4) _flipItemDS(inv,it,toDS) — shared engine for DS status changes on an ALREADY-SAVED invoice (where stock was, or must now be, moved). non-DS→DS: restoreStock using the item's recorded spill, decrement qtySold, drop invoice from linkedInvoices, clear it.spill. DS→non-DS: deductStock, write the new it.spill, credit qtySold, add to linkedInvoices, ratchet qtyOriginal; never stalls — if that article's stock is now 0 (sold as DS meanwhile), qty floors at 0, qtySold still climbs and a shortfall toast fires, matching v14.27.0 pool behaviour. Guards against double-apply (acts only on a genuine state change) and no-prodNo items. (5) Bulk 'Mark as Dropship' routes every newly-tagged item through _flipItemDS(toDS=true) so previously-deducted stock is handed back; already-DS items skipped by the existing guard. (6) Edit-invoice DS toggle (toggleEditDSItem) routes through _flipItemDS in BOTH directions and persists the invoice + touched products via gsWriteConfirmed. The live invoice-builder toggle (toggleDSItem) needs no stock logic — that item is not yet saved, and the save fix skips it. Spill survives the sheet round-trip via expandItems, so a later delete/return of an invoice whose item was flipped DS→non-DS reverses exactly what the re-deduction took. NOTE: invoices dropshipped before this version that had already (wrongly) deducted stock are not auto-repaired — re-toggle the DS flag off and on via the edit modal, or correct the product by hand in the inventory editor.
 PREV_CHANGE: 19-Jul-2026 — v14.29.0: COURIER DETECTION + TRACKING SEARCH. (1) DTDC AWBs of the form digit+letter+8-10 digits (e.g. 7D132636790) matched none of the four patterns in detectCourier(), so it returned null and getCourierInfo() fell back to the invoice-level dispatchMethod. On a multi-package invoice whose FIRST parcel went India Post, the second DTDC number silently inherited 'indiapost' — the WhatsApp message quoted India Post, and getCourierTrackedInvoices() filed it under India Post so it never appeared in the DTDC/Blue Dart tracking list. Added /^\\d[A-Z]\\d{8,10}$/ → dtdc; cannot collide with the existing rules (India Post UPU needs two leading letters plus a two-letter suffix, Blue Dart is pure-numeric). (2) COURIER PROMPT — every tracking number whose format detectCourier() cannot identify now opens a mobile-friendly picker (DTDC / Blue Dart / India Post / Other Courier) instead of silently inheriting the dispatch method. The answer is stored PER-AWB on the invoice in a new courierOverride map keyed by uppercased tracking number, so it never overwrites the invoice-level dispatchMethod and multi-courier invoices stay correct. Consulted after regex detection and before the dispatchMethod fallback, threaded through getCourierInfo/groupTrackingByCourier/buildTrackingMessage/buildFollowupTrackingMessage, the four tracking-page courier badges, getCourierTrackedInvoices (so Track123 registers the right carrier) and the P&L courier grouping. Wired into both entry paths: generateInvoice (prompts BEFORE the invoice counter or stock is touched, so cancelling mid-prompt leaves nothing half-written) and saveInvoiceEdit; both are now async. Persisted via JSON-stringify in flattenForSheet, parsed on load and in both sync-merge branches (remote-newer merges remote keys over local; no-timestamp branch fills blanks only), so per-AWB couriers survive cross-device. Invoices without courierOverride behave exactly as before. (3) TRACKING / INVOICE NO. search field added to the tracking status page alongside the existing customer and location filters — substring match on the tracking number and invoice number, debounced 200ms, combines with (does not replace) the status, date, name and location filters, and is cleared by Clear Filters. Full-width stacked on mobile, inline on desktop. (4) Dispatch dropdowns now label walk-in as 'Walk-in / Collected in person (QR code needed)' at all three sites, flagging that this method prints a UPI QR instead of an invoice. Hand Delivery and Walk-in remain SEPARATE values — merging them would have changed printed-invoice wording and forced the UPI QR onto hand-delivery orders. (5) Sale Channel 'None' chip removed (meaningless beside the other options); existing blank channels are untouched and the edit modal keeps '— Not specified —'. resetInvoiceForm no longer auto-activates the first chip, which after the removal would have silently selected WhatsApp on every new invoice. NOTE: historic invoices whose unrecognised AWBs were already misfiled are left as-is by design — 7D-prefix numbers self-correct via the new regex, other unrecognised formats keep their inherited courier until the invoice is edited.
 PREV_CHANGE: 14-Jul-2026 — v14.28.1: BUGFIX — SALES PAGE FILTER DID NOTHING. Root cause was a key-casing mismatch in trackingData. The India Post import uppercased its keys (line ~8533), but the Track123 refresh and the sheet-sync merge stored them verbatim, so the same object held both 'CD123IN' and 'cd123in' style keys. renderSales() has always looked tracking up by UPPERCASE, so any record written by the other two paths simply returned undefined — the invoice was read as having no tracking data at all and fell through to the manual isShipped flag. Result: Shipped, In Transit, Delivered and No Tracking all misclassified, and No Tracking listed invoices that plainly had a number on them. Fixes, one pass: (1) tdGet(t) — a single case-tolerant lookup helper; every READ of trackingData across the app (sales filter, sales status badge, dashboard pending orders, delivery-review list, tracking page, Track123 refresh, India Post import push) now routes through it, so no future call site can reintroduce this. (2) Both offending WRITE paths now normalise the key to uppercase, and drop the stale mixed-case duplicate if one exists. (3) One-time in-place migration on boot rewrites historic lowercase keys in vc_tracking to uppercase; where both casings exist for one number, a Delivered record is never lost and otherwise the newer updatedAt wins. (4) Search box and religion filter moved ABOVE the Cancelled/Returned branches — those two returned early, so typing a name while Cancelled was selected silently ignored what you typed. Every dropdown option now combines with search and religion. (5) Cancelled/Returned are now genuinely excluded from the Shipped and Pending filters — the comment claimed this since v14.23.0 but the code never enforced it, so a cancelled order still showed up under Pending. (6) Removed the dead double-assignment of isShippedOrDelivered (the first expression returned a status string, was immediately overwritten, and only survived because .some() coerced it).
@@ -621,7 +621,7 @@ body.gst-mode .gst-only{display:block;}
       <div class="fg"><label>Date Received</label><input type="date" id="ip-date"/></div>
     </div>
     <div class="fg"><label>Product Name *</label>
-      <input id="ip-name" placeholder="e.g. Blossom Silk" oninput="suggestLinks(this.value)"/>
+      <input id="ip-name" placeholder="e.g. Blossom Silk" oninput="suggestLinks(this.value);onProductNameInput('ip')"/>
       <div id="ip-link-suggestions" style="display:none;margin-top:6px;background:var(--goldp);border-radius:8px;padding:10px 12px;">
         <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:6px;">🔗 Similar products found — link them?</div>
         <div id="ip-link-list"></div>
@@ -632,12 +632,20 @@ body.gst-mode .gst-only{display:block;}
       </div>
     </div>
     <div class="fg"><label>Fabric Type</label>
-      <input id="ip-fabric" placeholder="e.g. Georgette, Silk, Cotton"/>
+      <input id="ip-fabric" placeholder="e.g. Georgette (optional)"/>
+    </div>
+    <div class="fg"><label>HSN Code <span style="font-weight:400;color:#aaa;">(auto-picked from name/fabric — editable)</span></label>
+      <select id="ip-hsn" onchange="onHsnSelect('ip')" style="width:100%;padding:11px 12px;border-radius:8px;border:1.5px solid var(--border);background:var(--cream);font-size:13px;"></select>
+      <div id="ip-hsn-note" style="font-size:11px;color:#888;margin-top:3px;"></div>
     </div>
     <div class="row3">
       <div class="fg"><label>Qty</label><input type="number" id="ip-qty" value="1" min="1"/></div>
-      <div class="fg"><label>Cost Price Paid (₹ incl. 5% GST)</label><input type="number" id="ip-cost" placeholder="0"/></div>
-      <div class="fg"><label>Sell Price (₹)</label><input type="number" id="ip-sell" placeholder="0"/></div>
+      <div class="fg"><label>Cost Price Paid (₹ incl. 5% GST)</label><input type="number" id="ip-cost" placeholder="0" oninput="onCostOrMarginInput('ip')"/></div>
+      <div class="fg"><label>Sell Price (₹)</label><input type="number" id="ip-sell" placeholder="0" oninput="onSellInput('ip')"/></div>
+    </div>
+    <div class="fg"><label>Margin % over cost <span style="font-weight:400;color:#aaa;">(two-way — type here to set sell price, or type sell price to see margin)</span></label>
+      <input type="number" id="ip-margin" placeholder="e.g. 30" step="0.1" oninput="onCostOrMarginInput('ip')"/>
+      <div id="ip-margin-note" style="font-size:11px;color:#888;margin-top:3px;"></div>
     </div>
     <div class="fg"><label>Notes</label><input id="ip-notes" placeholder="Colour, design details…"/></div>
     <button class="btn btn-p" onclick="saveProduct()">💾 Add to Inventory</button>
@@ -1078,12 +1086,20 @@ body.gst-mode .gst-only{display:block;}
       <div class="fg"><label>Product No.</label><input id="iem-num" type="number" min="1"/></div>
       <div class="fg"><label>Date Received</label><input id="iem-date" type="date"/></div>
     </div>
-    <div class="fg"><label>Product Name *</label><input id="iem-name" placeholder="Product name"/></div>
+    <div class="fg"><label>Product Name *</label><input id="iem-name" placeholder="Product name" oninput="onProductNameInput('iem')"/></div>
     <div class="fg"><label>Fabric Type</label><input id="iem-fabric" placeholder="e.g. Georgette, Silk"/></div>
+    <div class="fg"><label>HSN Code <span style="font-weight:400;color:#aaa;">(auto-picked — editable)</span></label>
+      <select id="iem-hsn" onchange="onHsnSelect('iem')" style="width:100%;padding:11px 12px;border-radius:8px;border:1.5px solid var(--border);background:var(--cream);font-size:13px;"></select>
+      <div id="iem-hsn-note" style="font-size:11px;color:#888;margin-top:3px;"></div>
+    </div>
     <div class="row3">
       <div class="fg"><label>Qty in Stock <span id="iem-qty-note" style="font-weight:400;color:#888;font-size:10px;text-transform:none;letter-spacing:0;">(auto from variants)</span></label><input type="number" id="iem-qty" min="0"/></div>
-      <div class="fg"><label>Cost Price (incl. 5% GST)</label><input type="number" id="iem-cost" placeholder="0"/></div>
-      <div class="fg"><label>Sell Price (₹)</label><input type="number" id="iem-sell" placeholder="0"/></div>
+      <div class="fg"><label>Cost Price (incl. 5% GST)</label><input type="number" id="iem-cost" placeholder="0" oninput="onCostOrMarginInput('iem')"/></div>
+      <div class="fg"><label>Sell Price (₹)</label><input type="number" id="iem-sell" placeholder="0" oninput="onSellInput('iem')"/></div>
+    </div>
+    <div class="fg"><label>Margin % over cost <span style="font-weight:400;color:#aaa;">(two-way)</span></label>
+      <input type="number" id="iem-margin" placeholder="e.g. 30" step="0.1" oninput="onCostOrMarginInput('iem')"/>
+      <div id="iem-margin-note" style="font-size:11px;color:#888;margin-top:3px;"></div>
     </div>
     <div class="fg"><label>Notes</label><input id="iem-notes" placeholder="Colour, design details"/></div>
     <div class="fg"><label>Instagram Reel URL <span style="font-weight:400;color:#aaa;">(optional)</span></label>
@@ -2491,6 +2507,7 @@ function showPage(id,btn){
   if(id==='inventory'){renderInventory();renderAgingGrid();updateInventoryStats();
     const _ipn=document.getElementById('ip-num');if(_ipn)_ipn.value=nextProdNo();
     const _ipd=document.getElementById('ip-date');if(_ipd&&!_ipd.value)_ipd.value=today();
+    const _iph=document.getElementById('ip-hsn');if(_iph&&!_iph.options.length){_hsnManual.ip=false;initHsnSelect('ip',DEFAULT_HSN);}
   }
   if(id==='sales')renderSales();
   if(id==='more')renderSyncInfo();
@@ -2953,7 +2970,7 @@ function renderItems(){
       </div>
       <div class="row2">
         <div class="fg" style="margin-bottom:0;"><label>HSN</label>
-          <input value="${it.hsn}" oninput="updateItem(${it.id},'hsn',this.value)" style="padding:11px 12px;"/>
+          <input id="ihsn-${it.id}" value="${it.hsn}" oninput="updateItem(${it.id},'hsn',this.value)" style="padding:11px 12px;"/>
         </div>
         <div class="fg" style="margin-bottom:0;"><label>Unit Price (₹ incl.GST)</label>
           <input type="number" id="iprice-${it.id}" value="${it.unitPrice||''}" placeholder="0"
@@ -3024,6 +3041,7 @@ function lookupProduct(rowId,val){
   const prod=inventory.find(p=>parseInt(p.prodNo)===num);
   if(prod){
     it.desc=prod.name;it.prodNo=num;it.variantId=null;it.variantLabel=null;
+    if(prod.hsn){it.hsn=prod.hsn;const hf=document.getElementById('ihsn-'+rowId);if(hf)hf.value=prod.hsn;}
     if(!it.unitPrice&&prod.sellPrice){it.unitPrice=prod.sellPrice;const pr=document.getElementById('iprice-'+rowId);if(pr)pr.value=prod.sellPrice;}
     if(prod.cost){it.costPrice=prod.cost;const cr=document.getElementById('icost-'+rowId);if(cr){cr.value=prod.cost;cr.style.background='#f0faf4';}}
     const d=document.getElementById('idesc-'+rowId);if(d){d.value=prod.name;d.style.background='#f0faf4';}
@@ -3046,6 +3064,7 @@ function lookupProductByName(rowId,val){
   if(!prod)return;
   const it=items.find(i=>i.id===rowId);if(!it)return;
   it.prodNo=num;it.desc=prod.name;it.variantId=null;it.variantLabel=null;
+  if(prod.hsn){it.hsn=prod.hsn;const hf=document.getElementById('ihsn-'+rowId);if(hf)hf.value=prod.hsn;}
   const pnInput=document.querySelector('#irow-'+rowId+' input[type="number"]');
   if(pnInput)pnInput.value=num;
   if(!it.unitPrice&&prod.sellPrice){it.unitPrice=prod.sellPrice;const pr=document.getElementById('iprice-'+rowId);if(pr)pr.value=prod.sellPrice;}
@@ -3132,6 +3151,70 @@ function gstSplit(grand,ship,disc){
     gst:parseFloat((suitGST+shipGST).toFixed(2)),
     grand:parseFloat((suitBase+shipIncl).toFixed(2))
   };
+}
+// v14.32.0 — FABRIC → HSN CLASSIFICATION.
+// Unstitched suit fabric is classified by FIBRE, not by "suit". All fabric headings
+// carry a flat 5% GST (GST 2.0, eff. 22-Sep-2025; Ch.58 pile fabrics also cut 12%->5%).
+// Only the HSN CODE varies by fibre — the 5% rate is uniform, so gstSplit is unaffected.
+// HSN_OPTIONS drives the dropdown (shown as "code — label"); DEFAULT_HSN is the fallback.
+// NOTE: 8-digit codes are representative subheadings at 5%; a CA may prefer a more
+// specific 8-digit line for a given weave — the HSN field stays user-editable everywhere.
+const DEFAULT_HSN='540754';
+const HSN_OPTIONS=[
+  {code:'520852',label:'Cotton — woven, ≤200 g/m² (Ch.52)'},
+  {code:'520952',label:'Cotton — woven, >200 g/m² / heavy (Ch.52)'},
+  {code:'500720',label:'Silk — woven, ≥85% silk (Ch.50)'},
+  {code:'510810',label:'Wool / Pashmina — woven (Ch.51)'},
+  {code:'540754',label:'Synthetic filament — georgette/chiffon/net/organza/crepe/santoon (Ch.54)'},
+  {code:'540831',label:'Artificial filament — viscose/rayon/art silk/modal filament (Ch.54)'},
+  {code:'551512',label:'Man-made staple — spun viscose/poly-cotton/blends (Ch.55)'},
+  {code:'551211',label:'Synthetic staple — ≥85% polyester/synthetic (Ch.55)'},
+  {code:'580110',label:'Velvet / corduroy / pile fabric (Ch.58)'},
+  {code:'581092',label:'Embroidered fabric — heavy net/embroidery base (Ch.58)'},
+  {code:'530919',label:'Linen — woven (Ch.53)'},
+  {code:'600632',label:'Knit fabric — synthetic knit (Ch.60)'}
+];
+function hsnLabel(code){const o=HSN_OPTIONS.find(x=>x.code===code);return o?o.code+' — '+o.label:code;}
+// Build the <option> list; `sel` is the currently-chosen code (may be a custom/legacy code).
+function hsnOptionsHTML(sel){
+  sel=(sel||'').trim();
+  let html='';
+  let matched=false;
+  HSN_OPTIONS.forEach(o=>{
+    const s=o.code===sel; if(s)matched=true;
+    html+='<option value="'+o.code+'"'+(s?' selected':'')+'>'+o.code+' — '+o.label+'</option>';
+  });
+  // Preserve a legacy/custom code that isn't in the list so it isn't silently lost
+  if(sel&&!matched){
+    html='<option value="'+sel+'" selected>'+sel+' — (custom)</option>'+html;
+  }
+  return html;
+}
+// Keyword → HSN. Ordered by SPECIFICITY: more specific fibres first so
+// "cotton silk" resolves to silk-blend intent last-wins is avoided; we take the
+// FIRST match walking this ordered list, so put the discriminating fibres on top.
+// Detection is only a SUGGESTION — it never overwrites a code the user set by hand.
+const FABRIC_HSN_RULES=[
+  {code:'580110',kw:['velvet','corduroy','chenille','pile']},
+  {code:'510810',kw:['pashmina','wool','woollen','woolen','cashmere','tweed']},
+  {code:'530919',kw:['linen']},
+  {code:'500720',kw:['silk','banarasi','banarsi','tussar','tussah','dola silk','pure silk','raw silk','kanjivaram','kanchipuram','patola','mulberry']},
+  {code:'540831',kw:['viscose georgette','art silk','artificial silk','rayon','viscose filament','modal']},
+  {code:'540754',kw:['georgette','chiffon','organza','net','synthetic','crepe','crape','santoon','chinon','tissue','shimmer','satin','tabby','faux georgette','poly georgette','nylon']},
+  {code:'551211',kw:['polyester','poly ','100% poly','synthetic staple']},
+  {code:'551512',kw:['viscose','spun','poly cotton','poly-cotton','polycotton','blended','muslin','rayon staple','slub']},
+  {code:'600632',kw:['knit','knitted','jersey','lycra','hosiery']},
+  {code:'520952',kw:['heavy cotton','cotton canvas','cambric heavy','cotton dobby']},
+  {code:'520852',kw:['cotton','cambric','lawn','poplin','voile','mulmul','handloom cotton','pure cotton','khadi']}
+];
+// Guess an HSN from a free-text product name. Returns '' if nothing matches.
+function guessHsnFromName(name){
+  const t=(name||'').toLowerCase();
+  if(!t)return '';
+  for(const rule of FABRIC_HSN_RULES){
+    for(const k of rule.kw){ if(t.indexOf(k)!==-1)return rule.code; }
+  }
+  return '';
 }
 // v14.31.0 — status helpers. Cancelled/Returned must never count as revenue.
 function invStatusOf(inv){return (inv&&inv.invoiceStatus)||'Active';}
@@ -5293,6 +5376,76 @@ function setAgeFilter(btn,f){
   renderAgingGrid();
 }
 function nextProdNo(){if(!inventory.length)return 1;return Math.max(...inventory.map(p=>parseInt(p.prodNo)||0))+1;}
+
+// ═══ v14.32.0 — HSN auto-pick + two-way margin calculator (Add & Edit forms) ═══
+// prefix is 'ip' (Add Product) or 'iem' (Edit Product). Field ids share that prefix.
+function _g(id){return document.getElementById(id);}
+// Round a sell price to the nearest whole rupee.
+function _round1(n){return Math.round(parseFloat(n)||0);}
+// Populate an HSN <select> with the standard options, selecting `code`.
+function initHsnSelect(prefix,code){
+  const sel=_g(prefix+'-hsn'); if(!sel)return;
+  sel.innerHTML=hsnOptionsHTML(code||'');
+  refreshHsnNote(prefix);
+}
+function refreshHsnNote(prefix){
+  const sel=_g(prefix+'-hsn'); const note=_g(prefix+'-hsn-note'); if(!sel||!note)return;
+  note.textContent='All fabric HSNs are 5% GST — code chosen only affects the HSN shown on invoices.';
+}
+// Track whether the user has manually chosen an HSN this session (so name-detection
+// never clobbers a deliberate choice). Reset when a form is opened/cleared.
+let _hsnManual={ip:false,iem:false};
+function onHsnSelect(prefix){ _hsnManual[prefix]=true; refreshHsnNote(prefix); }
+// Product NAME typed → suggest an HSN from fibre keywords, unless the user set it by hand.
+function onProductNameInput(prefix){
+  if(_hsnManual[prefix])return;
+  const nm=(_g(prefix+'-name')?.value)||'';
+  const fab=(_g(prefix+'-fabric')?.value)||'';
+  const guess=guessHsnFromName(nm+' '+fab);
+  if(guess){ const sel=_g(prefix+'-hsn'); if(sel&&sel.value!==guess){ initHsnSelect(prefix,guess); } }
+}
+// Cost or Margin% changed → recompute Sell = cost × (1 + margin/100), rounded to ₹1.
+function onCostOrMarginInput(prefix){
+  const cost=parseFloat(_g(prefix+'-cost')?.value)||0;
+  const marginEl=_g(prefix+'-margin');
+  const sellEl=_g(prefix+'-sell');
+  const note=_g(prefix+'-margin-note');
+  const marginRaw=marginEl?marginEl.value:'';
+  if(marginRaw!==''&&!isNaN(parseFloat(marginRaw))){
+    const margin=parseFloat(marginRaw);
+    if(cost>0){
+      const sell=_round1(cost*(1+margin/100));
+      if(sellEl)sellEl.value=sell;
+      if(note)note.textContent='Sell ₹'+sell.toLocaleString('en-IN')+' = cost ₹'+cost.toLocaleString('en-IN')+' + '+margin+'%';
+    }else{
+      if(note)note.textContent='Enter cost price to compute sell price from margin.';
+    }
+  }else{
+    // margin blank → derive it from existing sell price if present
+    onSellInput(prefix,true);
+  }
+}
+// Sell price changed → show what margin% over cost it represents (does not touch sell).
+function onSellInput(prefix,silent){
+  const cost=parseFloat(_g(prefix+'-cost')?.value)||0;
+  const sell=parseFloat(_g(prefix+'-sell')?.value)||0;
+  const marginEl=_g(prefix+'-margin');
+  const note=_g(prefix+'-margin-note');
+  if(cost>0&&sell>0){
+    const margin=Math.round((sell-cost)/cost*1000)/10; // 1 decimal
+    if(marginEl)marginEl.value=margin;
+    if(note)note.textContent='That is a '+margin+'% margin over cost ₹'+cost.toLocaleString('en-IN')+(margin<0?' (selling below cost!)':'');
+  }else if(!silent){
+    if(note)note.textContent=cost<=0?'Enter cost price to see the margin.':'';
+  }
+}
+// Compute margin% for inventory-row display. Returns null if not computable.
+function marginPct(cost,sell){
+  cost=parseFloat(cost)||0; sell=parseFloat(sell)||0;
+  if(cost<=0||sell<=0)return null;
+  return Math.round((sell-cost)/cost*1000)/10;
+}
+
 function saveProduct(){
   const numRaw=document.getElementById('ip-num')?.value;
   const name=(document.getElementById('ip-name')?.value||'').trim();
@@ -5305,6 +5458,7 @@ function saveProduct(){
   const prod={
     prodNo,name,qty,qtyOriginal:qty,qtySold:0,
     fabric:document.getElementById('ip-fabric')?.value||'',
+    hsn:(document.getElementById('ip-hsn')?.value||DEFAULT_HSN).trim(),
     cost:parseFloat(document.getElementById('ip-cost')?.value)||0,
     sellPrice:parseFloat(document.getElementById('ip-sell')?.value)||0,
     dateAdded,
@@ -5328,7 +5482,9 @@ function saveProduct(){
   inventory.push(prod);inventory.sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
   saveStk();gsWriteConfirmed(SHEETS.inventory,flattenProduct(prod)).then(ok=>{if(!ok)toast('⚠️ Product saved locally but sheet sync failed — tap sync to retry');});
   renderInventory();renderAgingGrid();updateInventoryStats();renderPostingQueue();
-  ['ip-num','ip-name','ip-fabric','ip-cost','ip-sell','ip-notes'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['ip-num','ip-name','ip-fabric','ip-cost','ip-sell','ip-notes','ip-margin'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['ip-margin-note','ip-hsn-note'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent='';});
+  _hsnManual.ip=false; initHsnSelect('ip',DEFAULT_HSN);
   const iq=document.getElementById('ip-qty');if(iq)iq.value='1';
   const ipn=document.getElementById('ip-num');if(ipn)ipn.value=nextProdNo();
   document.getElementById('ip-link-suggestions').style.display='none';
@@ -5423,7 +5579,7 @@ function renderInventory(){
     if(sf==='instock'&&s===0)return false;
     if(sf==='sold'&&s>0)return false;
     return true;
-  });
+  }).sort((a,b)=>parseInt(b.prodNo)-parseInt(a.prodNo)); // v14.32.0 — newest (highest #) first
   const el=document.getElementById('inv-list');if(!el)return;
   if(!filtered.length){el.innerHTML='<div style="color:#aaa;text-align:center;padding:20px;">No products</div>';return;}
   el.innerHTML=filtered.map(p=>{
@@ -5445,7 +5601,9 @@ function renderInventory(){
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-size:18px;font-weight:700;color:var(--brown);">#${p.prodNo}</span>${badge}${varBadge}
         ${s>0?`<span style="background:${ac.bg};color:${ac.fg};padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;">${ac.lbl}</span>`:''}</div>
         <div class="list-main" style="margin-top:3px;">${p.name}</div>
-        <div class="list-sub">${p.cost?'Cost ₹'+p.cost+' · ':''} ${s} of ${orig} in stock${p.notes?' · '+p.notes:''}</div>
+        ${(()=>{const mp=marginPct(p.cost,p.sellPrice);const mc=mp===null?'':(mp<0?'#e74c3c':'#27ae60');
+          return`<div class="list-sub">${p.cost?'Cost ₹'+p.cost+' · ':''}${mp!==null?`<span style="color:${mc};font-weight:600;">${mp>=0?'+':''}${mp}% margin</span> · `:''}${s} of ${orig} in stock${p.notes?' · '+p.notes:''}</div>`;})()}
+        <div class="list-sub" style="margin-top:1px;"><span style="background:var(--goldp);color:var(--brown);padding:1px 6px;border-radius:6px;font-size:10px;font-weight:600;">HSN ${p.hsn||DEFAULT_HSN}</span></div>
         ${s>0?(()=>{
           const stage=getPostingStage(p);
           const col=getStageColor(stage);
@@ -9405,6 +9563,12 @@ function openInvEdit(prodNo) {
   }
   document.getElementById('iem-cost').value = p.cost || '';
   document.getElementById('iem-sell').value = p.sellPrice || '';
+  // v14.32.0 — HSN dropdown (fall back to legacy default) + margin readout
+  _hsnManual.iem = true; // an existing product already has a chosen HSN; don't auto-overwrite on name edits
+  initHsnSelect('iem', (p.hsn||DEFAULT_HSN).trim());
+  const iemMargin=document.getElementById('iem-margin');
+  if(iemMargin){ const mp=marginPct(p.cost,p.sellPrice); iemMargin.value = (mp===null?'':mp); }
+  onSellInput('iem', true);
   document.getElementById('iem-notes').value = p.notes || '';
   document.getElementById('iem-reel-url').value = p.reelUrl || '';
   document.getElementById('iem-date-reel').value = p.dateReel || '';
@@ -9532,6 +9696,7 @@ function saveInvEdit() {
   if (!newName) { toast('⚠️ Product name required'); return; }
   p.name = newName;
   p.fabric = document.getElementById('iem-fabric').value || '';
+  p.hsn = (document.getElementById('iem-hsn').value || DEFAULT_HSN).trim();
   p.cost = parseFloat(document.getElementById('iem-cost').value) || 0;
   p.sellPrice = parseFloat(document.getElementById('iem-sell').value) || 0;
   p.notes = document.getElementById('iem-notes').value || '';
