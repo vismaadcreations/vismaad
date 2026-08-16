@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.32.0
+APP: Vismaad Creations v14.33.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 16-Aug-2026 — v14.32.0: INVENTORY SORT NEWEST-FIRST + FABRIC→HSN CLASSIFICATION + TWO-WAY MARGIN CALCULATOR. (1) INVENTORY REGISTER now lists newest products first (descending prodNo) via a sort on the filtered list inside renderInventory; the aging grid (age-sorted) and all internal ascending sorts are untouched. (2) PER-PRODUCT HSN. Every product now carries its own hsn field instead of every invoice line inheriting the hardcoded 540754. Add/Edit forms gained an HSN dropdown (HSN_OPTIONS: 12 fibre-specific 5% headings across Ch.50/51/52/53/54/55/58/60 shown as 'code — label') that is FREELY user-overridable and preserves any legacy/custom code not in the list. As you type the product NAME (or fabric type), guessHsnFromName() scans fibre keywords (FABRIC_HSN_RULES, ordered by specificity so silk/velvet/linen resolve before generic cotton/synthetic) and auto-selects the matching HSN — but ONLY until the user touches the dropdown (_hsnManual flag), so a deliberate choice is never clobbered; opening an existing product sets the flag pre-armed so name edits don't rewrite its stored HSN. lookupProduct + lookupProductByName copy the product's hsn onto the invoice item (visible HSN field now has id ihsn-{rowId}), so the correct code flows into the printed invoice and GST export automatically. Rate is UNCHANGED — under GST 2.0 (eff. 22-Sep-2025) all fabric headings, incl. Ch.58 velvet/pile cut from 12%, are a flat 5%, so gstSplit and every tax path are unaffected; only the CODE varies by fibre. hsn persists via flattenProduct's {...p} spread; parseInventoryRow's {...r} preserves it on load; Apps Script auto-adds the Inventory column on first write — no Code.gs change. Products without hsn fall back to 540754 exactly as before (backward-compatible, nothing to migrate). The suggested 8-digit codes are representative subheadings at 5%; the field stays editable if a CA prefers a more specific line. (3) TWO-WAY MARGIN. Add/Edit forms gained a 'Margin % over cost' field wired bidirectionally to cost & sell: typing a margin fills Sell = round(cost × (1 + margin/100)) to the nearest ₹1 (cost 100 + 30% = 130); typing a Sell price shows the implied margin = round((sell−cost)/cost×100, 1 dp), flagging below-cost pricing in red. Sell price stays fully overridable. Margin is DERIVED, never stored — the inventory register now shows the live margin% (green/red) beside cost and an HSN badge per row, so both are visible at a glance without opening the editor. NOTE: existing products keep HSN 540754 until you open them and pick the correct fabric/HSN (or let the name-detection suggest it on your next edit); no bulk migration is performed. PREV_CHANGE: 23-Jul-2026 — v14.31.0: GST CORRECTNESS + RETURNS/CANCELLATIONS + PER-AWB COURIER IN MESSAGES. (1) COURIER OVERRIDE NEVER REACHED THE WHATSAPP MESSAGE. v14.29.0 threaded courierOverride through getCourierInfo/groupTrackingByCourier but NOT into buildTrackingMessage/buildFollowupTrackingMessage, which lacked the parameter entirely; all five internal calls and all three call sites dropped it. A two-package invoice whose first parcel went India Post and whose second AWB had an unrecognised format quoted India Post for BOTH, even after the picker stored the right carrier. Added the 5th param to both builders, passed it through every internal call, and supplied inv.courierOverride at all three call sites. Tracking-page badges were already correct; only the message was wrong. (2) gstSplit(grand,ship,disc) — NEW single source of truth for the tax split on a stored invoice: suits 5% (HSN 540754), shipping 18% (SAC 9965), prices GST-inclusive. Every reporting path now routes through it. Previously the GSTR summary export divided the ENTIRE grand total (shipping included) by 1.05, and the detailed sales register divided shipping by 1.05 — both UNDER-DECLARED output tax on every Tax Invoice carrying shipping (on Rs100 shipping the printed invoice said Rs15.25, the export said Rs4.76), so the invoice handed to the customer and the return contradicted each other. P&L gstOnSuits had the same flat-1.05 form and mis-stated the suit component. (3) GST export headers were hardcoded 'CGST 2.5% / SGST 2.5% / IGST 5%' — one column now legitimately carries two rates, so labels are rate-neutral and two new columns break out Suits Taxable @5% and Shipping Taxable @18%. FY subtotal and grand-total accumulators widened 6->8 slots to match. (4) RETURNS/CANCELLATIONS WERE COUNTED AS FULL REVENUE. Neither the P&L nor either export filtered on invoiceStatus (the tracking page and dashboard already did), so a cancelled order still contributed turnover, taxable value and output GST. Treated differently by surface, deliberately: the P&L now DROPS Cancelled/Returned outright (it answers what we actually earned) and skips their credit notes too, or the reversal would subtract the same sale twice — count and value shown as an 'Excluded' line plus a card-title note so the omission is never silent. The GST export KEEPS invoice + credit note (the orthodox treatment) but now warns loudly when a Cancelled/Returned Tax Invoice has NO credit note, which is the case that silently declares tax on a sale that never happened, since the manual Status button sets the status without creating one. (5) Credit notes issued OUTSIDE the exported range used to vanish silently — the deduction was skipped by an early return. They still are not deducted (a reversal belongs to its own filing period, which is correct) but the export now lists them so an invoice-in-March / CN-in-April straddle is visible rather than a trap. (6) CN gstReversed/taxableReversed used a flat /1.05, ignoring 18% shipping on the referenced invoice; now pro-rated at that invoice's own blended rate via gstSplit. This also feeds P&L totalCreditGST, so the error had been propagating into ITC and net-tax figures. (7) printInvoice read raw data.isIntra — after a sheet round-trip that is the STRING "false", which is truthy, so a reprinted INTER-state Tax Invoice showed CGST+SGST instead of IGST (wrong place of supply on a tax document). Now coerced with the same pattern used everywhere else. (8) printInvoice recomputed from itemsArr, but makePayload strips itemsArr to [] on oversized invoices while preserving totals — such an invoice re-fetched from the sheet reprinted with a zeroed GST table beside a non-zero grand total. Falls back to the stored grand via gstSplit when items are missing. (9) STOCK NOW MOVES ON THE TRANSITION, NOT THE DESTINATION. Cancelled restored nothing (only Returned did), so goods that never shipped stayed deducted and qtySold stayed inflated; Returned->Returned restored twice; and the Reactivate button never re-deducted, inventing stock on every round trip. _applyInvoiceStatus now computes _wasVoid/_nowVoid, no-ops on an unchanged status, restores only on Active->void, and re-deducts (pool-aware, spill recorded, shortfall toast, never stalls) on void->Active. (10) Detailed sales register gains an 'Invoice Status' column (Active/Cancelled/Returned), distinct from the existing delivery Status. NOTE: nothing has been filed yet, so no revised return is needed; all figures are correct from this version forward. Invoices cancelled before this version did not restore stock — correct those products by hand in the inventory editor, or toggle the status off and back on.
+LAST_CHANGE: 16-Aug-2026 — v14.33.0: INVOICE LEGALITY RECONCILIATION + INVENTORY LAYOUT/SEARCH + DATE-RECEIVED PRICE LIST. (1) INVOICE LINE TAXABLE NOW RECONCILES TO THE GST SUMMARY. Previously each line's Taxable was lineIncl/1.05 rounded independently and shipping was shipping/1.18, so on a multi-line invoice the printed line taxables did not sum to the GST-summary taxable (displaySuitTaxable/displayShipTaxable) — the figures actually declared in the return — and a pre-GST discount was never reflected per line. The suit taxable is now allocated across lines in proportion to each line's inclusive value with the LAST line absorbing the residual, so the column sums EXACTLY to the summary to the paisa; the shipping line taxable now shows displayShipTaxable directly. Verified: sum(line taxables)===summary taxable, and taxable+GST===grand total. This removes the invoice-vs-return contradiction on the printed Tax Invoice. (2) SIGNATURE BLOCK FIXED. The footer stated 'Computer-generated document' AND carried an 'Authorised Signatory' rule — contradictory under CGST Rule 46, which permits an unsigned computer-generated invoice. Now a single clean statement: 'This is a computer-generated invoice/bill and does not require a physical signature.' with the firm name only, no signature line. (3) INVENTORY PAGE REORDERED to Add Product → Register → Stock Aging. Register and Aging are now COLLAPSIBLE via native <details>/<summary> (Register open by default, Aging collapsed), mobile + desktop friendly, animated chevron. (4) INVENTORY REGISTER SEARCH added — a search box filters the register live by name, product no., HSN, fabric, and notes (with an ✕ clear button); wired through renderInventory. (5) PRICE LIST — DATE RECEIVED NOW WORKS AS A PRIMARY SELECTOR. Root cause of the old 'date received not retained' symptom: dateAdded is stored client-side as YYYY-MM-DD but the sheet can round-trip it as an ISO datetime, a dd-mmm-yyyy display string, or a localized string; the filter's slice(0,10) then never matched the <input type=date> range. New toISODate() normaliser coerces any stored date shape to YYYY-MM-DD, used by both the date filter and the new selector. The print dialog gains a '📅 Select all products in this date range' button so you pick a date range and it selects those products automatically (no ticking), honouring the In Stock/Sold Out filter; the dialog now opens even with zero pre-selection. Undated products are ALWAYS included (never excluded), per requirement. The product-number range selector is RETAINED as a fallback. Each register row now shows '📅 Recd <date>' (or 'No date' in amber) so retention is visible at a glance. NOTE ON HSN: 520811 (unbleached greige cotton) and similar raw-fabric subheadings remain intentionally out of the curated HSN_OPTIONS list (which targets printed/dyed suit fabrics) but are still fully usable — any custom code typed/kept is preserved. PREV_CHANGE: 16-Aug-2026 — v14.32.0: INVENTORY SORT NEWEST-FIRST + FABRIC→HSN CLASSIFICATION + TWO-WAY MARGIN CALCULATOR. (1) INVENTORY REGISTER now lists newest products first (descending prodNo) via a sort on the filtered list inside renderInventory; the aging grid (age-sorted) and all internal ascending sorts are untouched. (2) PER-PRODUCT HSN. Every product now carries its own hsn field instead of every invoice line inheriting the hardcoded 540754. Add/Edit forms gained an HSN dropdown (HSN_OPTIONS: 12 fibre-specific 5% headings across Ch.50/51/52/53/54/55/58/60 shown as 'code — label') that is FREELY user-overridable and preserves any legacy/custom code not in the list. As you type the product NAME (or fabric type), guessHsnFromName() scans fibre keywords (FABRIC_HSN_RULES, ordered by specificity so silk/velvet/linen resolve before generic cotton/synthetic) and auto-selects the matching HSN — but ONLY until the user touches the dropdown (_hsnManual flag), so a deliberate choice is never clobbered; opening an existing product sets the flag pre-armed so name edits don't rewrite its stored HSN. lookupProduct + lookupProductByName copy the product's hsn onto the invoice item (visible HSN field now has id ihsn-{rowId}), so the correct code flows into the printed invoice and GST export automatically. Rate is UNCHANGED — under GST 2.0 (eff. 22-Sep-2025) all fabric headings, incl. Ch.58 velvet/pile cut from 12%, are a flat 5%, so gstSplit and every tax path are unaffected; only the CODE varies by fibre. hsn persists via flattenProduct's {...p} spread; parseInventoryRow's {...r} preserves it on load; Apps Script auto-adds the Inventory column on first write — no Code.gs change. Products without hsn fall back to 540754 exactly as before (backward-compatible, nothing to migrate). The suggested 8-digit codes are representative subheadings at 5%; the field stays editable if a CA prefers a more specific line. (3) TWO-WAY MARGIN. Add/Edit forms gained a 'Margin % over cost' field wired bidirectionally to cost & sell: typing a margin fills Sell = round(cost × (1 + margin/100)) to the nearest ₹1 (cost 100 + 30% = 130); typing a Sell price shows the implied margin = round((sell−cost)/cost×100, 1 dp), flagging below-cost pricing in red. Sell price stays fully overridable. Margin is DERIVED, never stored — the inventory register now shows the live margin% (green/red) beside cost and an HSN badge per row, so both are visible at a glance without opening the editor. NOTE: existing products keep HSN 540754 until you open them and pick the correct fabric/HSN (or let the name-detection suggest it on your next edit); no bulk migration is performed. PREV_CHANGE: 23-Jul-2026 — v14.31.0: GST CORRECTNESS + RETURNS/CANCELLATIONS + PER-AWB COURIER IN MESSAGES. (1) COURIER OVERRIDE NEVER REACHED THE WHATSAPP MESSAGE. v14.29.0 threaded courierOverride through getCourierInfo/groupTrackingByCourier but NOT into buildTrackingMessage/buildFollowupTrackingMessage, which lacked the parameter entirely; all five internal calls and all three call sites dropped it. A two-package invoice whose first parcel went India Post and whose second AWB had an unrecognised format quoted India Post for BOTH, even after the picker stored the right carrier. Added the 5th param to both builders, passed it through every internal call, and supplied inv.courierOverride at all three call sites. Tracking-page badges were already correct; only the message was wrong. (2) gstSplit(grand,ship,disc) — NEW single source of truth for the tax split on a stored invoice: suits 5% (HSN 540754), shipping 18% (SAC 9965), prices GST-inclusive. Every reporting path now routes through it. Previously the GSTR summary export divided the ENTIRE grand total (shipping included) by 1.05, and the detailed sales register divided shipping by 1.05 — both UNDER-DECLARED output tax on every Tax Invoice carrying shipping (on Rs100 shipping the printed invoice said Rs15.25, the export said Rs4.76), so the invoice handed to the customer and the return contradicted each other. P&L gstOnSuits had the same flat-1.05 form and mis-stated the suit component. (3) GST export headers were hardcoded 'CGST 2.5% / SGST 2.5% / IGST 5%' — one column now legitimately carries two rates, so labels are rate-neutral and two new columns break out Suits Taxable @5% and Shipping Taxable @18%. FY subtotal and grand-total accumulators widened 6->8 slots to match. (4) RETURNS/CANCELLATIONS WERE COUNTED AS FULL REVENUE. Neither the P&L nor either export filtered on invoiceStatus (the tracking page and dashboard already did), so a cancelled order still contributed turnover, taxable value and output GST. Treated differently by surface, deliberately: the P&L now DROPS Cancelled/Returned outright (it answers what we actually earned) and skips their credit notes too, or the reversal would subtract the same sale twice — count and value shown as an 'Excluded' line plus a card-title note so the omission is never silent. The GST export KEEPS invoice + credit note (the orthodox treatment) but now warns loudly when a Cancelled/Returned Tax Invoice has NO credit note, which is the case that silently declares tax on a sale that never happened, since the manual Status button sets the status without creating one. (5) Credit notes issued OUTSIDE the exported range used to vanish silently — the deduction was skipped by an early return. They still are not deducted (a reversal belongs to its own filing period, which is correct) but the export now lists them so an invoice-in-March / CN-in-April straddle is visible rather than a trap. (6) CN gstReversed/taxableReversed used a flat /1.05, ignoring 18% shipping on the referenced invoice; now pro-rated at that invoice's own blended rate via gstSplit. This also feeds P&L totalCreditGST, so the error had been propagating into ITC and net-tax figures. (7) printInvoice read raw data.isIntra — after a sheet round-trip that is the STRING "false", which is truthy, so a reprinted INTER-state Tax Invoice showed CGST+SGST instead of IGST (wrong place of supply on a tax document). Now coerced with the same pattern used everywhere else. (8) printInvoice recomputed from itemsArr, but makePayload strips itemsArr to [] on oversized invoices while preserving totals — such an invoice re-fetched from the sheet reprinted with a zeroed GST table beside a non-zero grand total. Falls back to the stored grand via gstSplit when items are missing. (9) STOCK NOW MOVES ON THE TRANSITION, NOT THE DESTINATION. Cancelled restored nothing (only Returned did), so goods that never shipped stayed deducted and qtySold stayed inflated; Returned->Returned restored twice; and the Reactivate button never re-deducted, inventing stock on every round trip. _applyInvoiceStatus now computes _wasVoid/_nowVoid, no-ops on an unchanged status, restores only on Active->void, and re-deducts (pool-aware, spill recorded, shortfall toast, never stalls) on void->Active. (10) Detailed sales register gains an 'Invoice Status' column (Active/Cancelled/Returned), distinct from the existing delivery Status. NOTE: nothing has been filed yet, so no revised return is needed; all figures are correct from this version forward. Invoices cancelled before this version did not restore stock — correct those products by hand in the inventory editor, or toggle the status off and back on.
 PREV_CHANGE: 22-Jul-2026 — v14.30.0: DROPSHIP ITEMS NO LONGER TOUCH INVENTORY STOCK. A product added to an invoice by name/number and then tagged as dropship (it.dsSupId set, including the '__pending__' placeholder before a supplier is picked) was still being deducted from inventory at save, because every stock call site keyed off prodNo alone and never read the DS flag. This was wrong for BOTH full-DS invoices (all articles tagged) and partial-DS invoices (some tagged), since deduction runs per-item in a loop. Fixed symmetrically so stock always reflects only what physically ships from our own godown: (1) isDS(it) helper — single source of truth (dsSupId truthy). (2) Invoice save skips deductStock for DS items — spill set to [], qtySold/linkedInvoices/qtyOriginal untouched for them; non-DS items deduct exactly as before. (3) Invoice-delete restore and Returned-status restore both skip DS items — they never deducted, so restoring would have INVENTED phantom stock; this is the mirror of the save fix. (4) _flipItemDS(inv,it,toDS) — shared engine for DS status changes on an ALREADY-SAVED invoice (where stock was, or must now be, moved). non-DS→DS: restoreStock using the item's recorded spill, decrement qtySold, drop invoice from linkedInvoices, clear it.spill. DS→non-DS: deductStock, write the new it.spill, credit qtySold, add to linkedInvoices, ratchet qtyOriginal; never stalls — if that article's stock is now 0 (sold as DS meanwhile), qty floors at 0, qtySold still climbs and a shortfall toast fires, matching v14.27.0 pool behaviour. Guards against double-apply (acts only on a genuine state change) and no-prodNo items. (5) Bulk 'Mark as Dropship' routes every newly-tagged item through _flipItemDS(toDS=true) so previously-deducted stock is handed back; already-DS items skipped by the existing guard. (6) Edit-invoice DS toggle (toggleEditDSItem) routes through _flipItemDS in BOTH directions and persists the invoice + touched products via gsWriteConfirmed. The live invoice-builder toggle (toggleDSItem) needs no stock logic — that item is not yet saved, and the save fix skips it. Spill survives the sheet round-trip via expandItems, so a later delete/return of an invoice whose item was flipped DS→non-DS reverses exactly what the re-deduction took. NOTE: invoices dropshipped before this version that had already (wrongly) deducted stock are not auto-repaired — re-toggle the DS flag off and on via the edit modal, or correct the product by hand in the inventory editor.
 PREV_CHANGE: 19-Jul-2026 — v14.29.0: COURIER DETECTION + TRACKING SEARCH. (1) DTDC AWBs of the form digit+letter+8-10 digits (e.g. 7D132636790) matched none of the four patterns in detectCourier(), so it returned null and getCourierInfo() fell back to the invoice-level dispatchMethod. On a multi-package invoice whose FIRST parcel went India Post, the second DTDC number silently inherited 'indiapost' — the WhatsApp message quoted India Post, and getCourierTrackedInvoices() filed it under India Post so it never appeared in the DTDC/Blue Dart tracking list. Added /^\\d[A-Z]\\d{8,10}$/ → dtdc; cannot collide with the existing rules (India Post UPU needs two leading letters plus a two-letter suffix, Blue Dart is pure-numeric). (2) COURIER PROMPT — every tracking number whose format detectCourier() cannot identify now opens a mobile-friendly picker (DTDC / Blue Dart / India Post / Other Courier) instead of silently inheriting the dispatch method. The answer is stored PER-AWB on the invoice in a new courierOverride map keyed by uppercased tracking number, so it never overwrites the invoice-level dispatchMethod and multi-courier invoices stay correct. Consulted after regex detection and before the dispatchMethod fallback, threaded through getCourierInfo/groupTrackingByCourier/buildTrackingMessage/buildFollowupTrackingMessage, the four tracking-page courier badges, getCourierTrackedInvoices (so Track123 registers the right carrier) and the P&L courier grouping. Wired into both entry paths: generateInvoice (prompts BEFORE the invoice counter or stock is touched, so cancelling mid-prompt leaves nothing half-written) and saveInvoiceEdit; both are now async. Persisted via JSON-stringify in flattenForSheet, parsed on load and in both sync-merge branches (remote-newer merges remote keys over local; no-timestamp branch fills blanks only), so per-AWB couriers survive cross-device. Invoices without courierOverride behave exactly as before. (3) TRACKING / INVOICE NO. search field added to the tracking status page alongside the existing customer and location filters — substring match on the tracking number and invoice number, debounced 200ms, combines with (does not replace) the status, date, name and location filters, and is cleared by Clear Filters. Full-width stacked on mobile, inline on desktop. (4) Dispatch dropdowns now label walk-in as 'Walk-in / Collected in person (QR code needed)' at all three sites, flagging that this method prints a UPI QR instead of an invoice. Hand Delivery and Walk-in remain SEPARATE values — merging them would have changed printed-invoice wording and forced the UPI QR onto hand-delivery orders. (5) Sale Channel 'None' chip removed (meaningless beside the other options); existing blank channels are untouched and the edit modal keeps '— Not specified —'. resetInvoiceForm no longer auto-activates the first chip, which after the removal would have silently selected WhatsApp on every new invoice. NOTE: historic invoices whose unrecognised AWBs were already misfiled are left as-is by design — 7D-prefix numbers self-correct via the new regex, other unrecognised formats keep their inherited courier until the invoice is edited.
 PREV_CHANGE: 14-Jul-2026 — v14.28.1: BUGFIX — SALES PAGE FILTER DID NOTHING. Root cause was a key-casing mismatch in trackingData. The India Post import uppercased its keys (line ~8533), but the Track123 refresh and the sheet-sync merge stored them verbatim, so the same object held both 'CD123IN' and 'cd123in' style keys. renderSales() has always looked tracking up by UPPERCASE, so any record written by the other two paths simply returned undefined — the invoice was read as having no tracking data at all and fell through to the manual isShipped flag. Result: Shipped, In Transit, Delivered and No Tracking all misclassified, and No Tracking listed invoices that plainly had a number on them. Fixes, one pass: (1) tdGet(t) — a single case-tolerant lookup helper; every READ of trackingData across the app (sales filter, sales status badge, dashboard pending orders, delivery-review list, tracking page, Track123 refresh, India Post import push) now routes through it, so no future call site can reintroduce this. (2) Both offending WRITE paths now normalise the key to uppercase, and drop the stale mixed-case duplicate if one exists. (3) One-time in-place migration on boot rewrites historic lowercase keys in vc_tracking to uppercase; where both casings exist for one number, a Delivered record is never lost and otherwise the newer updatedAt wins. (4) Search box and religion filter moved ABOVE the Cancelled/Returned branches — those two returned early, so typing a name while Cancelled was selected silently ignored what you typed. Every dropdown option now combines with search and religion. (5) Cancelled/Returned are now genuinely excluded from the Shipped and Pending filters — the comment claimed this since v14.23.0 but the code never enforced it, so a cancelled order still showed up under Pending. (6) Removed the dead double-assignment of isShippedOrDelivered (the first expression returned a status string, was immediately overwritten, and only survived because .some() coerced it).
@@ -84,6 +84,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--ink);f
 /* ── CARDS ── */
 .card{background:var(--warm);border-radius:14px;border:1px solid var(--border);padding:16px;margin-bottom:14px;box-shadow:0 1px 6px rgba(92,61,30,.08);}
 .card-title{font-family:'Playfair Display',serif;font-size:15px;font-weight:600;color:var(--brown);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--goldp);display:flex;align-items:center;justify-content:space-between;}
+.collapse-card{padding:16px;}
+.collapse-card>.collapse-summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--goldp);}
+.collapse-card>.collapse-summary::-webkit-details-marker{display:none;}
+.collapse-summary .collapse-chevron{font-size:15px;color:var(--brown);transition:transform .18s ease;flex-shrink:0;}
+.collapse-card[open]>.collapse-summary .collapse-chevron{transform:rotate(180deg);}
 
 /* ── STAT GRID ── */
 .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;}
@@ -651,25 +656,14 @@ body.gst-mode .gst-only{display:block;}
     <button class="btn btn-p" onclick="saveProduct()">💾 Add to Inventory</button>
   </div>
 
-  <!-- Aging view -->
-  <div class="card">
-    <div class="card-title">📊 Stock Aging — Unsold Products</div>
-    <!-- Age filter tabs -->
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;" id="age-filter-tabs">
-      <button class="age-tab active" data-filter="all" onclick="setAgeFilter(this,'all')" style="padding:7px 14px;border-radius:20px;border:none;font-size:12px;font-weight:600;cursor:pointer;background:var(--brown);color:#fff;">All</button>
-      <button class="age-tab" data-filter="0" onclick="setAgeFilter(this,'0')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #27ae60;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#27ae60;">&lt;1 month</button>
-      <button class="age-tab" data-filter="1" onclick="setAgeFilter(this,'1')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #f39c12;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#f39c12;">1–2 months</button>
-      <button class="age-tab" data-filter="2" onclick="setAgeFilter(this,'2')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #e67e22;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#e67e22;">2–3 months</button>
-      <button class="age-tab" data-filter="3" onclick="setAgeFilter(this,'3')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #e74c3c;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#e74c3c;">3–4 months</button>
-      <button class="age-tab" data-filter="4" onclick="setAgeFilter(this,'4')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #922b21;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#922b21;">4+ months</button>
-    </div>
-    <div id="aging-grid"></div>
-  </div>
-
-  <!-- Register -->
-  <div class="card">
-    <div class="card-title">📋 Register
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+  <!-- Register (v14.33.0 — moved directly below Add Product; collapsible, open by default) -->
+  <details class="card collapse-card" id="inv-register-card" open>
+    <summary class="collapse-summary">
+      <span class="card-title" style="margin:0;display:inline;">📋 Register</span>
+      <span class="collapse-chevron">▾</span>
+    </summary>
+    <div style="margin-top:12px;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
         <select id="inv-status-filter" onchange="renderInventory()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--cream);font-size:12px;">
           <option value="">All</option><option value="instock">In Stock</option><option value="sold">Sold Out</option>
         </select>
@@ -677,31 +671,56 @@ body.gst-mode .gst-only{display:block;}
         <button class="btn btn-o btn-sm" onclick="toggleCatalogueMode()" id="inv-cat-mode-btn" style="white-space:nowrap;">📖 Catalogue</button>
         <button class="btn btn-o btn-sm" onclick="openCleanupModal()" style="white-space:nowrap;color:#c0392b;border-color:#c0392b;">🗑 Cleanup</button>
       </div>
-    </div>
-    <!-- Print mode action bar (hidden until print mode active) -->
-    <div id="inv-print-bar" style="display:none;background:var(--goldp);border-radius:10px;padding:10px 12px;margin-bottom:12px;display:none;">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-        <span id="inv-print-count" style="font-size:13px;font-weight:600;color:var(--brown);">0 selected</span>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-o btn-sm" onclick="selectAllInvForPrint()">Select All</button>
-          <button class="btn btn-g btn-sm" onclick="openInvPrintDialog()">🖨️ Print Selected</button>
-          <button class="btn btn-o btn-sm" onclick="toggleInvPrintMode()">✕ Cancel</button>
+      <!-- v14.33.0 — inventory Register search -->
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input type="text" id="inv-search" placeholder="🔍 Search name, #, HSN, fabric, notes…" oninput="renderInventory()" style="flex:1;padding:11px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:14px;"/>
+        <button class="btn btn-o btn-sm" onclick="clearInvSearch()" style="white-space:nowrap;">✕</button>
+      </div>
+      <!-- Print mode action bar (hidden until print mode active) -->
+      <div id="inv-print-bar" style="display:none;background:var(--goldp);border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <span id="inv-print-count" style="font-size:13px;font-weight:600;color:var(--brown);">0 selected</span>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-o btn-sm" onclick="selectAllInvForPrint()">Select All</button>
+            <button class="btn btn-g btn-sm" onclick="openInvPrintDialog()">🖨️ Print / By Date</button>
+            <button class="btn btn-o btn-sm" onclick="toggleInvPrintMode()">✕ Cancel</button>
+          </div>
         </div>
       </div>
-    </div>
-    <!-- Catalogue mode action bar -->
-    <div id="inv-cat-bar" style="display:none;background:var(--goldp);border-radius:10px;padding:10px 12px;margin-bottom:12px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-        <span id="inv-cat-count" style="font-size:13px;font-weight:600;color:var(--brown);">0 selected</span>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-o btn-sm" onclick="selectAllInvForCatalogue()">Select All In Stock</button>
-          <button class="btn btn-g btn-sm" onclick="openCatalogueDialog()">📖 Generate</button>
-          <button class="btn btn-o btn-sm" onclick="toggleCatalogueMode()">✕ Cancel</button>
+      <!-- Catalogue mode action bar -->
+      <div id="inv-cat-bar" style="display:none;background:var(--goldp);border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <span id="inv-cat-count" style="font-size:13px;font-weight:600;color:var(--brown);">0 selected</span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-o btn-sm" onclick="selectAllInvForCatalogue()">Select All In Stock</button>
+            <button class="btn btn-g btn-sm" onclick="openCatalogueDialog()">📖 Generate</button>
+            <button class="btn btn-o btn-sm" onclick="toggleCatalogueMode()">✕ Cancel</button>
+          </div>
         </div>
       </div>
+      <div id="inv-list"></div>
     </div>
-    <div id="inv-list"></div>
-  </div>
+  </details>
+
+  <!-- Aging view (v14.33.0 — moved below Register; collapsible, collapsed by default) -->
+  <details class="card collapse-card" id="inv-aging-card">
+    <summary class="collapse-summary">
+      <span class="card-title" style="margin:0;display:inline;">📊 Stock Aging — Unsold Products</span>
+      <span class="collapse-chevron">▾</span>
+    </summary>
+    <div style="margin-top:12px;">
+      <!-- Age filter tabs -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;" id="age-filter-tabs">
+        <button class="age-tab active" data-filter="all" onclick="setAgeFilter(this,'all')" style="padding:7px 14px;border-radius:20px;border:none;font-size:12px;font-weight:600;cursor:pointer;background:var(--brown);color:#fff;">All</button>
+        <button class="age-tab" data-filter="0" onclick="setAgeFilter(this,'0')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #27ae60;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#27ae60;">&lt;1 month</button>
+        <button class="age-tab" data-filter="1" onclick="setAgeFilter(this,'1')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #f39c12;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#f39c12;">1–2 months</button>
+        <button class="age-tab" data-filter="2" onclick="setAgeFilter(this,'2')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #e67e22;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#e67e22;">2–3 months</button>
+        <button class="age-tab" data-filter="3" onclick="setAgeFilter(this,'3')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #e74c3c;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#e74c3c;">3–4 months</button>
+        <button class="age-tab" data-filter="4" onclick="setAgeFilter(this,'4')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #922b21;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#922b21;">4+ months</button>
+      </div>
+      <div id="aging-grid"></div>
+    </div>
+  </details>
 </div>
 
 <!-- ════ SALES/SAVED PAGE ════ -->
@@ -1161,12 +1180,14 @@ body.gst-mode .gst-only{display:block;}
     <button class="modal-close" onclick="document.getElementById('inv-print-modal').classList.remove('open')">X</button>
     <div class="modal-title">Print Price List</div>
     <div style="font-size:13px;color:#888;margin-bottom:14px;" id="inv-print-modal-sub"></div>
-    <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:6px;">Filter by Date Received</div>
-    <div class="row2" style="margin-bottom:14px;">
+    <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:6px;">Select / Filter by Date Received</div>
+    <div class="row2" style="margin-bottom:8px;">
       <div class="fg" style="margin-bottom:0;"><label>From</label><input type="date" id="ipm-date-from"/></div>
       <div class="fg" style="margin-bottom:0;"><label>To</label><input type="date" id="ipm-date-to"/></div>
     </div>
-    <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:6px;">Filter by Product No.</div>
+    <button class="btn btn-o btn-sm" onclick="selectByDateRange()" style="width:100%;margin-bottom:6px;">📅 Select all products in this date range</button>
+    <div style="font-size:11px;color:#888;margin-bottom:14px;" id="ipm-date-help">Pick a date range, then tap the button above to select those products automatically — no need to tick boxes. Undated products are always included. The date range below also filters whatever is already selected.</div>
+    <div style="font-size:12px;font-weight:600;color:var(--brown);margin-bottom:6px;">Filter by Product No. <span style="font-weight:400;color:#aaa;">(fallback — leave blank to ignore)</span></div>
     <div class="row2" style="margin-bottom:14px;">
       <div class="fg" style="margin-bottom:0;"><label>From #</label><input type="number" id="ipm-pno-from" placeholder="e.g. 1" min="1"/></div>
       <div class="fg" style="margin-bottom:0;"><label>To #</label><input type="number" id="ipm-pno-to" placeholder="e.g. 999" min="1"/></div>
@@ -1744,6 +1765,24 @@ function hideLoading(){
   if(ov)ov.classList.remove('show');
 }
 function today(){return new Date().toISOString().split('T')[0];}
+// v14.33.0 — normalise any stored date to YYYY-MM-DD for reliable range comparison.
+// The sheet can round-trip dateAdded as an ISO datetime, a dd-mmm-yyyy display string,
+// or a localized string; the price-list date filter compares against <input type=date>
+// (always YYYY-MM-DD), so everything must be coerced to that shape first.
+function toISODate(d){
+  if(!d)return'';
+  const str=String(d).trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(str))return str;                 // already ISO date
+  if(/^\d{4}-\d{2}-\d{2}T/.test(str))return str.slice(0,10);     // ISO datetime
+  const MONTHS={jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+  let m=str.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);           // dd-mmm-yyyy
+  if(m){const mm=MONTHS[m[2].toLowerCase()];if(mm)return m[3]+'-'+mm+'-'+String(m[1]).padStart(2,'0');}
+  const dt=new Date(str);
+  if(!isNaN(dt.getTime())){
+    return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+  }
+  return '';
+}
 // In-app confirm modal — replaces browser confirm() which is suppressed in PWA/iOS
 let _confirmOkCb=null,_confirmCancelCb=null;
 function showConfirmModal(title,body,onOk,onCancel){
@@ -3528,9 +3567,26 @@ function buildInvoiceHTML(data){
   };
   const validItems=itemsArr.filter(i=>i.unitPrice>0);
   const hsnSet=[...new Set(validItems.map(i=>i.hsn||'540754'))];
+  // v14.33.0 — LINE TAXABLE RECONCILED TO THE GST SUMMARY.
+  // The per-line "Taxable" used to be lineIncl/1.05 rounded independently, so on a
+  // multi-line invoice the printed line taxables did not sum to the GST-summary taxable
+  // (displaySuitTaxable) — which is the figure actually declared in the return — and a
+  // pre-GST discount was never reflected per line. We now allocate the authoritative
+  // suit taxable across lines in proportion to each line's inclusive value, and give the
+  // LAST line the residual so the column sums EXACTLY to displaySuitTaxable to the paisa.
+  const _suitInclTotal=validItems.reduce((s,it)=>s+(it.qty||1)*(it.unitPrice||0),0);
+  let _taxAllocated=0;
   const itemRows=validItems.map((it,i)=>{
     const lineIncl=(it.qty||1)*(it.unitPrice||0);
-    const lineTax=parseFloat((lineIncl/1.05).toFixed(2));
+    let lineTax;
+    if(!gstMode||_suitInclTotal<=0){
+      lineTax=parseFloat((lineIncl/1.05).toFixed(2));
+    }else if(i===validItems.length-1){
+      lineTax=parseFloat((displaySuitTaxable-_taxAllocated).toFixed(2)); // residual absorbs rounding
+    }else{
+      lineTax=parseFloat((displaySuitTaxable*(lineIncl/_suitInclTotal)).toFixed(2));
+      _taxAllocated+=lineTax;
+    }
     return'<tr style="border-bottom:1px solid #e2d4bc;">'
       +'<td style="padding:6px 8px;">'+(i+1)+'</td>'
       +'<td style="padding:6px 8px;"><strong>'+(it.desc||'Unstitched Suit')+'</strong>'+(it.prodNo?'<span style="font-size:10px;color:#888;"> #'+it.prodNo+'</span>':'')+'</td>'
@@ -3548,7 +3604,7 @@ function buildInvoiceHTML(data){
       +(gstMode?'<td style="padding:6px 8px;">9965</td>':'')
       +'<td style="padding:6px 8px;text-align:center;">1</td>'
       +'<td style="padding:6px 8px;text-align:right;">'+f(storedShipping)+'</td>'
-      +(gstMode?'<td style="padding:6px 8px;text-align:right;">'+f(parseFloat((storedShipping/1.18).toFixed(2)))+'</td>':'')
+      +(gstMode?'<td style="padding:6px 8px;text-align:right;">'+f(displayShipTaxable)+'</td>':'')
       +'<td style="padding:6px 8px;text-align:right;font-weight:600;">'+f(storedShipping)+'</td>'
       +'</tr>'
     :'';
@@ -3639,8 +3695,8 @@ function buildInvoiceHTML(data){
       </table>
     </div>`:''}
     <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:14px;">
-      <div style="font-size:10px;color:#888;font-style:italic;">Computer-generated document.</div>
-      <div style="text-align:right;"><div style="font-size:10px;color:#888;margin-bottom:24px;">For Vismaad Creations</div><div style="font-size:10px;color:#888;border-top:1px solid #ccc;padding-top:3px;">Authorised Signatory</div></div>
+      <div style="font-size:10px;color:#888;font-style:italic;max-width:60%;">This is a computer-generated ${gstMode?'invoice':'bill'} and does not require a physical signature.</div>
+      <div style="text-align:right;"><div style="font-size:10px;color:#888;">For Vismaad Creations</div></div>
     </div>
     <div style="text-align:center;margin-top:14px;font-size:10px;color:#aaa;padding-top:12px;border-top:1px solid #e2d4bc;">
       Thank you for shopping with Vismaad Creations! 🙏
@@ -5574,10 +5630,15 @@ function renderAgingGrid(){
 }
 function renderInventory(){
   const sf=document.getElementById('inv-status-filter')?.value||'';
+  const q=(document.getElementById('inv-search')?.value||'').trim().toLowerCase(); // v14.33.0 — register search
   const filtered=inventory.filter(p=>{
     const s=parseInt(p.qty)||0;
     if(sf==='instock'&&s===0)return false;
     if(sf==='sold'&&s>0)return false;
+    if(q){
+      const hay=[p.prodNo,p.name,p.hsn||DEFAULT_HSN,p.fabric,p.notes].map(x=>String(x==null?'':x).toLowerCase()).join(' ');
+      if(hay.indexOf(q)===-1)return false;
+    }
     return true;
   }).sort((a,b)=>parseInt(b.prodNo)-parseInt(a.prodNo)); // v14.32.0 — newest (highest #) first
   const el=document.getElementById('inv-list');if(!el)return;
@@ -5603,7 +5664,7 @@ function renderInventory(){
         <div class="list-main" style="margin-top:3px;">${p.name}</div>
         ${(()=>{const mp=marginPct(p.cost,p.sellPrice);const mc=mp===null?'':(mp<0?'#e74c3c':'#27ae60');
           return`<div class="list-sub">${p.cost?'Cost ₹'+p.cost+' · ':''}${mp!==null?`<span style="color:${mc};font-weight:600;">${mp>=0?'+':''}${mp}% margin</span> · `:''}${s} of ${orig} in stock${p.notes?' · '+p.notes:''}</div>`;})()}
-        <div class="list-sub" style="margin-top:1px;"><span style="background:var(--goldp);color:var(--brown);padding:1px 6px;border-radius:6px;font-size:10px;font-weight:600;">HSN ${p.hsn||DEFAULT_HSN}</span></div>
+        <div class="list-sub" style="margin-top:1px;"><span style="background:var(--goldp);color:var(--brown);padding:1px 6px;border-radius:6px;font-size:10px;font-weight:600;">HSN ${p.hsn||DEFAULT_HSN}</span>${p.dateAdded?`<span style="color:#888;font-size:10px;margin-left:6px;">📅 Recd ${fmtDate(p.dateAdded)}</span>`:'<span style="color:#c47b00;font-size:10px;margin-left:6px;">📅 No date</span>'}</div>
         ${s>0?(()=>{
           const stage=getPostingStage(p);
           const col=getStageColor(stage);
@@ -9928,6 +9989,8 @@ function _doLinkToInvoice(prodNoArg, invId, variantId){
 // ═══════════════════════════════════════════
 // INVENTORY — PRICE LIST PRINT
 // ═══════════════════════════════════════════
+function clearInvSearch(){const el=document.getElementById('inv-search');if(el){el.value='';renderInventory();el.focus();}}
+
 let _invPrintMode = false;
 let _invPrintSelected = new Set();
 
@@ -9963,10 +10026,39 @@ function selectAllInvForPrint() {
   renderInventory();
 }
 
-function openInvPrintDialog() {
-  if (!_invPrintSelected.size) { toast('⚠️ Select at least one article'); return; }
+// v14.33.0 — date-received-driven selection. Picks all products whose dateAdded falls
+// in the From/To range (undated products are ALWAYS included, per requirement), honouring
+// the register's In Stock / Sold Out filter. This is the intended "print by date received"
+// path; the product-number range remains as a fallback selector.
+function selectByDateRange() {
+  const from = document.getElementById('ipm-date-from')?.value || '';
+  const to   = document.getElementById('ipm-date-to')?.value || '';
+  if (!from && !to) { toast('⚠️ Pick a From and/or To date first'); return; }
+  const sf = document.getElementById('inv-status-filter')?.value || '';
+  let added = 0;
+  inventory.forEach(p => {
+    const s = parseInt(p.qty) || 0;
+    if (sf === 'instock' && s === 0) return;
+    if (sf === 'sold' && s > 0) return;
+    const d = toISODate(p.dateAdded);
+    let inRange;
+    if (!d) inRange = true; // undated always included
+    else { inRange = true; if (from && d < from) inRange = false; if (to && d > to) inRange = false; }
+    if (inRange) { _invPrintSelected.add(parseInt(p.prodNo)); added++; }
+  });
   const sub = document.getElementById('inv-print-modal-sub');
   if (sub) sub.textContent = _invPrintSelected.size + ' article(s) selected for printing';
+  toast('📅 ' + added + ' product(s) selected in date range (total ' + _invPrintSelected.size + ')');
+  renderInventory();
+}
+
+function openInvPrintDialog() {
+  // v14.33.0 — no longer requires a pre-selection: you can open this and select by
+  // date received inside. printInvPriceList still refuses to print an empty result.
+  const sub = document.getElementById('inv-print-modal-sub');
+  if (sub) sub.textContent = _invPrintSelected.size
+    ? _invPrintSelected.size + ' article(s) selected — or pick a date range below'
+    : 'No articles ticked yet — pick a date range below to select by date received, or tap Cancel and tick rows manually';
   document.getElementById('ipm-ship').value = '';
   document.getElementById('ipm-title').value = '';
   document.getElementById('ipm-preview').textContent = '';
@@ -10004,11 +10096,11 @@ function printInvPriceList() {
       return n >= pnoFrom && n <= pnoTo;
     });
   }
-  // Filter by date received range
+  // Filter by date received range (v14.33.0 — robust date normalisation; undated kept)
   if (dateFrom || dateTo) {
     selected = selected.filter(p => {
-      if (!p.dateAdded) return true;
-      const d = p.dateAdded.slice(0, 10);
+      const d = toISODate(p.dateAdded);
+      if (!d) return true; // undated always included, per requirement
       if (dateFrom && d < dateFrom) return false;
       if (dateTo && d > dateTo) return false;
       return true;
