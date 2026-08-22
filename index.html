@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.33.0
+APP: Vismaad Creations v14.34.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 16-Aug-2026 — v14.33.0: INVOICE LEGALITY RECONCILIATION + INVENTORY LAYOUT/SEARCH + DATE-RECEIVED PRICE LIST. (1) INVOICE LINE TAXABLE NOW RECONCILES TO THE GST SUMMARY. Previously each line's Taxable was lineIncl/1.05 rounded independently and shipping was shipping/1.18, so on a multi-line invoice the printed line taxables did not sum to the GST-summary taxable (displaySuitTaxable/displayShipTaxable) — the figures actually declared in the return — and a pre-GST discount was never reflected per line. The suit taxable is now allocated across lines in proportion to each line's inclusive value with the LAST line absorbing the residual, so the column sums EXACTLY to the summary to the paisa; the shipping line taxable now shows displayShipTaxable directly. Verified: sum(line taxables)===summary taxable, and taxable+GST===grand total. This removes the invoice-vs-return contradiction on the printed Tax Invoice. (2) SIGNATURE BLOCK FIXED. The footer stated 'Computer-generated document' AND carried an 'Authorised Signatory' rule — contradictory under CGST Rule 46, which permits an unsigned computer-generated invoice. Now a single clean statement: 'This is a computer-generated invoice/bill and does not require a physical signature.' with the firm name only, no signature line. (3) INVENTORY PAGE REORDERED to Add Product → Register → Stock Aging. Register and Aging are now COLLAPSIBLE via native <details>/<summary> (Register open by default, Aging collapsed), mobile + desktop friendly, animated chevron. (4) INVENTORY REGISTER SEARCH added — a search box filters the register live by name, product no., HSN, fabric, and notes (with an ✕ clear button); wired through renderInventory. (5) PRICE LIST — DATE RECEIVED NOW WORKS AS A PRIMARY SELECTOR. Root cause of the old 'date received not retained' symptom: dateAdded is stored client-side as YYYY-MM-DD but the sheet can round-trip it as an ISO datetime, a dd-mmm-yyyy display string, or a localized string; the filter's slice(0,10) then never matched the <input type=date> range. New toISODate() normaliser coerces any stored date shape to YYYY-MM-DD, used by both the date filter and the new selector. The print dialog gains a '📅 Select all products in this date range' button so you pick a date range and it selects those products automatically (no ticking), honouring the In Stock/Sold Out filter; the dialog now opens even with zero pre-selection. Undated products are ALWAYS included (never excluded), per requirement. The product-number range selector is RETAINED as a fallback. Each register row now shows '📅 Recd <date>' (or 'No date' in amber) so retention is visible at a glance. NOTE ON HSN: 520811 (unbleached greige cotton) and similar raw-fabric subheadings remain intentionally out of the curated HSN_OPTIONS list (which targets printed/dyed suit fabrics) but are still fully usable — any custom code typed/kept is preserved. PREV_CHANGE: 16-Aug-2026 — v14.32.0: INVENTORY SORT NEWEST-FIRST + FABRIC→HSN CLASSIFICATION + TWO-WAY MARGIN CALCULATOR. (1) INVENTORY REGISTER now lists newest products first (descending prodNo) via a sort on the filtered list inside renderInventory; the aging grid (age-sorted) and all internal ascending sorts are untouched. (2) PER-PRODUCT HSN. Every product now carries its own hsn field instead of every invoice line inheriting the hardcoded 540754. Add/Edit forms gained an HSN dropdown (HSN_OPTIONS: 12 fibre-specific 5% headings across Ch.50/51/52/53/54/55/58/60 shown as 'code — label') that is FREELY user-overridable and preserves any legacy/custom code not in the list. As you type the product NAME (or fabric type), guessHsnFromName() scans fibre keywords (FABRIC_HSN_RULES, ordered by specificity so silk/velvet/linen resolve before generic cotton/synthetic) and auto-selects the matching HSN — but ONLY until the user touches the dropdown (_hsnManual flag), so a deliberate choice is never clobbered; opening an existing product sets the flag pre-armed so name edits don't rewrite its stored HSN. lookupProduct + lookupProductByName copy the product's hsn onto the invoice item (visible HSN field now has id ihsn-{rowId}), so the correct code flows into the printed invoice and GST export automatically. Rate is UNCHANGED — under GST 2.0 (eff. 22-Sep-2025) all fabric headings, incl. Ch.58 velvet/pile cut from 12%, are a flat 5%, so gstSplit and every tax path are unaffected; only the CODE varies by fibre. hsn persists via flattenProduct's {...p} spread; parseInventoryRow's {...r} preserves it on load; Apps Script auto-adds the Inventory column on first write — no Code.gs change. Products without hsn fall back to 540754 exactly as before (backward-compatible, nothing to migrate). The suggested 8-digit codes are representative subheadings at 5%; the field stays editable if a CA prefers a more specific line. (3) TWO-WAY MARGIN. Add/Edit forms gained a 'Margin % over cost' field wired bidirectionally to cost & sell: typing a margin fills Sell = round(cost × (1 + margin/100)) to the nearest ₹1 (cost 100 + 30% = 130); typing a Sell price shows the implied margin = round((sell−cost)/cost×100, 1 dp), flagging below-cost pricing in red. Sell price stays fully overridable. Margin is DERIVED, never stored — the inventory register now shows the live margin% (green/red) beside cost and an HSN badge per row, so both are visible at a glance without opening the editor. NOTE: existing products keep HSN 540754 until you open them and pick the correct fabric/HSN (or let the name-detection suggest it on your next edit); no bulk migration is performed. PREV_CHANGE: 23-Jul-2026 — v14.31.0: GST CORRECTNESS + RETURNS/CANCELLATIONS + PER-AWB COURIER IN MESSAGES. (1) COURIER OVERRIDE NEVER REACHED THE WHATSAPP MESSAGE. v14.29.0 threaded courierOverride through getCourierInfo/groupTrackingByCourier but NOT into buildTrackingMessage/buildFollowupTrackingMessage, which lacked the parameter entirely; all five internal calls and all three call sites dropped it. A two-package invoice whose first parcel went India Post and whose second AWB had an unrecognised format quoted India Post for BOTH, even after the picker stored the right carrier. Added the 5th param to both builders, passed it through every internal call, and supplied inv.courierOverride at all three call sites. Tracking-page badges were already correct; only the message was wrong. (2) gstSplit(grand,ship,disc) — NEW single source of truth for the tax split on a stored invoice: suits 5% (HSN 540754), shipping 18% (SAC 9965), prices GST-inclusive. Every reporting path now routes through it. Previously the GSTR summary export divided the ENTIRE grand total (shipping included) by 1.05, and the detailed sales register divided shipping by 1.05 — both UNDER-DECLARED output tax on every Tax Invoice carrying shipping (on Rs100 shipping the printed invoice said Rs15.25, the export said Rs4.76), so the invoice handed to the customer and the return contradicted each other. P&L gstOnSuits had the same flat-1.05 form and mis-stated the suit component. (3) GST export headers were hardcoded 'CGST 2.5% / SGST 2.5% / IGST 5%' — one column now legitimately carries two rates, so labels are rate-neutral and two new columns break out Suits Taxable @5% and Shipping Taxable @18%. FY subtotal and grand-total accumulators widened 6->8 slots to match. (4) RETURNS/CANCELLATIONS WERE COUNTED AS FULL REVENUE. Neither the P&L nor either export filtered on invoiceStatus (the tracking page and dashboard already did), so a cancelled order still contributed turnover, taxable value and output GST. Treated differently by surface, deliberately: the P&L now DROPS Cancelled/Returned outright (it answers what we actually earned) and skips their credit notes too, or the reversal would subtract the same sale twice — count and value shown as an 'Excluded' line plus a card-title note so the omission is never silent. The GST export KEEPS invoice + credit note (the orthodox treatment) but now warns loudly when a Cancelled/Returned Tax Invoice has NO credit note, which is the case that silently declares tax on a sale that never happened, since the manual Status button sets the status without creating one. (5) Credit notes issued OUTSIDE the exported range used to vanish silently — the deduction was skipped by an early return. They still are not deducted (a reversal belongs to its own filing period, which is correct) but the export now lists them so an invoice-in-March / CN-in-April straddle is visible rather than a trap. (6) CN gstReversed/taxableReversed used a flat /1.05, ignoring 18% shipping on the referenced invoice; now pro-rated at that invoice's own blended rate via gstSplit. This also feeds P&L totalCreditGST, so the error had been propagating into ITC and net-tax figures. (7) printInvoice read raw data.isIntra — after a sheet round-trip that is the STRING "false", which is truthy, so a reprinted INTER-state Tax Invoice showed CGST+SGST instead of IGST (wrong place of supply on a tax document). Now coerced with the same pattern used everywhere else. (8) printInvoice recomputed from itemsArr, but makePayload strips itemsArr to [] on oversized invoices while preserving totals — such an invoice re-fetched from the sheet reprinted with a zeroed GST table beside a non-zero grand total. Falls back to the stored grand via gstSplit when items are missing. (9) STOCK NOW MOVES ON THE TRANSITION, NOT THE DESTINATION. Cancelled restored nothing (only Returned did), so goods that never shipped stayed deducted and qtySold stayed inflated; Returned->Returned restored twice; and the Reactivate button never re-deducted, inventing stock on every round trip. _applyInvoiceStatus now computes _wasVoid/_nowVoid, no-ops on an unchanged status, restores only on Active->void, and re-deducts (pool-aware, spill recorded, shortfall toast, never stalls) on void->Active. (10) Detailed sales register gains an 'Invoice Status' column (Active/Cancelled/Returned), distinct from the existing delivery Status. NOTE: nothing has been filed yet, so no revised return is needed; all figures are correct from this version forward. Invoices cancelled before this version did not restore stock — correct those products by hand in the inventory editor, or toggle the status off and back on.
+LAST_CHANGE: 22-Aug-2026 — v14.34.0: MANUAL 'MARK DELIVERED' + SALES FILTER CLEANUP + RAKSHA BANDHAN OUTREACH. (1) MANUAL DELIVERY OVERRIDE. Old invoices with no tracking number, or a number India Post/DTDC never recognised, had no way to leave the non-delivered lists — a check for this (inv.status==='Delivered') already existed on the Tracking page's no-tracking branch, but nothing in the app ever WROTE that value, so it was dead code; this override never actually existed as a usable feature. New deliveredManual/deliveredManualOn fields, settable per-invoice (✅/↩ button on each Sales row, mirroring the existing 🚚 Shipped toggle) or in bulk (✅ Delivered button on the Sales multi-select bar, mirroring bulkMarkShipped). Wired into every place that currently decides 'non-delivered' so 'elsewhere' is actually covered: Dashboard Pending Orders (_dashGetStatus short-circuits to Delivered, invoice is skipped from all three groups), Sales page filter + row badge, Tracking page (both the tracked list and the no-tracking list — a manual mark now overrides whatever the courier data says), and the DTDC/Blue Dart non-delivered count. Sync-safe: merge treats deliveredManual as sticky-true (OR'd across devices, same protective pattern already used for isShipped/tracking Delivered), so a stale sync from another device can never silently un-deliver an invoice. Delivery-review WhatsApp prompts now also fire for manually-delivered invoices, exactly as if the courier had confirmed delivery — getPendingDeliveryReviews/getDeliveredTrackNos/checkReviewPopup extended with a synthetic per-invoice key (MANUAL_{id}) since there's no real tracking number to hang the reminder off; the popup and Outreach list hide the synthetic key and show 'Marked delivered manually' instead, and the WhatsApp message text itself never references it (single-package wording, unaffected). (2) SALES FILTER SIMPLIFIED. Dropped 'Shipped' and 'Pending' — two legacy broad buckets left over from before the finer categories existed, and which overlapped them: 'Shipped' was true for ANY invoice with tracking data at all, including ones already Delivered; 'Pending' was true for anything without, swallowing both No Tracking and Awaiting Update into one bucket with no way to tell them apart. Replaced with a clean, mutually-exclusive set — No Tracking / Awaiting Update / In Transit / Delivered / Cancelled / Returned — every invoice now falls into exactly one bucket, and Delivered honours the new manual override (manually-delivered invoices are pulled out of every other bucket). (3) RAKSHA BANDHAN added to festival outreach (VARIABLE_FESTIVAL_KEYS + Calendarific name-matching + 2026 fallback anchor 28-Aug + message template), pan-India, Hindu+Sikh+Unknown by default, same pattern as Diwali/Holi. It was never defined anywhere in the festival list at all (not a timing bug) — it now enters the 25-day outreach lookahead like every other festival. PREV_CHANGE: 16-Aug-2026 — v14.33.0: INVOICE LEGALITY RECONCILIATION + INVENTORY LAYOUT/SEARCH + DATE-RECEIVED PRICE LIST. (1) INVOICE LINE TAXABLE NOW RECONCILES TO THE GST SUMMARY. Previously each line's Taxable was lineIncl/1.05 rounded independently and shipping was shipping/1.18, so on a multi-line invoice the printed line taxables did not sum to the GST-summary taxable (displaySuitTaxable/displayShipTaxable) — the figures actually declared in the return — and a pre-GST discount was never reflected per line. The suit taxable is now allocated across lines in proportion to each line's inclusive value with the LAST line absorbing the residual, so the column sums EXACTLY to the summary to the paisa; the shipping line taxable now shows displayShipTaxable directly. Verified: sum(line taxables)===summary taxable, and taxable+GST===grand total. This removes the invoice-vs-return contradiction on the printed Tax Invoice. (2) SIGNATURE BLOCK FIXED. The footer stated 'Computer-generated document' AND carried an 'Authorised Signatory' rule — contradictory under CGST Rule 46, which permits an unsigned computer-generated invoice. Now a single clean statement: 'This is a computer-generated invoice/bill and does not require a physical signature.' with the firm name only, no signature line. (3) INVENTORY PAGE REORDERED to Add Product → Register → Stock Aging. Register and Aging are now COLLAPSIBLE via native <details>/<summary> (Register open by default, Aging collapsed), mobile + desktop friendly, animated chevron. (4) INVENTORY REGISTER SEARCH added — a search box filters the register live by name, product no., HSN, fabric, and notes (with an ✕ clear button); wired through renderInventory. (5) PRICE LIST — DATE RECEIVED NOW WORKS AS A PRIMARY SELECTOR. Root cause of the old 'date received not retained' symptom: dateAdded is stored client-side as YYYY-MM-DD but the sheet can round-trip it as an ISO datetime, a dd-mmm-yyyy display string, or a localized string; the filter's slice(0,10) then never matched the <input type=date> range. New toISODate() normaliser coerces any stored date shape to YYYY-MM-DD, used by both the date filter and the new selector. The print dialog gains a '📅 Select all products in this date range' button so you pick a date range and it selects those products automatically (no ticking), honouring the In Stock/Sold Out filter; the dialog now opens even with zero pre-selection. Undated products are ALWAYS included (never excluded), per requirement. The product-number range selector is RETAINED as a fallback. Each register row now shows '📅 Recd <date>' (or 'No date' in amber) so retention is visible at a glance. NOTE ON HSN: 520811 (unbleached greige cotton) and similar raw-fabric subheadings remain intentionally out of the curated HSN_OPTIONS list (which targets printed/dyed suit fabrics) but are still fully usable — any custom code typed/kept is preserved. PREV_CHANGE: 16-Aug-2026 — v14.32.0: INVENTORY SORT NEWEST-FIRST + FABRIC→HSN CLASSIFICATION + TWO-WAY MARGIN CALCULATOR. (1) INVENTORY REGISTER now lists newest products first (descending prodNo) via a sort on the filtered list inside renderInventory; the aging grid (age-sorted) and all internal ascending sorts are untouched. (2) PER-PRODUCT HSN. Every product now carries its own hsn field instead of every invoice line inheriting the hardcoded 540754. Add/Edit forms gained an HSN dropdown (HSN_OPTIONS: 12 fibre-specific 5% headings across Ch.50/51/52/53/54/55/58/60 shown as 'code — label') that is FREELY user-overridable and preserves any legacy/custom code not in the list. As you type the product NAME (or fabric type), guessHsnFromName() scans fibre keywords (FABRIC_HSN_RULES, ordered by specificity so silk/velvet/linen resolve before generic cotton/synthetic) and auto-selects the matching HSN — but ONLY until the user touches the dropdown (_hsnManual flag), so a deliberate choice is never clobbered; opening an existing product sets the flag pre-armed so name edits don't rewrite its stored HSN. lookupProduct + lookupProductByName copy the product's hsn onto the invoice item (visible HSN field now has id ihsn-{rowId}), so the correct code flows into the printed invoice and GST export automatically. Rate is UNCHANGED — under GST 2.0 (eff. 22-Sep-2025) all fabric headings, incl. Ch.58 velvet/pile cut from 12%, are a flat 5%, so gstSplit and every tax path are unaffected; only the CODE varies by fibre. hsn persists via flattenProduct's {...p} spread; parseInventoryRow's {...r} preserves it on load; Apps Script auto-adds the Inventory column on first write — no Code.gs change. Products without hsn fall back to 540754 exactly as before (backward-compatible, nothing to migrate). The suggested 8-digit codes are representative subheadings at 5%; the field stays editable if a CA prefers a more specific line. (3) TWO-WAY MARGIN. Add/Edit forms gained a 'Margin % over cost' field wired bidirectionally to cost & sell: typing a margin fills Sell = round(cost × (1 + margin/100)) to the nearest ₹1 (cost 100 + 30% = 130); typing a Sell price shows the implied margin = round((sell−cost)/cost×100, 1 dp), flagging below-cost pricing in red. Sell price stays fully overridable. Margin is DERIVED, never stored — the inventory register now shows the live margin% (green/red) beside cost and an HSN badge per row, so both are visible at a glance without opening the editor. NOTE: existing products keep HSN 540754 until you open them and pick the correct fabric/HSN (or let the name-detection suggest it on your next edit); no bulk migration is performed. PREV_CHANGE: 23-Jul-2026 — v14.31.0: GST CORRECTNESS + RETURNS/CANCELLATIONS + PER-AWB COURIER IN MESSAGES. (1) COURIER OVERRIDE NEVER REACHED THE WHATSAPP MESSAGE. v14.29.0 threaded courierOverride through getCourierInfo/groupTrackingByCourier but NOT into buildTrackingMessage/buildFollowupTrackingMessage, which lacked the parameter entirely; all five internal calls and all three call sites dropped it. A two-package invoice whose first parcel went India Post and whose second AWB had an unrecognised format quoted India Post for BOTH, even after the picker stored the right carrier. Added the 5th param to both builders, passed it through every internal call, and supplied inv.courierOverride at all three call sites. Tracking-page badges were already correct; only the message was wrong. (2) gstSplit(grand,ship,disc) — NEW single source of truth for the tax split on a stored invoice: suits 5% (HSN 540754), shipping 18% (SAC 9965), prices GST-inclusive. Every reporting path now routes through it. Previously the GSTR summary export divided the ENTIRE grand total (shipping included) by 1.05, and the detailed sales register divided shipping by 1.05 — both UNDER-DECLARED output tax on every Tax Invoice carrying shipping (on Rs100 shipping the printed invoice said Rs15.25, the export said Rs4.76), so the invoice handed to the customer and the return contradicted each other. P&L gstOnSuits had the same flat-1.05 form and mis-stated the suit component. (3) GST export headers were hardcoded 'CGST 2.5% / SGST 2.5% / IGST 5%' — one column now legitimately carries two rates, so labels are rate-neutral and two new columns break out Suits Taxable @5% and Shipping Taxable @18%. FY subtotal and grand-total accumulators widened 6->8 slots to match. (4) RETURNS/CANCELLATIONS WERE COUNTED AS FULL REVENUE. Neither the P&L nor either export filtered on invoiceStatus (the tracking page and dashboard already did), so a cancelled order still contributed turnover, taxable value and output GST. Treated differently by surface, deliberately: the P&L now DROPS Cancelled/Returned outright (it answers what we actually earned) and skips their credit notes too, or the reversal would subtract the same sale twice — count and value shown as an 'Excluded' line plus a card-title note so the omission is never silent. The GST export KEEPS invoice + credit note (the orthodox treatment) but now warns loudly when a Cancelled/Returned Tax Invoice has NO credit note, which is the case that silently declares tax on a sale that never happened, since the manual Status button sets the status without creating one. (5) Credit notes issued OUTSIDE the exported range used to vanish silently — the deduction was skipped by an early return. They still are not deducted (a reversal belongs to its own filing period, which is correct) but the export now lists them so an invoice-in-March / CN-in-April straddle is visible rather than a trap. (6) CN gstReversed/taxableReversed used a flat /1.05, ignoring 18% shipping on the referenced invoice; now pro-rated at that invoice's own blended rate via gstSplit. This also feeds P&L totalCreditGST, so the error had been propagating into ITC and net-tax figures. (7) printInvoice read raw data.isIntra — after a sheet round-trip that is the STRING "false", which is truthy, so a reprinted INTER-state Tax Invoice showed CGST+SGST instead of IGST (wrong place of supply on a tax document). Now coerced with the same pattern used everywhere else. (8) printInvoice recomputed from itemsArr, but makePayload strips itemsArr to [] on oversized invoices while preserving totals — such an invoice re-fetched from the sheet reprinted with a zeroed GST table beside a non-zero grand total. Falls back to the stored grand via gstSplit when items are missing. (9) STOCK NOW MOVES ON THE TRANSITION, NOT THE DESTINATION. Cancelled restored nothing (only Returned did), so goods that never shipped stayed deducted and qtySold stayed inflated; Returned->Returned restored twice; and the Reactivate button never re-deducted, inventing stock on every round trip. _applyInvoiceStatus now computes _wasVoid/_nowVoid, no-ops on an unchanged status, restores only on Active->void, and re-deducts (pool-aware, spill recorded, shortfall toast, never stalls) on void->Active. (10) Detailed sales register gains an 'Invoice Status' column (Active/Cancelled/Returned), distinct from the existing delivery Status. NOTE: nothing has been filed yet, so no revised return is needed; all figures are correct from this version forward. Invoices cancelled before this version did not restore stock — correct those products by hand in the inventory editor, or toggle the status off and back on.
 PREV_CHANGE: 22-Jul-2026 — v14.30.0: DROPSHIP ITEMS NO LONGER TOUCH INVENTORY STOCK. A product added to an invoice by name/number and then tagged as dropship (it.dsSupId set, including the '__pending__' placeholder before a supplier is picked) was still being deducted from inventory at save, because every stock call site keyed off prodNo alone and never read the DS flag. This was wrong for BOTH full-DS invoices (all articles tagged) and partial-DS invoices (some tagged), since deduction runs per-item in a loop. Fixed symmetrically so stock always reflects only what physically ships from our own godown: (1) isDS(it) helper — single source of truth (dsSupId truthy). (2) Invoice save skips deductStock for DS items — spill set to [], qtySold/linkedInvoices/qtyOriginal untouched for them; non-DS items deduct exactly as before. (3) Invoice-delete restore and Returned-status restore both skip DS items — they never deducted, so restoring would have INVENTED phantom stock; this is the mirror of the save fix. (4) _flipItemDS(inv,it,toDS) — shared engine for DS status changes on an ALREADY-SAVED invoice (where stock was, or must now be, moved). non-DS→DS: restoreStock using the item's recorded spill, decrement qtySold, drop invoice from linkedInvoices, clear it.spill. DS→non-DS: deductStock, write the new it.spill, credit qtySold, add to linkedInvoices, ratchet qtyOriginal; never stalls — if that article's stock is now 0 (sold as DS meanwhile), qty floors at 0, qtySold still climbs and a shortfall toast fires, matching v14.27.0 pool behaviour. Guards against double-apply (acts only on a genuine state change) and no-prodNo items. (5) Bulk 'Mark as Dropship' routes every newly-tagged item through _flipItemDS(toDS=true) so previously-deducted stock is handed back; already-DS items skipped by the existing guard. (6) Edit-invoice DS toggle (toggleEditDSItem) routes through _flipItemDS in BOTH directions and persists the invoice + touched products via gsWriteConfirmed. The live invoice-builder toggle (toggleDSItem) needs no stock logic — that item is not yet saved, and the save fix skips it. Spill survives the sheet round-trip via expandItems, so a later delete/return of an invoice whose item was flipped DS→non-DS reverses exactly what the re-deduction took. NOTE: invoices dropshipped before this version that had already (wrongly) deducted stock are not auto-repaired — re-toggle the DS flag off and on via the edit modal, or correct the product by hand in the inventory editor.
 PREV_CHANGE: 19-Jul-2026 — v14.29.0: COURIER DETECTION + TRACKING SEARCH. (1) DTDC AWBs of the form digit+letter+8-10 digits (e.g. 7D132636790) matched none of the four patterns in detectCourier(), so it returned null and getCourierInfo() fell back to the invoice-level dispatchMethod. On a multi-package invoice whose FIRST parcel went India Post, the second DTDC number silently inherited 'indiapost' — the WhatsApp message quoted India Post, and getCourierTrackedInvoices() filed it under India Post so it never appeared in the DTDC/Blue Dart tracking list. Added /^\\d[A-Z]\\d{8,10}$/ → dtdc; cannot collide with the existing rules (India Post UPU needs two leading letters plus a two-letter suffix, Blue Dart is pure-numeric). (2) COURIER PROMPT — every tracking number whose format detectCourier() cannot identify now opens a mobile-friendly picker (DTDC / Blue Dart / India Post / Other Courier) instead of silently inheriting the dispatch method. The answer is stored PER-AWB on the invoice in a new courierOverride map keyed by uppercased tracking number, so it never overwrites the invoice-level dispatchMethod and multi-courier invoices stay correct. Consulted after regex detection and before the dispatchMethod fallback, threaded through getCourierInfo/groupTrackingByCourier/buildTrackingMessage/buildFollowupTrackingMessage, the four tracking-page courier badges, getCourierTrackedInvoices (so Track123 registers the right carrier) and the P&L courier grouping. Wired into both entry paths: generateInvoice (prompts BEFORE the invoice counter or stock is touched, so cancelling mid-prompt leaves nothing half-written) and saveInvoiceEdit; both are now async. Persisted via JSON-stringify in flattenForSheet, parsed on load and in both sync-merge branches (remote-newer merges remote keys over local; no-timestamp branch fills blanks only), so per-AWB couriers survive cross-device. Invoices without courierOverride behave exactly as before. (3) TRACKING / INVOICE NO. search field added to the tracking status page alongside the existing customer and location filters — substring match on the tracking number and invoice number, debounced 200ms, combines with (does not replace) the status, date, name and location filters, and is cleared by Clear Filters. Full-width stacked on mobile, inline on desktop. (4) Dispatch dropdowns now label walk-in as 'Walk-in / Collected in person (QR code needed)' at all three sites, flagging that this method prints a UPI QR instead of an invoice. Hand Delivery and Walk-in remain SEPARATE values — merging them would have changed printed-invoice wording and forced the UPI QR onto hand-delivery orders. (5) Sale Channel 'None' chip removed (meaningless beside the other options); existing blank channels are untouched and the edit modal keeps '— Not specified —'. resetInvoiceForm no longer auto-activates the first chip, which after the removal would have silently selected WhatsApp on every new invoice. NOTE: historic invoices whose unrecognised AWBs were already misfiled are left as-is by design — 7D-prefix numbers self-correct via the new regex, other unrecognised formats keep their inherited courier until the invoice is edited.
 PREV_CHANGE: 14-Jul-2026 — v14.28.1: BUGFIX — SALES PAGE FILTER DID NOTHING. Root cause was a key-casing mismatch in trackingData. The India Post import uppercased its keys (line ~8533), but the Track123 refresh and the sheet-sync merge stored them verbatim, so the same object held both 'CD123IN' and 'cd123in' style keys. renderSales() has always looked tracking up by UPPERCASE, so any record written by the other two paths simply returned undefined — the invoice was read as having no tracking data at all and fell through to the manual isShipped flag. Result: Shipped, In Transit, Delivered and No Tracking all misclassified, and No Tracking listed invoices that plainly had a number on them. Fixes, one pass: (1) tdGet(t) — a single case-tolerant lookup helper; every READ of trackingData across the app (sales filter, sales status badge, dashboard pending orders, delivery-review list, tracking page, Track123 refresh, India Post import push) now routes through it, so no future call site can reintroduce this. (2) Both offending WRITE paths now normalise the key to uppercase, and drop the stale mixed-case duplicate if one exists. (3) One-time in-place migration on boot rewrites historic lowercase keys in vc_tracking to uppercase; where both casings exist for one number, a Delivered record is never lost and otherwise the newer updatedAt wins. (4) Search box and religion filter moved ABOVE the Cancelled/Returned branches — those two returned early, so typing a name while Cancelled was selected silently ignored what you typed. Every dropdown option now combines with search and religion. (5) Cancelled/Returned are now genuinely excluded from the Shipped and Pending filters — the comment claimed this since v14.23.0 but the code never enforced it, so a cancelled order still showed up under Pending. (6) Removed the dead double-assignment of isShippedOrDelivered (the first expression returned a status string, was immediately overwritten, and only survived because .some() coerced it).
@@ -732,11 +732,10 @@ body.gst-mode .gst-only{display:block;}
     <input type="text" id="sales-search" placeholder="🔍 Search name, invoice…" oninput="debouncedRenderSales()" style="flex:1;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:14px;"/>
     <select id="sales-filter" onchange="renderSales()" style="padding:12px 10px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;">
       <option value="">All</option>
-      <option value="Shipped">Shipped</option>
+      <option value="NoTracking">No Tracking</option>
+      <option value="AwaitingUpdate">Awaiting Update</option>
       <option value="InTransit">In Transit</option>
       <option value="Delivered">Delivered</option>
-      <option value="Pending">Pending</option>
-      <option value="NoTracking">No Tracking</option>
       <option value="Cancelled">Cancelled</option>
       <option value="Returned">Returned</option>
     </select>
@@ -771,6 +770,7 @@ body.gst-mode .gst-only{display:block;}
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-g btn-sm" onclick="bulkMarkShipped(true)">🚚 Shipped</button>
         <button class="btn btn-o btn-sm" onclick="bulkMarkShipped(false)">↩ Pending</button>
+        <button class="btn btn-g btn-sm" onclick="bulkMarkDelivered(true)">✅ Delivered</button>
         <button class="btn btn-o btn-sm" onclick="bulkMarkDropshipped()">📦 Dropship</button>
         <button class="btn btn-o btn-sm" onclick="bulkPrint()">🖨️ Print</button>
         <button class="btn btn-o btn-sm" onclick="bulkPrintLabels()">📦 Labels</button>
@@ -2153,6 +2153,14 @@ async function syncAll(manual){
           const locTime=local.invUpdatedAt?new Date(local.invUpdatedAt).getTime():0;
           const remShipped=r.isShipped==='true'||r.isShipped===true||r.status==='Shipped';
           const localShipped=local.isShipped===true||local.isShipped==='true'||local.status==='Shipped';
+          // v14.34.0: deliveredManual — sticky-true across devices (same "never lose it" principle
+          // as a tracking-confirmed Delivered), independent of which side has the newer timestamp.
+          const remDeliveredManual=r.deliveredManual==='true'||r.deliveredManual===true;
+          const localDeliveredManual=local.deliveredManual===true||local.deliveredManual==='true';
+          if(remDeliveredManual||localDeliveredManual){
+            local.deliveredManual=true;
+            local.deliveredManualOn=local.deliveredManualOn||r.deliveredManualOn||'';
+          }
           if(remTime>locTime){
             // Remote is strictly newer — overwrite all mutable invoice fields
             local.isShipped=remShipped;
@@ -3787,42 +3795,34 @@ function renderSales(){
     // record whose key was stored lowercase, so shipped invoices were read as unshipped.
     const anyData=trackNos.some(t=>tdGet(t)?.status);
     const anyDelivered=trackNos.some(t=>/^delivered$/i.test(tdGet(t)?.status||''));
-    // "Shipped" = any tracking data present (in transit or delivered), else the manual flag
-    const isShippedOrDelivered=anyData
-      ?true
-      :(inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped');
+    // v14.34.0: manual delivery override — a bulk/per-row confirmation for old invoices with
+    // no tracking number, or a number the courier never recognised. Sticky true across sync.
+    const manualDelivered=inv.deliveredManual===true||inv.deliveredManual==='true';
+    const effDelivered=anyDelivered||manualDelivered;
 
     if(sf==='Cancelled')return invSt==='Cancelled';
     if(sf==='Returned')return invSt==='Returned';
+    if(invSt!=='Active')return false; // Cancelled/Returned handled above; every remaining bucket is Active-only
 
-    // v14.28.1: Cancelled/Returned are now genuinely excluded from Shipped/Pending —
-    // the comment claimed this but the code never enforced it.
-    if(sf==='Shipped'){
-      if(invSt!=='Active')return false;
-      return isShippedOrDelivered;
+    // v14.34.0: SIMPLIFIED, MUTUALLY-EXCLUSIVE BUCKETS — replaces the old 'Shipped'/'Pending'
+    // pair, which overlapped the finer categories below ('Shipped' matched anything with tracking
+    // data including Delivered; 'Pending' matched anything without, swallowing No Tracking and
+    // Awaiting Update together). Every Active invoice now falls into exactly one bucket:
+    //   Delivered       = a tracking number reports Delivered, OR the manual override is set.
+    //   Awaiting Update = tracking number(s) entered but the courier has no data yet.
+    //   In Transit      = tracking data exists, in progress, not yet delivered.
+    //   No Tracking     = no tracking number at all (hand-delivery/walk-in excluded — never meant
+    //                     to carry one, and including them would bury orders that genuinely need it).
+    if(sf==='Delivered')return effDelivered;
+    if(effDelivered)return false; // delivered invoices excluded from every other bucket below
+    if(sf==='NoTracking'){
+      const dm=inv.dispatchMethod||'';
+      if(dm==='walkin'||dm==='hand')return false;
+      return trackNos.length===0;
     }
-    if(sf==='Pending'){
-      if(invSt!=='Active')return false;
-      return !isShippedOrDelivered;
-    }
-
-    // v14.28.0: shipping-status filters.
-    // Delivered  = a tracking number reports Delivered.
-    // In Transit = tracking data exists but nothing has been delivered yet.
-    // No Tracking= no tracking number at all. Hand-delivery and walk-in orders are EXCLUDED —
-    //              they are never meant to carry tracking, and including them would bury the
-    //              orders that genuinely need a number entered. Cancelled/Returned also excluded.
-    if(sf==='Delivered'||sf==='InTransit'||sf==='NoTracking'){
-      if(invSt!=='Active')return false;
-      if(sf==='Delivered')return anyDelivered;
-      if(sf==='InTransit')return anyData&&!anyDelivered;
-      if(sf==='NoTracking'){
-        const dm=inv.dispatchMethod||'';
-        if(dm==='walkin'||dm==='hand')return false;
-        return trackNos.length===0;
-      }
-    }
-    return true;
+    if(sf==='AwaitingUpdate')return trackNos.length>0&&!anyData;
+    if(sf==='InTransit')return anyData&&!anyDelivered;
+    return true; // "All"
   }));
   const cnt=document.getElementById('sales-count');
   if(cnt)cnt.textContent=salesFiltered.length+' invoice'+(salesFiltered.length!==1?'s':'');
@@ -3833,8 +3833,11 @@ function renderSales(){
   el.innerHTML=salesFiltered.map((inv,idx)=>{
     // ── UNIFIED STATUS BADGE: tracking data wins over manual toggle ──
     const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
+    const manualDelivered=inv.deliveredManual===true||inv.deliveredManual==='true'; // v14.34.0
     let unifiedStatus='No Tracking'; // default
-    if(trackNos.length>0){
+    if(manualDelivered){
+      unifiedStatus='Delivered';
+    }else if(trackNos.length>0){
       const statuses=trackNos.map(t=>tdGet(t)?.status||'');
       const allDelivered=statuses.every(s=>/^delivered$/i.test(s));
       const anyDelivered=statuses.some(s=>/^delivered$/i.test(s));
@@ -3894,6 +3897,7 @@ function renderSales(){
             <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="openShareModal(salesFiltered[${idx}])">📤 Share</button>
             <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="editInvoiceByIdx(${idx})">✏️ Edit</button>
             <button class="btn btn-sm ${shipped?'btn-o':'btn-g'}" style="min-height:44px;" onclick="toggleShippedByIdx(${idx})">${shipped?'↩':'🚚'}</button>
+            <button class="btn btn-sm ${manualDelivered?'btn-o':'btn-g'}" style="min-height:44px;" onclick="toggleDeliveredByIdx(${idx})" title="${manualDelivered?'Undo manual Delivered mark':'Mark Delivered manually'}">${manualDelivered?'↩ Delivered':'✅ Delivered'}</button>
             <button class="btn btn-d btn-sm" style="min-height:44px;" onclick="deleteInvoiceByIdx(${idx})">🗑</button>
             ${_invSt==='Active'?`<button class="btn btn-o btn-sm" style="min-height:44px;font-size:11px;" onclick="openInvStatusModal(salesFiltered[${idx}])">📋 Status</button>`:''}
             ${_invSt!=='Active'?`<button class="btn btn-o btn-sm" style="min-height:44px;font-size:11px;" onclick="_applyInvoiceStatus(salesFiltered[${idx}],'Active')">↺ Reactivate</button>`:''}
@@ -3932,6 +3936,26 @@ function bulkMarkShipped(shipped){
       await new Promise(r=>setTimeout(r,300));
     }
     toast(ok+'/'+sel.length+' status updates confirmed in Google Sheets');
+  })();
+}
+// v14.34.0: manual delivery override — for old invoices with no tracking number, or a
+// number the courier never recognised, that Simranjeet knows were actually delivered.
+// Reversible; wired into every page that decides "non-delivered" (see filter/dashboard/
+// tracking-page code, and the sync merge below).
+function bulkMarkDelivered(delivered){
+  const sel=getSelectedInvoices();if(!sel.length){toast('⚠️ Select at least one invoice');return;}
+  const stamp=today();
+  sel.forEach(inv=>{inv.deliveredManual=delivered;inv.deliveredManualOn=delivered?stamp:'';inv.invUpdatedAt=new Date().toISOString();});
+  save();renderSales();renderDashboard();
+  toast((delivered?'✅ Marking delivered: ':'↩ Removing delivered mark: ')+sel.length+'…');
+  (async()=>{
+    let ok=0;
+    for(const inv of sel){
+      const success=await gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv));
+      if(success)ok++;
+      await new Promise(r=>setTimeout(r,300));
+    }
+    toast(ok+'/'+sel.length+' delivery updates confirmed in Google Sheets');
   })();
 }
 function bulkMarkDropshipped(){
@@ -4057,6 +4081,19 @@ function toggleShippedByIdx(idx){
   });
   renderSales();
   toast(inv.isShipped?'🚚 Marked Shipped':'↩ Marked Pending');
+}
+function toggleDeliveredByIdx(idx){
+  const inv=salesFiltered[idx];if(!inv)return;
+  const nowDelivered=!(inv.deliveredManual===true||inv.deliveredManual==='true');
+  inv.deliveredManual=nowDelivered;
+  inv.deliveredManualOn=nowDelivered?today():'';
+  inv.invUpdatedAt=new Date().toISOString();
+  save();
+  gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{
+    if(!ok)toast('⚠️ Status saved locally but sheet sync failed — tap sync dot to retry');
+  });
+  renderSales();renderDashboard();
+  toast(nowDelivered?'✅ Marked Delivered':'↩ Delivery mark removed');
 }
 // ── DELETED IDS — prevents deleted invoices reappearing on sync ──
 // v14.25.0 H4: detect duplicate invoice numbers created on two devices before syncing.
@@ -5310,6 +5347,11 @@ function renderDashboard(){
   const dord=document.getElementById('dash-orders');
   // Build annotated list of all non-delivered invoices
   function _dashGetStatus(inv){
+    // v14.34.0: manual delivery override — takes priority over everything else so a
+    // manually-confirmed old invoice never lingers in Pending Orders.
+    if(inv.deliveredManual===true||inv.deliveredManual==='true'){
+      return{dashStatus:'Delivered',isShipped:true,isOverdue:false};
+    }
     const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
     let dashStatus='No Tracking';
     let isShipped=false;
@@ -7447,6 +7489,7 @@ const FIXED_FESTIVALS=[
 const VARIABLE_FESTIVAL_KEYS={
   'diwali':{name:'Diwali',states:'all',defaultFilter:['Hindu','Sikh','Unknown'],promo:true},
   'holi':{name:'Holi',states:['Punjab','Haryana','Uttar Pradesh','Rajasthan','Delhi','Madhya Pradesh','Bihar'],defaultFilter:['Hindu','Sikh','Unknown'],promo:true},
+  'raksha_bandhan':{name:'Raksha Bandhan',states:'all',defaultFilter:['Hindu','Sikh','Unknown'],promo:true},
   'eid_al_fitr':{name:'Eid ul-Fitr',states:'all',defaultFilter:['Muslim'],promo:true,approx:true},
   'eid_al_adha':{name:'Eid ul-Adha',states:'all',defaultFilter:['Muslim'],promo:true,approx:true},
   'guru_nanak_jayanti':{name:'Gurpurab of Guru Nanak Dev Ji',states:'all',defaultFilter:['Hindu','Sikh','Unknown'],promo:false,onDay:true},
@@ -7479,6 +7522,7 @@ function getFestivalMessage(festKey,custName,approx,inv,trackNo,trackIndex,total
     vaisakhi:`Hi ${custName},\n\nVaisakhi is 20 days away. New designs are up on our page — there is still time to order:\ninstagram.com/vismaad_creations\n\nHappy Vaisakhi to you and your family.\n\nVismaad Creations`,
     diwali:`Hi ${custName},\n\nDiwali is 20 days away. Still time to order, get it stitched, and be ready. New collection is up:\ninstagram.com/vismaad_creations\n\nHappy Diwali to you and your family.\n\nVismaad Creations`,
     holi:`Hi ${custName},\n\nHoli is 20 days away. New festive designs are up on our page:\ninstagram.com/vismaad_creations\n\nHappy Holi to you and your family.\n\nVismaad Creations`,
+    raksha_bandhan:`Hi ${custName},\n\nRaksha Bandhan is 20 days away. New designs are up on our page — there is still time to order:\ninstagram.com/vismaad_creations\n\nHappy Raksha Bandhan to you and your family.\n\nVismaad Creations`,
     eid_al_fitr:`Hi ${custName},\n\nEid ul-Fitr is about 20 days away. Still time to order and get it stitched. New collection is up:\ninstagram.com/vismaad_creations\n\nEid Mubarak in advance.\n\nVismaad Creations`,
     eid_al_adha:`Hi ${custName},\n\nEid ul-Adha is about 20 days away. Still time to order and get it stitched. New collection is up:\ninstagram.com/vismaad_creations\n\nEid Mubarak in advance.\n\nVismaad Creations`,
     guru_nanak_jayanti:`Hi ${custName},\n\nWishing you and your family a blessed Gurpurab of Guru Nanak Dev Ji.\n\nVismaad Creations`,
@@ -7608,6 +7652,8 @@ function purgeOptOutsOnce(){
 }
 
 // ── DELIVERY REVIEW HELPERS ──
+// v14.34.0: synthetic key used for manual delivery overrides (no real tracking number)
+function _isManualReviewKey(t){return typeof t==='string'&&t.startsWith('MANUAL_');}
 // skipReview: device-local only (7-day short-lived skip, not worth syncing)
 function getReviewSkipped(){return lsGet('vc_review_skipped',{});}
 function saveReviewSkipped(d){lsSet('vc_review_skipped',d);}
@@ -7643,7 +7689,6 @@ function getPendingDeliveryReviews(dateFilter,showSkipped){
     ?Date.now()-parseInt(dateFilter)*24*3600*1000:0;
   const yr=new Date().getFullYear();
   invoices.forEach(inv=>{
-    if(!inv.tracking)return;
     const phone=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
     if(!phone)return;
     if(isReviewNever(phone))return;
@@ -7651,6 +7696,21 @@ function getPendingDeliveryReviews(dateFilter,showSkipped){
       const d=new Date(inv.invDate+'T00:00:00').getTime();
       if(d<cutoff)return;
     }
+    // v14.34.0: manual delivery override — one synthetic review entry per invoice, independent
+    // of any tracking numbers on it (there may be none, or none the courier recognised). Treated
+    // exactly like a courier-confirmed delivery so it enters the same review-request flow.
+    const manualDelivered=inv.deliveredManual===true||inv.deliveredManual==='true';
+    if(manualDelivered){
+      const t='MANUAL_'+inv.id;
+      const msgKey='delivery_review_'+t;
+      if(hasSentMsg(phone,msgKey,yr))return;
+      if(!showSkipped&&isReviewSkipped(t))return;
+      const items=expandItems(inv.itemsArr).filter(i=>i.desc&&i.desc.trim());
+      const productName=items.map(i=>i.desc).join(', ')||'suit';
+      results.push({inv,phone,productName,msgKey,trackNo:t,trackIndex:1,totalTracks:1,skipped:isReviewSkipped(t)});
+      return; // one prompt per invoice — don't also process its (unrecognised) tracking numbers
+    }
+    if(!inv.tracking)return;
     const allNos=inv.tracking.split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
     const totalTracks=allNos.length;
     allNos.forEach(function(t,idx){
@@ -7671,6 +7731,8 @@ function getPendingDeliveryReviews(dateFilter,showSkipped){
 function getDeliveredTrackNos(){
   const result=[];
   invoices.forEach(inv=>{
+    // v14.34.0: manual override counts as delivered here too, keyed by synthetic MANUAL_{id}
+    if(inv.deliveredManual===true||inv.deliveredManual==='true'){result.push('MANUAL_'+inv.id);return;}
     if(!inv.tracking)return;
     const allNos=inv.tracking.split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
     allNos.forEach(function(t){
@@ -7701,11 +7763,18 @@ function checkReviewPopup(){
   const yr=new Date().getFullYear();
   const actionable=[];
   newOnes.forEach(function(t){
-    // Find invoice this tracking belongs to
-    const inv=invoices.find(i=>{
-      if(!i.tracking)return false;
-      return i.tracking.split(',').map(s=>s.trim().toUpperCase()).includes(t);
-    });
+    // v14.34.0: manual-delivered entries are keyed MANUAL_{id} — resolve straight by id.
+    let inv,trackIndex=1,totalTracks=1;
+    if(t.startsWith('MANUAL_')){
+      const invId=t.slice(7);
+      inv=invoices.find(i=>String(i.id)===invId);
+    }else{
+      // Find invoice this tracking belongs to
+      inv=invoices.find(i=>{
+        if(!i.tracking)return false;
+        return i.tracking.split(',').map(s=>s.trim().toUpperCase()).includes(t);
+      });
+    }
     if(!inv)return;
     const phone=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
     if(!phone)return;
@@ -7713,9 +7782,11 @@ function checkReviewPopup(){
     const msgKey='delivery_review_'+t;
     if(hasSentMsg(phone,msgKey,yr))return;
     if(isReviewSkipped(t))return;
-    const allNos=inv.tracking.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
-    const trackIndex=allNos.indexOf(t)+1;
-    const totalTracks=allNos.length;
+    if(!t.startsWith('MANUAL_')){
+      const allNos=inv.tracking.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
+      trackIndex=allNos.indexOf(t)+1;
+      totalTracks=allNos.length;
+    }
     const items=expandItems(inv.itemsArr).filter(i=>i.desc&&i.desc.trim());
     const productName=items.map(i=>i.desc).join(', ')||'suit';
     actionable.push({invId:String(inv.id),inv,phone,productName,msgKey,trackNo:t,trackIndex,totalTracks});
@@ -7750,7 +7821,7 @@ function showReviewPopup(){
       <div style="font-size:15px;font-weight:700;margin-bottom:4px;">${esc(inv.custName||'—')}</div>
       <div style="font-size:12px;color:#888;">${esc(inv.invNo)} · ${fmtDate(inv.invDate)}${esc(pkgLabel)}</div>
       <div style="font-size:12px;color:var(--brown);margin-top:4px;">📦 ${esc(productName)}</div>
-      <div style="font-size:11px;color:#888;margin-top:2px;">Tracking: ${esc(trackNo)}</div>
+      <div style="font-size:11px;color:#888;margin-top:2px;">${_isManualReviewKey(trackNo)?'✅ Marked delivered manually':'Tracking: '+esc(trackNo)}</div>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;">
       <a href="https://wa.me/${num}?text=${encodeURIComponent(msgText)}" target="_blank"
@@ -7818,6 +7889,7 @@ function buildFestivalCache(yr,apiHolidays){
       onam:['onam','thiruvonam'],
       ganesh_chaturthi:['ganesh chaturthi','vinayaka chaturthi','ganesh'],
       navratri:['navratri','navaratri','durga puja'],
+      raksha_bandhan:['raksha bandhan','rakhi','rakshabandhan'],
     };
     const names=apiNames[key]||[key];
     const found=apiHolidays.find(h=>names.some(n=>h.name.toLowerCase().includes(n)));
@@ -7862,6 +7934,7 @@ function buildFestivalCache(yr,apiHolidays){
         onam:shiftDateDays('2026-09-05', hinduShiftDays),
         ganesh_chaturthi:shiftDateDays('2026-08-27', hinduShiftDays),
         navratri:shiftDateDays('2026-10-02', hinduShiftDays),
+        raksha_bandhan:shiftDateDays('2026-08-28', hinduShiftDays),
       };
       if(fallbacks[key]){
         festivals.push({
@@ -8162,7 +8235,7 @@ async function renderOutreachPage(){
           <div class="list-main" style="word-break:break-word;">${esc(inv.custName||'—')}${skipLabel}</div>
           <div class="list-sub">${esc(inv.invNo)} · ${fmtDate(inv.invDate)}${esc(pkgLabel)}</div>
           <div style="font-size:12px;color:var(--brown);margin-top:2px;">📦 ${esc(productName)}</div>
-          ${trackNo?`<div style="font-size:11px;color:#888;margin-top:1px;">${esc(trackNo)}</div>`:''}
+          ${trackNo?`<div style="font-size:11px;color:#888;margin-top:1px;">${_isManualReviewKey(trackNo)?'✅ Marked delivered manually':esc(trackNo)}</div>`:''}
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
           <a href="https://wa.me/${num}?text=${encodeURIComponent(msgText)}" target="_blank"
@@ -9086,7 +9159,13 @@ function buildTrackingPage(){
   const courierItems=getCourierTrackedInvoices().filter(i=>_activeCourierIds.has(String(i.id)));
   const courierNos=[...new Set(courierItems.map(i=>i._singleTracking.trim().toUpperCase()))];
   const courierTotal=courierNos.length;
-  const courierNonDelivered=courierNos.filter(t=>{const td=tdGet(t);return!td||!td.source||isGhostTrackingRecord(td)||!/^delivered$/i.test(td.status||'');}).length;
+  const courierNonDelivered=courierNos.filter(t=>{
+    const td=tdGet(t);
+    // v14.34.0: manual delivery override counts as delivered here too
+    const ci=courierItems.find(i=>(i._singleTracking||'').trim().toUpperCase()===t);
+    if(ci&&(ci.deliveredManual===true||ci.deliveredManual==='true'))return false;
+    return!td||!td.source||isGhostTrackingRecord(td)||!/^delivered$/i.test(td.status||'');
+  }).length;
   const key=S.track123Key1||S.track123Key2||'';
   return`<div class="card" style="margin-bottom:14px;">
     <div class="card-title">📡 India Post — Bulk Tracking</div>
@@ -9160,8 +9239,10 @@ function renderTrackingPage(){
     const trackNos=(inv.tracking||'').split(',').map(t=>t.trim()).filter(Boolean);
     if(trackNos.length>0)return false;
     // Only show non-delivered (check manual status)
+    // v14.34.0: was checking inv.status==='Delivered', which nothing in the app ever wrote —
+    // dead code. Now checks the actual deliveredManual override.
     const manualShipped=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
-    const manualDelivered=inv.status==='Delivered';
+    const manualDelivered=inv.deliveredManual===true||inv.deliveredManual==='true';
     if(manualDelivered)return false;
     // Apply cutoff to all — old shipped-but-undelivered orders with no tracking hidden too
     if((inv.invDate||'')<_pendingCutoff)return false;
@@ -9178,8 +9259,11 @@ function renderTrackingPage(){
   const annotated=top.map(inv=>{
     const key=(inv._singleTracking||inv.tracking||'').trim().toUpperCase();
     const td=trackingData[key];
+    const manualDelivered=inv.deliveredManual===true||inv.deliveredManual==='true'; // v14.34.0
     let cat='awaiting';
-    if(td){
+    if(manualDelivered){
+      cat='delivered'; // manual override wins over whatever the courier data says
+    }else if(td){
       if(isGhostTrackingRecord(td))cat='awaiting'; // India Post ghost — not yet registered
       else if(/^delivered$/i.test(td.status||''))cat='delivered';
       else if(isTrackingOverdue(td,inv.invDate))cat='overdue';
