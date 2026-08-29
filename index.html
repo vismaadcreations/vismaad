@@ -3,10 +3,23 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.35.0
+APP: Vismaad Creations v14.35.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 29-Aug-2026 — v14.35.0: FULL AUDIT — 19 FIXES IN ONE PASS (7 SYNC, 6 CODING, 6 DESIGN).
+LAST_CHANGE: 29-Aug-2026 — v14.35.1: HOTFIX — SALES LIST CRASHED THE RENDER, SURFACING AS "SYNC FAILED".
+The v14.35.0 C19 refactor replaced the per-row status flags in renderSales()'s salesFiltered.map() callback with a
+single `const _bk=getInvoiceBucket(inv)`, and in doing so removed that callback's `const manualDelivered=...`
+declaration — but the ✅/↩ manual-Delivered toggle button in the same template literal still referenced
+`manualDelivered` three times (class, title, label). The only surviving declaration lives inside
+getInvoiceBucket() itself, a separate function scope, so the FIRST Sales row rendered threw
+ReferenceError: manualDelivered is not defined. Because syncAll() calls renderAll() inside its try block, that
+ReferenceError propagated to the sync catch and was reported to the user as "⚠️ Sync failed: manualDelivered is
+not defined" — the sync itself (fetch, merge, push) had already completed correctly every time; only the
+post-merge repaint was crashing, which also left the Sales page blank. Fix is a one-line restoration of the
+declaration beside _bk. No data, merge, or bucket logic touched; the four other manualDelivered call sites
+(getInvoiceBucket, getPendingDeliveryReviews, getDeliveredTrackNos, the Tracking no-tracking branch) each
+declare their own local and were never affected.
+PREV_CHANGE: 29-Aug-2026 — v14.35.0: FULL AUDIT — 19 FIXES IN ONE PASS (7 SYNC, 6 CODING, 6 DESIGN).
 (A1) THE REPORTED BUG: DELIVERY/FESTIVAL/FOLLOW-UP POPUPS RE-FIRING ON A SECOND DEVICE AFTER BEING ACTIONED ON THE FIRST. Root cause was a type mismatch, not popup logic. Code.gs readSheet() serialises every cell as String(row[i]), so a MessageLog row that had round-tripped through Google Sheets came back with year:"2026" — a STRING. Every call site passes new Date().getFullYear(), a NUMBER, and hasSentMsg() tested l.year===year strictly. The test therefore PASSED on the device that sent the message (local entry, numeric year) and FAILED on every other device (synced entry, string year) — so the prompt fired again there, indefinitely. The same strict test inside logMsg() also missed, so each resend pushed a duplicate local row and vc_msg_log grew without bound. Fixed at every layer: new _mlKeyEq() string-normalised comparison used by hasSentMsg, logMsg, isReviewNever, isOptedOut and hasSentFollowupSinceLastOrder (phone included — Sheets stores an all-digit phone as a number too); the MessageLog sync merge now coerces year back to an integer on the way in, so the local store is numeric-year from here on; and normaliseMsgLogOnce() repairs entries already sitting in localStorage, run in init BEFORE the first sync so the store is clean by the time the post-sync popups fire. Idempotent, guarded by vc_msglog_year_norm_v1.
 (A2) POPUP STATE MISSED ITS OWN SYNC CYCLE. The PopupState push runs INSIDE syncAll, but the review popup fires 800ms AFTER that sync has finished — so the seen-list it writes had already missed the push and waited for the next cycle, or never left the device at all if the app was closed straight after sending. vc_review_popup_seen, vc_review_skipped and vc_followup_shown_date now all call scheduleAutoSync() on write (saveMsgLog has always done this; these three never did).
 (A3) POPUPSTATE MERGE WAS TIMESTAMP-GATED FOR NO REASON. The seen-list and skip-map are UNIONS — merging can only ever ADD a suppression, never lose one — yet both were gated behind remTime>locTime, so a device whose clock ran even slightly fast ignored the remote lists entirely and re-asked for things another device had already handled. Unions now run unconditionally; the timestamp gate is kept only for followupShownDate, a single value where newest genuinely must win.
@@ -3978,6 +3991,9 @@ function renderSales(){
   el.innerHTML=salesFiltered.map((inv,idx)=>{
     // ── v14.35.0 C19: badge comes from getInvoiceBucket(), the same call the filter above makes ──
     const _bk=getInvoiceBucket(inv);
+    // v14.35.1: restored — C19 dropped this while the ✅/↩ Delivered button below still used it,
+    // throwing ReferenceError on the first row and aborting the whole render (reported as a sync failure).
+    const manualDelivered=inv.deliveredManual===true||inv.deliveredManual==='true';
     const _invSt=invStatusOf(inv);
     const badge=`<span class="badge ${_bk.cls}"${_bk.style?` style="${_bk.style}"`:''}>${_bk.icon}${esc(_bk.label)}</span>`;
     // The 🚚/↩ toggle reflects the manual shipped flag directly now, rather than inferring it from
