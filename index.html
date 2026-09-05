@@ -3,10 +3,13 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.36.1
+APP: Vismaad Creations v14.36.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 05-Sep-2026 — v14.36.1: BARCODE SCANNING FIXED ON IPHONE.
+LAST_CHANGE: 05-Sep-2026 — v14.36.2: BARCODE SCANNER STILL DEAD ON IPHONE (WRONG ERROR CLASSIFICATION) + EXPECTED DELIVERY IS NOW A RANGE.
+(F1) "BARCODE READER UNAVAILABLE" APPEARED IMMEDIATELY ON EVERY IPHONE SCAN. The v14.36.1 decode path itself is correct — HTMLCanvasElementLuminanceSource, HybridBinarizer, BinaryBitmap and decodeBitmap were all re-verified as present in @zxing/library@0.21.3. What was wrong is the NEW narrow catch that v14.36.1 added. It decided "no barcode in this frame" by testing err.name against /NotFound|Checksum|Format/. ZXing sets err.name from the CONSTRUCTOR'S CLASS NAME (CustomError does Object.defineProperty(this,'name',{value:new.target.name})), and the CDN file being lazy-loaded is index.min.js, in which every class is minified to a single letter — NotFoundException is emitted as `class o extends s`. So a perfectly ordinary empty frame threw an error whose .name was "o", the test failed, the error was judged a real fault, the loop stopped and the "unavailable" message showed. It fired on the FIRST frame, so the scanner never got a chance to read anything and looked broken outright — the opposite failure mode to v14.36.0, which looped forever and looked alive. Fixed by classifying on the STATIC `kind` property instead (new _zxKind(): getKind(), falling back to constructor.kind), which survives minification because it is assigned as a string literal — confirmed by grepping the published minified bundle for kind="NotFoundException" and friends. NotFound/Checksum/Format/ReaderException keep the loop running; an error with NO ZXing kind at all (a genuine TypeError/ReferenceError, i.e. a real API break) still stops the loop and shows the message, so v14.36.1's intent — make a future break VISIBLE — is preserved and now actually discriminates. Android/native BarcodeDetector was never affected by either bug. No UI, validation, S10 check-digit, courier-picker or OCR behaviour changed.
+(F2) EXPECTED DELIVERY DATE IN THE DISPATCH WHATSAPP MESSAGE IS NOW A RANGE, NOT A SINGLE DATE. It was a hardcoded dispatch date + 10 days for every courier, phrased "Expected delivery by <date>". Two problems: a single date reads as a promise rather than an estimate, and +10 days is the slow tail of India Post, so a DTDC parcel that would actually land in three days was quoted ten — needlessly poor news at the exact moment the customer is most eager. New buildDeliveryWindowText() derives the window from the ACTUAL couriers on the invoice via the existing groupTrackingByCourier: India Post 4–9 days, DTDC and Blue Dart 2–5, unrecognised courier 3–8 (DELIVERY_WINDOW_DAYS, one table, easy to retune). A mixed-courier invoice takes the WIDEST window (earliest low, latest high), since the first parcel may arrive much sooner but the order is only complete when the slowest lands. Reads "Expected delivery between 09 and 14 Sep 2026", collapsing the repeated month and year when both ends share them and spelling both out fully when they straddle a month. Falls back to an empty string on an unparseable dispatch date, exactly as the old code did, so the line is omitted rather than printing garbage. Only the initial-dispatch message carries this line; buildFollowupTrackingMessage is unchanged.
+PREV_CHANGE: 05-Sep-2026 — v14.36.1: BARCODE SCANNING FIXED ON IPHONE.
 (E1) THE BARCODE SCANNER NEVER READ A BARCODE ON IPHONE — the OCR fallback worked, the camera worked, but the barcode path could not succeed under any conditions. v14.36.0 D4 called decodeFromCanvas() on the ZXing BrowserMultiFormatReader; that method does NOT exist in @zxing/library@0.21.3, the exact CDN build being lazy-loaded (verified by unpacking the published UMD bundle — BrowserMultiFormatReader is present, decodeFromCanvas is not; it was dropped from the browser layer). So every frame threw a TypeError straight into the inner catch, which was written to mean "no barcode in this frame" and swallowed it. The loop ran forever and looked alive. Android was never affected, as it uses the native BarcodeDetector. Replaced with the low-level path the removed method used internally and which is stable across builds: HTMLCanvasElementLuminanceSource -> HybridBinarizer -> BinaryBitmap -> reader.decodeBitmap(), all four exported by the same already-loaded bundle, so no extra download and no new dependency. THE SWALLOWING CATCH IS NOW NARROW: NotFoundException/ChecksumException/FormatException still mean "not this frame" and keep looping, while any other error stops the loop and shows "Barcode reader unavailable — tap Read printed number", so a future API break is VISIBLE instead of presenting as a scanner that simply never finds anything. Reader now built with TRY_HARDER and POSSIBLE_FORMATS restricted to CODE_128/CODE_39/ITF/QR/DATA_MATRIX — fewer formats per frame pays for the more tolerant search, so a slightly rotated thermal receipt still reads. Decode loop now works on a frame downscaled to 800px wide to hold the frame rate on older iPhones; _scanFrameCanvas() with no argument is unchanged, so OCR still gets the full-resolution frame it needs. No UI, validation, S10 check-digit, courier-picker or OCR behaviour changed.
 (D1) THE SCREEN ENLARGED ON EVERY TAP INTO A FIELD AND STAYED THERE — a regression from v14.35.0 C16, which removed maximum-scale=1.0/user-scalable=no so the dense tracking and GST tables could be pinch-zoomed. Mobile Safari auto-zooms the page whenever a field whose COMPUTED font-size is under 16px takes focus, and it never zooms back out, so the app was left enlarged until pinched out by hand. .fg input/select/textarea is 15px and dozens of inline-styled inputs are 11-14px. Fixed by forcing 16px on input/select/textarea under (max-width:767px),(pointer:coarse) — 16px is the documented threshold at which Safari does not zoom. !important is required because the offending sizes are inline styles, which otherwise beat a stylesheet rule. Padding trimmed on number/date inputs so the larger glyphs do not overflow the fixed-width compact fields (variant qty 52px, price 80px). Pinch-zoom stays enabled, so C16's reason for the change is preserved; Android is unaffected either way since Chrome does not auto-zoom on focus.
 (D2) PHONE NUMBERS WITH SPACES, HYPHENS OR BRACKETS WERE OFTEN MISSED, AND INTERNATIONAL ONES CORRUPTED THE SHIPPING PHONE. The paste-address parser used two positional regex templates that permitted at most ONE separator character between fixed digit positions. Confirmed failures: '+91  98765  43210' (double space, common when pasting from WhatsApp) detected NOTHING AT ALL; '(98765) 43210', '98765,43210' and '98765/43210' were missed entirely; '0044 7911 123456' and '001 415 555 0123' were never recognised because the international regex required a literal '+'; and worst, the broad Indian sweep ran over text the international match had already claimed, so '+1 647 986 5432' stored '6479865432' as the SHIPPING PHONE and placed it AHEAD of the real Indian number in the list, where it won the phone slot. Replaced with a tokeniser (extractPhones): the text is split into digit groups, a chain is continued across pure-separator gaps of ANY length, each chain is tested through phoneKey, and a run is claimed by whichever interpretation validates first — so an international number can no longer be re-read as an Indian one. Verified against 33 real-world formats. SEPARATELY, every customer-matching call site did a bare .replace(/\D/g,'') with no country-code handling, so the SAME person saved once as '9876543210' and once as '+91 98765 43210' became TWO customers: duplicate Outreach rows, follow-ups firing twice, and an opt-out on one form not covering the other. New phoneKey() collapses +91 / 91 / 0 / 00 / +91 (0) forms to the bare 10 digits and leaves genuine international numbers on their country code; wired into getUniqueCustomers, both religion-override paths, applyReligionChange, getSharePhone, isReviewNever, and the msgLog comparisons (hasSentMsg, logMsg, isOptedOut, hasSentFollowupSinceLastOrder) via a new phone-aware _phEq. NO MIGRATION IS NEEDED AND NO HISTORY IS LOST: _phEq/_phLookup reduce BOTH sides before comparing, so a message logged historically under '919876543210' still matches a customer now keyed '9876543210'. The four wa.me builders that hardcoded ph.length===10 now test isIndianPhoneKey, so an 11-digit international number is no longer left without its country code.
@@ -13352,6 +13355,18 @@ async function _ensureBarcodeDetector(){
   }catch(e){hints=null;}
   _scanDetector={zxing:new window.ZXing.BrowserMultiFormatReader(hints),zxFailed:false};
 }
+// Pull the ZXing exception "kind" off a thrown error. getKind() is the documented accessor;
+// the static on the constructor is the same value and is read directly as a fallback in case
+// the prototype chain was flattened. Returns '' for a genuine JS error (TypeError etc.),
+// which is exactly the case the caller must treat as a real fault.
+function _zxKind(e){
+  try{
+    if(!e)return'';
+    if(typeof e.getKind==='function'){const k=e.getKind();if(k)return String(k);}
+    if(e.constructor&&e.constructor.kind)return String(e.constructor.kind);
+  }catch(_){}
+  return'';
+}
 // maxW downscales the frame for the decode loop only. OCR calls this with no argument and
 // still gets the full-resolution frame, which it needs to resolve printed glyphs.
 function _scanFrameCanvas(maxW){
@@ -13387,8 +13402,12 @@ async function _scanLoop(){
           // NotFound/Checksum/Format simply mean there is no readable code in THIS frame —
           // keep looping. Anything else is a real fault (a missing method, a broken build),
           // and must surface rather than spin silently forever.
-          const n=(e&&(e.name||e.constructor&&e.constructor.name))||'';
-          const expected=/NotFound|Checksum|Format/i.test(n);
+          // CLASSIFY ON THE STATIC `kind`, NEVER ON .name: ZXing sets err.name from the
+          // CONSTRUCTOR'S CLASS NAME, and the CDN file we load is index.min.js, where every
+          // class is mangled to a letter (NotFoundException becomes `class o extends s`).
+          // `kind` survives minification because it is assigned as a string literal.
+          const kind=_zxKind(e);
+          const expected=kind?/NotFound|Checksum|Format|ReaderException/i.test(kind):false;
           if(!expected){
             _scanDetector.zxFailed=true;
             _scanStop=true;
@@ -13525,6 +13544,39 @@ function groupTrackingByCourier(trackNos,dispatchMethod,courierOverride){
   return groups;
 }
 
+// Expected-delivery WINDOW (v14.36.2). A single "expected by" date read as a promise and was
+// pitched at the slow tail (+10 days) for every courier, so a DTDC parcel that would land in
+// three days was quoted ten. A range is honest about the spread and courier-specific.
+// Mixed-courier invoices take the WIDEST window (earliest min, latest max) — the customer has
+// everything only when the slowest parcel arrives, but the first may come much sooner.
+const DELIVERY_WINDOW_DAYS={indiapost:[4,9],dtdc:[2,5],bluedart:[2,5],_default:[3,8]};
+function buildDeliveryWindowText(dispatchDate,groups){
+  try{
+    let lo=null,hi=null;
+    (groups||[]).forEach(function(g){
+      const w=DELIVERY_WINDOW_DAYS[g.courierCode]||DELIVERY_WINDOW_DAYS._default;
+      if(lo===null||w[0]<lo)lo=w[0];
+      if(hi===null||w[1]>hi)hi=w[1];
+    });
+    if(lo===null){lo=DELIVERY_WINDOW_DAYS._default[0];hi=DELIVERY_WINDOW_DAYS._default[1];}
+    const base=dispatchDate?new Date(dispatchDate+'T00:00:00'):new Date();
+    if(isNaN(base.getTime()))return'';
+    const d1=new Date(base.getTime());d1.setDate(d1.getDate()+lo);
+    const d2=new Date(base.getTime());d2.setDate(d2.getDate()+hi);
+    const dd=function(d){return String(d.getDate()).padStart(2,'0');};
+    // Fixed table, not toLocaleDateString: engines disagree on the short form (Node's ICU
+    // renders September as "Sept"), and the message must read identically on every device.
+    const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const mon=function(d){return M[d.getMonth()];};
+    // Collapse the repeated month/year when both ends fall in the same month.
+    const same=d1.getMonth()===d2.getMonth()&&d1.getFullYear()===d2.getFullYear();
+    const txt=same
+      ?dd(d1)+' and '+dd(d2)+' '+mon(d2)+' '+d2.getFullYear()
+      :dd(d1)+' '+mon(d1)+' '+d1.getFullYear()+' and '+dd(d2)+' '+mon(d2)+' '+d2.getFullYear();
+    return'Expected delivery between '+txt+'.';
+  }catch(e){return'';}
+}
+
 // Build tracking instruction text for WhatsApp messages (initial dispatch)
 function buildTrackingMessage(trackNos,custName,dispatchDate,dispatchMethod,courierOverride){
   const multiPkg=trackNos.length>1;
@@ -13566,18 +13618,13 @@ function buildTrackingMessage(trackNos,custName,dispatchDate,dispatchMethod,cour
     else trackLines='Track your shipment using number: '+trackNos[0];
   }
 
-  let expectedDelivery='';
-  try{
-    const base=dispatchDate?new Date(dispatchDate+'T00:00:00'):new Date();
-    base.setDate(base.getDate()+10);
-    expectedDelivery=base.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
-  }catch(e){}
+  const expectedDelivery=buildDeliveryWindowText(dispatchDate,groups);
 
   return 'Dear '+custName+',\n\n'
     +'Your order has been dispatched'+dispatchedVia+'.\n\n'
     +(multiPkg?'Packed in '+trackNos.length+' parcels:\n':'')+pkgLines+'\n\n'
     +trackLines+'\n'
-    +(expectedDelivery?'Expected delivery by '+expectedDelivery+'.\n':'')
+    +(expectedDelivery?expectedDelivery+'\n':'')
     +'\nWe request you to record a short video while opening your package. It is the only way we can assist you with refund or exchange requests in case of missing or defective products.\n\n'
     +'Vismaad Creations';
 }
