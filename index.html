@@ -3,10 +3,18 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.35.1
+APP: Vismaad Creations v14.36.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 29-Aug-2026 — v14.35.1: HOTFIX — SALES LIST CRASHED THE RENDER, SURFACING AS "SYNC FAILED".
+LAST_CHANGE: 05-Sep-2026 — v14.36.0: MOBILE ZOOM FIX, PHONE PARSING REWRITE, 2ND PARTNER, TRACKING SCANNER, COURIER SPEND, P&L SHIPPING GAP.
+(D1) THE SCREEN ENLARGED ON EVERY TAP INTO A FIELD AND STAYED THERE — a regression from v14.35.0 C16, which removed maximum-scale=1.0/user-scalable=no so the dense tracking and GST tables could be pinch-zoomed. Mobile Safari auto-zooms the page whenever a field whose COMPUTED font-size is under 16px takes focus, and it never zooms back out, so the app was left enlarged until pinched out by hand. .fg input/select/textarea is 15px and dozens of inline-styled inputs are 11-14px. Fixed by forcing 16px on input/select/textarea under (max-width:767px),(pointer:coarse) — 16px is the documented threshold at which Safari does not zoom. !important is required because the offending sizes are inline styles, which otherwise beat a stylesheet rule. Padding trimmed on number/date inputs so the larger glyphs do not overflow the fixed-width compact fields (variant qty 52px, price 80px). Pinch-zoom stays enabled, so C16's reason for the change is preserved; Android is unaffected either way since Chrome does not auto-zoom on focus.
+(D2) PHONE NUMBERS WITH SPACES, HYPHENS OR BRACKETS WERE OFTEN MISSED, AND INTERNATIONAL ONES CORRUPTED THE SHIPPING PHONE. The paste-address parser used two positional regex templates that permitted at most ONE separator character between fixed digit positions. Confirmed failures: '+91  98765  43210' (double space, common when pasting from WhatsApp) detected NOTHING AT ALL; '(98765) 43210', '98765,43210' and '98765/43210' were missed entirely; '0044 7911 123456' and '001 415 555 0123' were never recognised because the international regex required a literal '+'; and worst, the broad Indian sweep ran over text the international match had already claimed, so '+1 647 986 5432' stored '6479865432' as the SHIPPING PHONE and placed it AHEAD of the real Indian number in the list, where it won the phone slot. Replaced with a tokeniser (extractPhones): the text is split into digit groups, a chain is continued across pure-separator gaps of ANY length, each chain is tested through phoneKey, and a run is claimed by whichever interpretation validates first — so an international number can no longer be re-read as an Indian one. Verified against 33 real-world formats. SEPARATELY, every customer-matching call site did a bare .replace(/\D/g,'') with no country-code handling, so the SAME person saved once as '9876543210' and once as '+91 98765 43210' became TWO customers: duplicate Outreach rows, follow-ups firing twice, and an opt-out on one form not covering the other. New phoneKey() collapses +91 / 91 / 0 / 00 / +91 (0) forms to the bare 10 digits and leaves genuine international numbers on their country code; wired into getUniqueCustomers, both religion-override paths, applyReligionChange, getSharePhone, isReviewNever, and the msgLog comparisons (hasSentMsg, logMsg, isOptedOut, hasSentFollowupSinceLastOrder) via a new phone-aware _phEq. NO MIGRATION IS NEEDED AND NO HISTORY IS LOST: _phEq/_phLookup reduce BOTH sides before comparing, so a message logged historically under '919876543210' still matches a customer now keyed '9876543210'. The four wa.me builders that hardcoded ph.length===10 now test isIndianPhoneKey, so an 11-digit international number is no longer left without its country code.
+(D3) SECOND PARTNER NUMBER. New S.partnerWa2 beside S.partnerWa, labelled Partner 1 / Partner 2 in Settings, localStorage-only — settingsForSheet is an allowlist so neither number can reach the Settings sheet. The Partner Report modal now renders one Send button PER configured number (renderPartnerSendRow) rather than a single send-to-both: window.open must sit in the synchronous user-gesture call stack on iOS/Safari, so two opens from one tap gets the second blocked as a popup. With two partners configured the modal stays open after the first send so the second button is still there; with one it closes exactly as before. Report content and grouping unchanged.
+(D4) TRACKING NUMBER SCANNER. A 📷 button now sits beside all four tracking inputs — new invoice (#tracking), edit invoice (#edit-tracking), bulk editor (#be-tracking-{i}) and shipping label (#lbl-tracking2) — opening one shared camera sheet. BARCODE FIRST, because India Post booking receipts print the article number as a Code128 barcode and that is an exact read with no guessing: native BarcodeDetector on Chrome for Android, and since WebKit has never shipped it, a ZXing UMD build lazy-loaded from CDN on iPhone (cached by the browser after first use). OCR of the printed digits is available on demand via '🔤 Read printed number' (tesseract.js, char whitelist A-Z0-9 so O/0 and I/1 confusions collapse) but is never the default — it is a multi-MB download and markedly weaker on thermal receipt print. EVERY candidate from EITHER path is validated before it is offered: India Post numbers are S10 (2 letters + 8 serial digits + 1 check digit + 2 letters) and that check digit is a mod-11 over fixed weights 8,6,4,2,3,5,9,7, so a misread digit is CAUGHT rather than silently written into the invoice as a wrong AWB. Verified against the canonical RB123456785GB. Non-India-Post barcodes still decode and are offered, flagged as unverified, with the existing v14.29.0 courier picker handling them from there. Results append with a comma rather than replacing, so a multi-package invoice is scanned one parcel at a time. Camera denial, an unavailable CDN and an unreadable frame each degrade to a clear message with manual typing still available; the stream is always stopped on close.
+(D5) NEW COURIER SPEND PAGE (More → 🚚 Courier Spend). Total shipping paid to each delivery partner over a date range, with parcels, shipping charged to customers, and the recovery difference per partner plus a grand total and CSV export. Source is inv.shippingCost resolved PER-AWB through getCourierInfo, so courierOverride is honoured and an AWB whose format is unrecognised is filed under the carrier actually picked, not the invoice-level dispatchMethod. Deliberately NOT the Purchases Register, which infers 'India Post' from gstRate>5 alone and cannot tell India Post from DTDC or Blue Dart — the register total for the same dates is shown as a cross-check instead, so a disagreement between receipts and invoice shipping costs is visible. Date basis is invDate, matching the P&L, GST export, sales register and dashboard (the Partner Report keeps dispatchDate by design, being a daily dispatch record). A multi-courier invoice's single shippingCost figure is split EVENLY across its distinct AWBs with the last share absorbing the residual, so the per-courier column always sums to the invoice total. Dispatched orders with no shipping cost entered are counted in a warning line rather than silently understating the total.
+(D6) P&L SHIPPING WAS LOST ON EVERY RETURNED ORDER — BOTH SIDES. renderPLContent drops Cancelled/Returned invoices BEFORE shipCharged and shipActual are summed. Dropping them is right for GOODS, which came back and were refunded; it is wrong for shipping, because the courier was paid regardless (the parcel physically travelled) and the shipping the customer paid is NOT refunded on a return. So a shipped-then-returned order silently removed both the money we spent and the money we kept, understating cost AND revenue on the shipping line and therefore net profit. Shipping figures now span live invoices PLUS void ones that actually dispatched (tracking number or dispatch date present); a void invoice that never shipped cost nothing and stays fully excluded exactly as before. Both retained amounts are shown as their own sub-rows so the change is visible and reconcilable, and the shipping profit line now names the recovery direction. GST FIGURES ARE DELIBERATELY UNTOUCHED: output tax on retained shipping is left as the credit notes recorded it, since those were pro-rated across the whole invoice and adding it back would double-count. An on-screen note flags this for the CA — if they want output tax split out, the credit note must reverse the goods portion only, which is a separate change.
+NOTE: no data is rewritten by this version and no migration is run. No Code.gs change is required. partnerWa2 is localStorage-only by design.
+PREV_CHANGE: 29-Aug-2026 — v14.35.1: HOTFIX — SALES LIST CRASHED THE RENDER, SURFACING AS "SYNC FAILED".
 The v14.35.0 C19 refactor replaced the per-row status flags in renderSales()'s salesFiltered.map() callback with a
 single `const _bk=getInvoiceBucket(inv)`, and in doing so removed that callback's `const manualDelivered=...`
 declaration — but the ✅/↩ manual-Delivered toggle button in the same template literal still referenced
@@ -267,6 +275,21 @@ tbody tr:last-child td{border-bottom:none;}
   .modal-bg{align-items:center;}
 }
 
+/* ── MOBILE: PREVENT FOCUS AUTO-ZOOM (v14.36.0 D1) ──
+   v14.35.0 C16 removed maximum-scale=1.0/user-scalable=no so the dense tracking and GST tables
+   could be pinch-zoomed. Side effect: mobile Safari auto-zooms the whole page whenever a field
+   whose COMPUTED font-size is under 16px receives focus, and never zooms back out — so every tap
+   into an input left the app enlarged until the user pinched out by hand. 16px is the documented
+   threshold; at or above it Safari does not zoom. !important is required because many inputs in
+   this file are inline-styled at 11-14px, and inline styles otherwise win over a stylesheet rule.
+   Scoped to coarse pointers so desktop keeps its compact typography; pinch-zoom stays enabled. */
+@media(max-width:767px),(pointer:coarse){
+  input,select,textarea{font-size:16px!important;}
+  /* Compact inline fields were sized around a 12-14px face — trim padding so the larger glyphs
+     do not overflow their fixed widths (variant qty is 52px, price 80px). */
+  input[type=number],input[type=date]{padding-left:8px!important;padding-right:6px!important;}
+}
+
 /* ── GST MODE ── */
 .gst-only{display:none;}
 body.gst-mode .gst-only{display:block;}
@@ -404,6 +427,30 @@ body.gst-mode .gst-only{display:block;}
 </div>
 
 <!-- ════ PARTNER REPORT MODAL (v14.28.0) ════ -->
+<!-- ════ TRACKING NUMBER SCANNER (v14.36.0 D4) ════ -->
+<div class="modal-bg" id="scan-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeTrackScanner()">✕</button>
+    <div class="modal-title">📷 Scan Tracking Number</div>
+    <div id="scan-stage" style="position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:4/3;max-height:46dvh;display:flex;align-items:center;justify-content:center;">
+      <video id="scan-video" playsinline muted autoplay style="width:100%;height:100%;object-fit:cover;"></video>
+      <div style="position:absolute;inset:18% 8%;border:2.5px solid rgba(255,255,255,.85);border-radius:10px;box-shadow:0 0 0 9999px rgba(0,0,0,.28);pointer-events:none;"></div>
+    </div>
+    <div id="scan-status" style="font-size:13px;color:var(--brown);text-align:center;margin:12px 0 4px;min-height:20px;font-weight:500;">Starting camera…</div>
+    <div id="scan-hint" style="font-size:11px;color:#888;text-align:center;margin-bottom:12px;line-height:1.5;">Hold the barcode on the receipt inside the frame.</div>
+    <div id="scan-result" style="display:none;background:var(--goldp);border:1.5px solid var(--gold);border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;">
+      <div style="font-size:11px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Detected</div>
+      <div id="scan-result-no" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:19px;font-weight:700;color:var(--brown);margin:5px 0;word-break:break-all;"></div>
+      <div id="scan-result-note" style="font-size:11px;"></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-p" id="scan-accept" style="flex:1;min-width:150px;display:none;" onclick="acceptScannedTracking()">✅ Use This Number</button>
+      <button class="btn btn-o" id="scan-ocr" style="flex:1;min-width:150px;" onclick="runTrackOCR()">🔤 Read printed number</button>
+      <button class="btn btn-o" style="flex:1;min-width:110px;" onclick="closeTrackScanner()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="partner-report-modal">
   <div class="modal">
     <button class="modal-close" onclick="document.getElementById('partner-report-modal').classList.remove('open')">✕</button>
@@ -412,10 +459,7 @@ body.gst-mode .gst-only{display:block;}
     <textarea id="pr-preview" readonly
       style="width:100%;min-height:260px;max-height:45vh;padding:12px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:12.5px;font-family:ui-monospace,Menlo,Consolas,monospace;line-height:1.6;resize:vertical;-webkit-overflow-scrolling:touch;"></textarea>
     <div style="font-size:11px;color:#888;margin:8px 0 14px;">Review before sending. You can edit the text above — it sends exactly as shown.</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <button class="btn btn-p" style="flex:1;min-width:150px;" onclick="sendPartnerReport()">💬 Send on WhatsApp</button>
-      <button class="btn btn-o" style="flex:1;min-width:110px;" onclick="copyPartnerReport()">📋 Copy</button>
-    </div>
+    <div id="pr-send-row" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
   </div>
 </div>
 
@@ -620,7 +664,7 @@ body.gst-mode .gst-only{display:block;}
       </select>
     </div>
     <div id="dispatch-tracking-row" class="row2" style="display:none;">
-      <div class="fg"><label>Tracking No. <span style="font-weight:400;color:#aaa;">(comma-separate for multiple)</span></label><input id="tracking" placeholder="EE123456789IN"/></div>
+      <div class="fg"><label>Tracking No. <span style="font-weight:400;color:#aaa;">(comma-separate for multiple)</span></label><div style="display:flex;gap:8px;align-items:stretch;"><input id="tracking" placeholder="EE123456789IN" style="flex:1;"/><button type="button" class="btn btn-o" onclick="openTrackScanner('tracking')" title="Scan the barcode or printed number on the receipt" style="flex:0 0 auto;min-height:48px;padding:0 14px;font-size:18px;">📷</button></div></div>
       <div class="fg"><label>Dispatch Date</label><input type="date" id="dispatch-date"/></div>
     </div>
     <div id="dispatch-courier-row" class="fg" style="display:none;">
@@ -880,6 +924,7 @@ body.gst-mode .gst-only{display:block;}
       <button class="btn btn-o btn-sm" onclick="showSubPage('bulkedit')">✏️ Bulk Invoice Editor</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('tracking')">📡 Tracking Status</button>
       <button class="btn btn-o btn-sm" onclick="showSubPage('dsreport')">📦 DS Report</button>
+      <button class="btn btn-o btn-sm" onclick="showSubPage('courierspend')">🚚 Courier Spend</button>
       <button class="btn btn-o btn-sm" onclick="toggleSettings()">⚙️ Settings</button>
     </div>
   </div>
@@ -926,9 +971,11 @@ body.gst-mode .gst-only{display:block;}
         <input id="ms-tagline" placeholder="e.g. Premium Unstitched Suits · Punjab"/></div>
       <div class="fg" style="margin-bottom:10px;"><label>WhatsApp Number for Enquiries <span style="font-weight:400;color:#aaa;">(with country code, no +)</span></label>
         <input id="ms-wa-number" placeholder="e.g. 919876543210" type="tel"/></div>
-      <div class="fg" style="margin-bottom:10px;"><label>Partner WhatsApp Number <span style="font-weight:400;color:#aaa;">(for 📤 Partner Report — with country code, no +)</span></label>
-        <input id="ms-partner-wa" placeholder="e.g. 919876543210" type="tel"/>
-        <div style="font-size:11px;color:#888;margin-top:4px;">Saved once. The Partner Report button on the Sales page sends the cost/sale/profit summary here.</div></div>
+      <div class="fg" style="margin-bottom:10px;"><label>Partner 1 WhatsApp Number <span style="font-weight:400;color:#aaa;">(for 📤 Partner Report — with country code, no +)</span></label>
+        <input id="ms-partner-wa" placeholder="e.g. 919876543210" type="tel"/></div>
+      <div class="fg" style="margin-bottom:10px;"><label>Partner 2 WhatsApp Number <span style="font-weight:400;color:#aaa;">(optional — second recipient)</span></label>
+        <input id="ms-partner-wa2" placeholder="e.g. 919988776655" type="tel"/>
+        <div style="font-size:11px;color:#888;margin-top:4px;">Saved once, on this device only — partner numbers are never written to the Settings sheet. The Partner Report modal shows one Send button per number you fill in.</div></div>
       <div class="fg" style="margin-bottom:10px;"><label>GitHub Personal Access Token <span style="font-weight:400;color:#aaa;">(for photo uploads)</span></label>
         <input id="ms-gh-pat" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" type="password"/>
         <div style="font-size:11px;color:#888;margin-top:4px;">Create at github.com/settings/tokens → Classic → repo scope. Photos upload to your vismaadcreations/vismaad repo.</div></div>
@@ -1061,7 +1108,7 @@ body.gst-mode .gst-only{display:block;}
       </select></div>
 
     <div class="fg"><label>Tracking Number <span style="font-weight:400;color:#aaa;">(comma-separate for multiple packages)</span></label>
-      <input id="edit-tracking" placeholder="EE123456789IN or EE123456789IN, EE987654321IN"/></div>
+      <div style="display:flex;gap:8px;align-items:stretch;"><input id="edit-tracking" placeholder="EE123456789IN or EE987654321IN" style="flex:1;"/><button type="button" class="btn btn-o" onclick="openTrackScanner('edit-tracking')" title="Scan the barcode or printed number on the receipt" style="flex:0 0 auto;min-height:48px;padding:0 14px;font-size:18px;">📷</button></div></div>
 
     <div class="fg"><label>Sale Channel</label>
       <select id="edit-channel">
@@ -2715,7 +2762,8 @@ function showSubPage(id){
     outreach:'📬 Outreach Centre',
     tracking:'📡 Tracking Status',
     suppliers:'🏭 Suppliers & Bills',
-    dsreport:'📦 Dropship Report'
+    dsreport:'📦 Dropship Report',
+    courierspend:'🚚 Courier Spend'
   };
   if(titleEl)titleEl.textContent=titles[id]||id;
   content.innerHTML=buildSubPage(id);
@@ -2726,6 +2774,7 @@ function showSubPage(id){
   if(id==='outreach')renderOutreachPage();
   if(id==='tracking')renderTrackingPage();
   if(id==='dsreport')renderDSReport();
+  if(id==='courierspend')setCourierSpendPeriod('thismonth');
 }
 function closeSubPage(){
   const c=document.getElementById('sub-page-container');
@@ -2810,7 +2859,7 @@ function init(){
     const _ov=lsGet('vc_religion_overrides',{});
     let _fixed=false;
     invoices.forEach(inv=>{
-      const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+      const ph=phoneKey(inv.custWhatsapp||inv.custPhone||'');
       if(!ph||!_ov[ph])return;
       const isSikh=(inv.custName||'').trim().split(/\s+/).some(p=>p.toLowerCase()==='singh'||p.toLowerCase()==='kaur');
       if(isSikh&&_ov[ph]==='Hindu'){delete _ov[ph];_fixed=true;}
@@ -3011,6 +3060,8 @@ function loadSettings(){
   if(waEl&&S.waNumber)waEl.value=S.waNumber;
   const pwaEl=document.getElementById('ms-partner-wa');
   if(pwaEl&&S.partnerWa)pwaEl.value=S.partnerWa;
+  const pwaEl2=document.getElementById('ms-partner-wa2');
+  if(pwaEl2&&S.partnerWa2)pwaEl2.value=S.partnerWa2;
   const patEl=document.getElementById('ms-gh-pat');
   if(patEl&&S.githubPat)patEl.value=S.githubPat;
   const catEl=document.getElementById('ms-cat-sheet-id');
@@ -3039,6 +3090,7 @@ function saveSettings(){
     tagline:(document.getElementById('ms-tagline')?.value||'').trim(),
     waNumber:(document.getElementById('ms-wa-number')?.value||'').trim(),
     partnerWa:(document.getElementById('ms-partner-wa')?.value||'').replace(/\D/g,''),
+    partnerWa2:(document.getElementById('ms-partner-wa2')?.value||'').replace(/\D/g,''),
     githubPat:(document.getElementById('ms-gh-pat')?.value||'').trim(),
     catSheetId:(document.getElementById('ms-cat-sheet-id')?.value||'').trim(),
     track123Key1:(document.getElementById('ms-track123-key1')?.value||'').trim(),
@@ -3970,8 +4022,8 @@ function renderSales(){
     if(q&&!inv.custName?.toLowerCase().includes(q)&&!inv.invNo?.toLowerCase().includes(q)&&!(inv.itemsSummary||'').toLowerCase().includes(q))return false;
     // ── Religion filter ──
     if(_religionOverrides){
-      const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
-      const rel=_religionOverrides[ph]||detectReligion(inv.custName||'');
+      const ph=phoneKey(inv.custWhatsapp||inv.custPhone||'');
+      const rel=_phLookup(_religionOverrides,ph)||detectReligion(inv.custName||'');
       if(rel!==_salesReligionFilter)return false;
     }
     if(!sf)return true; // "All"
@@ -4000,7 +4052,7 @@ function renderSales(){
     // a badge string that no longer carries it.
     const shipped=_bk.bucket==='Delivered'||_bk.bucket==='HandDelivered'
       ||inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
-    const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+    const ph=phoneKey(inv.custWhatsapp||inv.custPhone||'');
     const rel=getInvReligion(inv);
     const col={Muslim:'#1a7f3c',Sikh:'#c47b00',Hindu:'#c0392b',Unknown:'#888'}[rel]||'#888';
     // DS badge: scan itemsArr to determine full/partial dropship
@@ -4523,9 +4575,9 @@ function getSharePhone(){
   if(!sharingInv)return null;
   // Prefer WhatsApp number, fall back to shipping phone, then prompt
   let ph=sharingInv.custWhatsapp||sharingInv.custPhone||document.getElementById('share-phone-input')?.value||'';
-  ph=ph.replace(/\D/g,'');
+  ph=phoneKey(ph);
   if(!ph){toast('⚠️ Enter customer WhatsApp number');return null;}
-  if(ph.length===10)ph='91'+ph;
+  if(isIndianPhoneKey(ph))ph='91'+ph;
   return ph;
 }
 
@@ -4748,9 +4800,107 @@ function toTitleCase(str){
   return str;
 }
 
-// Normalise a phone string — strips spaces, dashes, brackets, dots
+// Normalise a phone string — strips spaces, dashes, brackets, dots, slashes, commas, NBSP
 function normalisePhone(str){
-  return str.replace(/[\s\-\(\)\.]/g,'');
+  return String(str||'').replace(/[\s\u00a0\u202f\-\(\)\.\/,]/g,'');
+}
+
+// ── PHONE NORMALISATION (v14.36.0 D2) ──────────────────────────────────────
+// phoneKey() reduces any way a number can be written down to ONE comparison key.
+// Indian numbers collapse to their bare 10 digits — so 9876543210, +91 98765 43210,
+// 09876543210, 0091-98765-43210 and 91 98765 43210 are all the same customer. Before this,
+// every customer-matching call site did a raw .replace(/\D/g,'') with no country-code
+// handling, so the SAME person saved twice in different formats became two customers:
+// duplicate Outreach rows, follow-ups firing twice, and an opt-out on one form not
+// covering the other. International numbers keep their country code (there is nothing
+// to strip) and are returned digits-only, never with a leading '+'.
+function phoneKey(raw){
+  let d=String(raw==null?'':raw).replace(/\D/g,'');
+  if(!d)return '';
+  if(d.length>10&&d.slice(0,2)==='00')d=d.slice(2);            // 00 international prefix
+  if(d.length===13&&d.slice(0,3)==='910'&&/^[6-9]/.test(d.slice(3)))return d.slice(3); // +91 (0) 98765…
+  if(d.length===13&&d.slice(0,3)==='091'&&/^[6-9]/.test(d.slice(3)))return d.slice(3);
+  if(d.length===12&&d.slice(0,2)==='91'&&/^[6-9]/.test(d.slice(2)))return d.slice(2);
+  if(d.length===11&&d[0]==='0'&&/^[6-9]/.test(d.slice(1)))return d.slice(1);           // trunk 0
+  if(d.length===10&&/^[6-9]/.test(d))return d;
+  return d;
+}
+function isIndianPhoneKey(k){return /^[6-9]\d{9}$/.test(k);}
+
+// Phone-aware equality. Falls back to plain string comparison when either side does not
+// reduce to a key, so it is a safe drop-in for the existing _mlKeyEq phone comparisons —
+// and, critically, a message logged historically under '919876543210' still matches a
+// customer now keyed '9876543210', so no opt-out or sent-history is lost by this change.
+function _phEq(a,b){
+  const ka=phoneKey(a),kb=phoneKey(b);
+  if(ka&&kb)return ka===kb;
+  return String(a==null?'':a)===String(b==null?'':b);
+}
+
+// Look a value up in a phone-keyed map, tolerating whichever format the key was stored in.
+// Skips 'name:' entries, which the religion-override store mixes into the same object.
+function _phLookup(map,ph){
+  if(!map||!ph)return null;
+  if(map[ph]!==undefined)return map[ph];
+  const k=phoneKey(ph);
+  if(k&&map[k]!==undefined)return map[k];
+  for(const key in map){
+    if(key.indexOf('name:')===0)continue;
+    if(_phEq(key,ph))return map[key];
+  }
+  return null;
+}
+
+// ── PHONE EXTRACTION FROM PASTED TEXT (v14.36.0 D2) ────────────────────────
+// The old pair of regexes were positional templates that allowed at most ONE separator
+// character between fixed digit positions. Confirmed failures they produced:
+//   • '+91  98765  43210' (double space) — detected nothing at all
+//   • '(98765) 43210', '98765,43210', '98765/43210' — missed entirely
+//   • '+1 647 986 5432'  — the broad Indian sweep ran over text the international match had
+//     already claimed and stored '6479865432' as the SHIPPING PHONE, ahead of the real
+//     Indian number in the list, so it won the phone slot
+//   • '0044 7911 123456' — international without a literal '+' was never recognised
+// Replaced with a tokeniser: the text is split into digit groups, a group chain is only
+// continued across pure-separator gaps (any number of them), and each chain is tested
+// through phoneKey. A run is claimed by whichever interpretation validates first, so an
+// international number can no longer be re-read as an Indian one.
+const _PH_SEP_RE=/^[\s\u00a0\u202f\-\.\(\)\/,]*$/;
+const _PH_TOK_RE=/(\+)?(\d+)|([^\d\s\u00a0\u202f\-\.\(\)\/,]+)/g;
+function extractPhones(text){
+  const t=String(text||'').replace(/wa\.me\/(\d+)/gi,(mm,n)=>' +'+n+' ');
+  const groups=[];
+  let m,lastEnd=-1;
+  _PH_TOK_RE.lastIndex=0;
+  while((m=_PH_TOK_RE.exec(t))!==null){
+    if(m[2]===undefined){lastEnd=-2;continue;}  // a word/letter run breaks the chain
+    const linked=(lastEnd>=0)&&_PH_SEP_RE.test(t.slice(lastEnd,m.index));
+    groups.push({d:m[2],plus:!!m[1],linked:linked});
+    lastEnd=m.index+m[0].length;
+  }
+  const indian=[],intl=[];
+  let i=0;
+  while(i<groups.length){
+    let digits='',hit=null;
+    for(let k=0;k<6&&i+k<groups.length;k++){
+      if(k>0&&(!groups[i+k].linked||groups[i+k].plus))break;
+      digits+=groups[i+k].d;
+      if(digits.length>15)break;
+      const key=phoneKey(digits);
+      if(isIndianPhoneKey(key)){hit={type:'ind',val:key,n:k+1};break;}
+      const startsIntl=groups[i].plus||digits.slice(0,2)==='00';
+      if(startsIntl&&digits.length>=8&&digits.length<=15&&!/^0091/.test(digits)&&!/^91[6-9]\d{9}$/.test(digits)){
+        // Only claim once the linked run is exhausted, or a long number would be truncated
+        const nx=groups[i+k+1];
+        if(!nx||!nx.linked||nx.plus){hit={type:'intl',val:digits.replace(/^00/,''),n:k+1};break;}
+      }
+    }
+    if(hit){
+      const bucket=hit.type==='ind'?indian:intl;
+      if(bucket.indexOf(hit.val)<0)bucket.push(hit.val);
+      i+=hit.n;
+    }else i++;
+  }
+  return{indian:indian,intl:intl};
 }
 
 function parsePastedDetails(){
@@ -4765,37 +4915,11 @@ function parsePastedDetails(){
     .join('\n');
   const lines=cleanedRaw.split(/\n/).map(l=>l.trim()).filter(l=>l);
 
-  // ── PHONES ──
-  // Step 1: normalise whole text — replace wa.me URLs with number
-  let phoneText=cleanedRaw.replace(/wa\.me\/(\d+)/gi,(m,n)=>'+'+n);
-
-  // Step 2: extract international numbers (non-Indian country codes)
-  const intlPhones=[];
-  const intlRe=/\+(?!91\b)(\d[\d\s\-\(\)]{6,18}\d)/g;
+  // ── PHONES ── (v14.36.0 D2: single tokeniser, see extractPhones)
   let m;
-  while((m=intlRe.exec(phoneText))!==null){
-    const cleaned=normalisePhone(m[0]);
-    if(cleaned.length>=8&&cleaned.length<=16)intlPhones.push(cleaned);
-  }
-
-  // Step 3: extract Indian numbers in all formats
-  // Normalise separators first: 98765-43210, 9876 543 210, 9876.543.210
-  // Also handle leading 0: 09876543210 and leading 91: 919876543210
-  const indianPhones=[];
-  // Match 10-digit starting with 6-9, with optional prefix (+91, 91, 0)
-  // Allow separators: space, dash, dot between ANY digits (e.g. 98765-43210, 9876 543 210, 98765 43210)
-  // Strategy: find all sequences that contain 10+ digits starting with 6-9, strip separators
-  const indRe=/(?<!\d)(?:\+91|91|0)?[\s\-]?([6-9][\d][\d][\s\-\.]?[\d][\d][\d][\s\-\.]?[\d][\s\-\.]?[\d][\s\-\.]?[\d][\s\-\.]?[\d])(?!\d)/g;
-  while((m=indRe.exec(phoneText))!==null){
-    const num=m[1].replace(/[\s\-\.]/g,'');
-    if(num.length===10&&!indianPhones.includes(num))indianPhones.push(num);
-  }
-  // Also try a broader sweep: extract any 10-consecutive-digit block starting with 6-9 after stripping separators within a local window
-  const broadRe=/(?:\+91|91|0)?[\s\-\.]?([6-9](?:[\d][\s\-\.]?){9}[\d]?)(?!\d)/g;
-  while((m=broadRe.exec(phoneText))!==null){
-    const num=m[1].replace(/[\s\-\.]/g,'');
-    if(num.length===10&&!indianPhones.includes(num))indianPhones.push(num);
-  }
+  const _ph=extractPhones(cleanedRaw);
+  const indianPhones=_ph.indian;
+  const intlPhones=_ph.intl;
 
   // Assign phones
   if(indianPhones.length>0)result.phone=indianPhones[0];
@@ -5082,9 +5206,9 @@ async function saveInvoiceEdit(){
       function(){
         // Build and open WhatsApp URL directly here — must stay in the synchronous
         // user-gesture call stack so browsers don't block window.open as a popup.
-        let ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+        let ph=phoneKey(inv.custWhatsapp||inv.custPhone||'');
         if(!ph){toast('⚠️ No WhatsApp number on this invoice');return;}
-        if(ph.length===10)ph='91'+ph;
+        if(isIndianPhoneKey(ph))ph='91'+ph;
         const allNos=newTracking.split(',').map(function(t){return t.trim();}).filter(Boolean);
         const oldNos=oldTracking.split(',').map(function(t){return t.trim();}).filter(Boolean);
         const addedNos=allNos.filter(function(t){return t&&!oldNos.includes(t);});
@@ -6076,6 +6200,218 @@ function handleSetupQR(e){const f=e.target.files[0];if(!f)return;const r=new Fil
 // ═══════════════════════════════════════════
 // SUB PAGES
 // ═══════════════════════════════════════════
+// ═══════════════════════════════════════════
+// COURIER SPEND (v14.36.0 D5)
+// ═══════════════════════════════════════════
+// Answers "what did we actually pay each delivery partner between these dates".
+//
+// SOURCE: inv.shippingCost — what we paid — resolved per-AWB through getCourierInfo, so the
+// v14.29.0 courierOverride map is honoured and an AWB whose format is unrecognised is filed
+// under the carrier that was actually picked, not the invoice-level dispatchMethod.
+//
+// DELIBERATELY NOT the Purchases Register: that infers "India Post" from gstRate>5 alone
+// (see ipPurchases in renderPLContent), which cannot tell India Post from DTDC or Blue Dart.
+// The register total for the same range IS shown as a cross-check so a mismatch is visible.
+//
+// DATE BASIS: invDate, matching the P&L, the GST export, the sales register and the dashboard.
+// (The Partner Report groups by dispatchDate by design — it is a daily dispatch record.)
+//
+// MULTI-COURIER INVOICES: shippingCost is one invoice-level figure, so it is split EVENLY
+// across the distinct AWBs and each share attributed to that AWB's courier. The last share
+// absorbs the rounding residual so the per-courier column always sums to the invoice total.
+//
+// VOID INVOICES: a Cancelled/Returned order that actually shipped still cost us money and the
+// customer's shipping was not refunded, so it is INCLUDED (same rule as the P&L shipping
+// section). One voided before it ever shipped is excluded.
+let _csFrom='',_csTo='';
+function buildCourierSpendPage(){
+  const now=new Date(),y=now.getFullYear(),m=now.getMonth();
+  const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fyStart=m>=3?y:y-1;
+  return`<div class="card" style="margin-bottom:0;">
+    <div class="card-title">🚚 Courier Spend</div>
+    <div style="font-size:12px;color:#888;margin-bottom:10px;">Total shipping paid to each delivery partner, by invoice date.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+      <button class="btn btn-o btn-sm" onclick="setCourierSpendPeriod('thismonth')">📅 This Month</button>
+      <button class="btn btn-o btn-sm" onclick="setCourierSpendPeriod('lastmonth')">📅 Last Month</button>
+      <button class="btn btn-o btn-sm" onclick="setCourierSpendPeriod('thisquarter')">📅 This FY Quarter</button>
+      <button class="btn btn-o btn-sm" onclick="setCourierSpendPeriod('thisfy')">📅 FY ${fyStart}–${fyStart+1}</button>
+      <button class="btn btn-o btn-sm" style="grid-column:1/-1;" onclick="setCourierSpendPeriod('all')">📅 All Time</button>
+    </div>
+    <div class="row2">
+      <div class="fg" style="margin-bottom:0;"><label>From</label><input type="date" id="cs-from" onchange="renderCourierSpend()"/></div>
+      <div class="fg" style="margin-bottom:0;"><label>To</label><input type="date" id="cs-to" onchange="renderCourierSpend()"/></div>
+    </div>
+  </div>
+  <div id="cs-content" style="margin-top:14px;"></div>`;
+}
+function setCourierSpendPeriod(p){
+  const r=p==='all'?{from:'2026-03-02',to:today()}:getDateRange(p);
+  _csFrom=r.from;_csTo=r.to;
+  const a=document.getElementById('cs-from'),b=document.getElementById('cs-to');
+  if(a)a.value=_csFrom;if(b)b.value=_csTo;
+  renderCourierSpend();
+}
+// Split one invoice's shipping figures across its AWBs and attribute each share to a courier.
+function _csAllocate(inv){
+  const out=[];
+  const paid=parseFloat(inv.shippingCost)||0;
+  const charged=parseFloat(inv.shipping)||0;
+  const nos=String(inv.tracking||'').split(',').map(t=>t.trim()).filter(Boolean);
+  const uniq=[];nos.forEach(t=>{if(uniq.indexOf(t)<0)uniq.push(t);});
+  if(!uniq.length){
+    // No AWB: hand delivery / walk-in get their own bucket, everything else follows the
+    // dispatch method so a parcel booked but not yet numbered is not silently dropped.
+    const dm=String(inv.dispatchMethod||'').toLowerCase();
+    const key=(dm.indexOf('hand')>=0||dm.indexOf('walk')>=0)?'handwalkin':
+      (dm==='dtdc'?'dtdc':dm==='bluedart'?'bluedart':dm==='indiapost'?'indiapost':'other');
+    const name={handwalkin:'Hand Delivery / Walk-in',dtdc:'DTDC',bluedart:'Blue Dart',indiapost:'India Post',other:'Other / Unspecified'}[key];
+    out.push({key:key,name:name,paid:paid,charged:charged,parcels:paid>0||charged>0?1:0});
+    return out;
+  }
+  const n=uniq.length;
+  let paidLeft=paid,chargedLeft=charged;
+  uniq.forEach((t,idx)=>{
+    const info=getCourierInfo(t,inv.dispatchMethod,inv.courierOverride);
+    // Last AWB absorbs the residual so the shares sum EXACTLY to the invoice figure.
+    const pShare=idx===n-1?parseFloat(paidLeft.toFixed(2)):parseFloat((paid/n).toFixed(2));
+    const cShare=idx===n-1?parseFloat(chargedLeft.toFixed(2)):parseFloat((charged/n).toFixed(2));
+    paidLeft=parseFloat((paidLeft-pShare).toFixed(2));
+    chargedLeft=parseFloat((chargedLeft-cShare).toFixed(2));
+    out.push({key:info.courierCode,name:info.name,paid:pShare,charged:cShare,parcels:1});
+  });
+  return out;
+}
+function renderCourierSpend(){
+  const el=document.getElementById('cs-content');if(!el)return;
+  const fEl=document.getElementById('cs-from'),tEl=document.getElementById('cs-to');
+  if(fEl&&fEl.value)_csFrom=fEl.value;
+  if(tEl&&tEl.value)_csTo=tEl.value;
+  if(!_csFrom||!_csTo){el.innerHTML='<div style="color:#aaa;text-align:center;padding:30px;">Pick a period above</div>';return;}
+  const from=_csFrom,to=_csTo;
+  const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  const shipped=i=>!!(String(i.tracking||'').trim()||String(i.dispatchDate||'').trim());
+  const inRange=invoices.filter(i=>{
+    const d=String(i.invDate||'').slice(0,10);
+    if(!d||d<from||d>to)return false;
+    // Void-but-never-shipped orders cost nothing and are excluded; void-but-shipped stay.
+    if(isVoidInvoice(i)&&!shipped(i))return false;
+    return true;
+  });
+
+  const buckets={};let noCost=0,voidShipped=0;
+  inRange.forEach(inv=>{
+    const paid=parseFloat(inv.shippingCost)||0;
+    if(paid<=0&&shipped(inv))noCost++;
+    if(isVoidInvoice(inv))voidShipped++;
+    _csAllocate(inv).forEach(a=>{
+      if(!buckets[a.key])buckets[a.key]={name:a.name,paid:0,charged:0,parcels:0,invoices:new Set()};
+      buckets[a.key].paid+=a.paid;
+      buckets[a.key].charged+=a.charged;
+      buckets[a.key].parcels+=a.parcels;
+      buckets[a.key].invoices.add(String(inv.id));
+    });
+  });
+  const rows=Object.keys(buckets).map(k=>{
+    const b=buckets[k];
+    return{key:k,name:b.name,
+      paid:parseFloat(b.paid.toFixed(2)),
+      charged:parseFloat(b.charged.toFixed(2)),
+      parcels:b.parcels,invoices:b.invoices.size};
+  }).filter(r=>r.paid>0||r.charged>0||r.parcels>0)
+    .sort((a,b)=>b.paid-a.paid);
+
+  const tPaid=parseFloat(rows.reduce((s,r)=>s+r.paid,0).toFixed(2));
+  const tCharged=parseFloat(rows.reduce((s,r)=>s+r.charged,0).toFixed(2));
+  const tParcels=rows.reduce((s,r)=>s+r.parcels,0);
+  const diff=parseFloat((tCharged-tPaid).toFixed(2));
+
+  // Purchases Register cross-check (18% GST rows = courier receipts, see renderPLContent)
+  const regTotal=parseFloat(purchases.filter(x=>{
+    const d=String(x.date||'').slice(0,10);
+    return d>=from&&d<=to&&parseFloat(x.gstRate||0)>5;
+  }).reduce((s,x)=>s+(parseFloat(x.amount)||0),0).toFixed(2));
+
+  const dcell=v=>`<span style="color:${v>=0?'#27ae60':'#c0392b'};font-weight:600;">${v>=0?'+':'−'}${f(Math.abs(v))}</span>`;
+
+  if(!rows.length){
+    el.innerHTML=`<div class="card"><div style="color:#aaa;text-align:center;padding:26px;">No dispatched orders between ${fmtDate(from)} and ${fmtDate(to)}.</div></div>`;
+    return;
+  }
+  el.innerHTML=`
+    <div class="stat-grid" style="margin-bottom:14px;">
+      <div class="stat-card"><div class="stat-val">${f(tPaid)}</div><div class="stat-lbl">Paid to couriers</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:${diff>=0?'#27ae60':'#c0392b'};">${diff>=0?'+':'−'}${f(Math.abs(diff))}</div><div class="stat-lbl">Recovery vs charged</div></div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div style="padding:14px 16px 10px;">
+        <div class="card-title" style="margin-bottom:4px;border:none;padding:0;">🚚 ${fmtDate(from)} → ${fmtDate(to)}</div>
+        <div style="font-size:11px;color:#888;">${inRange.length} order(s) · ${tParcels} parcel(s)</div>
+      </div>
+      <div class="tbl-wrap flush">
+        <table>
+          <thead><tr><th>Delivery Partner</th><th style="text-align:right;">Parcels</th><th style="text-align:right;">Paid</th><th style="text-align:right;">Charged</th><th style="text-align:right;">Difference</th></tr></thead>
+          <tbody>
+            ${rows.map(r=>`<tr>
+              <td style="font-weight:600;">${esc(r.name)}</td>
+              <td style="text-align:right;">${r.parcels}</td>
+              <td style="text-align:right;font-weight:600;">${f(r.paid)}</td>
+              <td style="text-align:right;">${f(r.charged)}</td>
+              <td style="text-align:right;">${dcell(parseFloat((r.charged-r.paid).toFixed(2)))}</td>
+            </tr>`).join('')}
+            <tr style="background:var(--goldp);">
+              <td style="font-weight:700;">TOTAL</td>
+              <td style="text-align:right;font-weight:700;">${tParcels}</td>
+              <td style="text-align:right;font-weight:700;">${f(tPaid)}</td>
+              <td style="text-align:right;font-weight:700;">${f(tCharged)}</td>
+              <td style="text-align:right;">${dcell(diff)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="padding:12px 16px 16px;font-size:11px;color:#888;line-height:1.6;">
+        ${diff<0?'You paid the couriers '+f(Math.abs(diff))+' more than you charged customers over this period. That is the usual direction, but the gap is worth watching.':'You recovered '+f(diff)+' more than you paid over this period.'}
+        ${noCost>0?`<br/><span style="color:#c47b00;">⚠️ ${noCost} dispatched order(s) have no actual shipping cost entered — excluded from Paid, so the real figure is higher.</span>`:''}
+        ${voidShipped>0?`<br/>ℹ️ ${voidShipped} cancelled/returned order(s) are included because they had already shipped — the courier was paid and the shipping was not refunded.`:''}
+        ${regTotal>0?`<br/>📒 Purchases Register (18% GST rows) for the same dates: <strong>${f(regTotal)}</strong>. A large gap against ${f(tPaid)} means receipts and invoice shipping costs disagree. The register cannot separate couriers, which is why this page uses the per-AWB figures.`:''}
+      </div>
+    </div>
+    <button class="btn btn-o" style="width:100%;margin-top:12px;" onclick="exportCourierSpend()">⬇️ Download CSV</button>`;
+}
+function exportCourierSpend(){
+  const el=document.getElementById('cs-content');if(!el)return;
+  const rows=[['Courier Spend',_csFrom+' to '+_csTo],[],['Delivery Partner','Parcels','Paid to Courier','Charged to Customers','Difference']];
+  const buckets={};
+  const shipped=i=>!!(String(i.tracking||'').trim()||String(i.dispatchDate||'').trim());
+  invoices.forEach(inv=>{
+    const d=String(inv.invDate||'').slice(0,10);
+    if(!d||d<_csFrom||d>_csTo)return;
+    if(isVoidInvoice(inv)&&!shipped(inv))return;
+    _csAllocate(inv).forEach(a=>{
+      if(!buckets[a.key])buckets[a.key]={name:a.name,paid:0,charged:0,parcels:0};
+      buckets[a.key].paid+=a.paid;buckets[a.key].charged+=a.charged;buckets[a.key].parcels+=a.parcels;
+    });
+  });
+  let tp=0,tc=0,tn=0;
+  Object.keys(buckets).sort((a,b)=>buckets[b].paid-buckets[a].paid).forEach(k=>{
+    const b=buckets[k];tp+=b.paid;tc+=b.charged;tn+=b.parcels;
+    rows.push([b.name,b.parcels,b.paid.toFixed(2),b.charged.toFixed(2),(b.charged-b.paid).toFixed(2)]);
+  });
+  rows.push(['TOTAL',tn,tp.toFixed(2),tc.toFixed(2),(tc-tp).toFixed(2)]);
+  const csv=rows.map(r=>r.map(c=>{
+    const v=String(c==null?'':c);
+    return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
+  }).join(',')).join('\n');
+  const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='courier-spend-'+_csFrom+'-to-'+_csTo+'.csv';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  toast('⬇️ CSV downloaded');
+}
+
 function buildSubPage(id){
   if(id==='purchases')return buildPurchasesPage();
   if(id==='pl')return buildPLPage();
@@ -6087,6 +6423,7 @@ function buildSubPage(id){
   if(id==='tracking')return buildTrackingPage();
   if(id==='suppliers')return buildSuppliersPage();
   if(id==='dsreport')return buildDSReportPage();
+  if(id==='courierspend')return buildCourierSpendPage();
   return '<p>Coming soon</p>';
 }
 // ═══════════════════════════════════════════
@@ -6165,7 +6502,7 @@ function buildBulkEditPage(){
               <option value="walkin" ${inv.dispatchMethod==='walkin'?'selected':''}>Walk-in / Collected in person (QR code needed)</option>
             </select></div>
           <div class="fg"><label>Tracking No.</label>
-            <input id="be-tracking-${i}" value="${inv.tracking||''}"/></div>
+            <div style="display:flex;gap:8px;align-items:stretch;"><input id="be-tracking-${i}" value="${inv.tracking||''}" style="flex:1;"/><button type="button" class="btn btn-o" onclick="openTrackScanner('be-tracking-${i}')" title="Scan the barcode or printed number on the receipt" style="flex:0 0 auto;min-height:48px;padding:0 14px;font-size:18px;">📷</button></div></div>
         </div>
         <div class="row2">
           <div class="fg"><label>Channel</label>
@@ -6420,6 +6757,22 @@ function renderPLContent(filtInv,filtPur){
   const _voidAmt=parseFloat(_plAllInv.filter(isVoidInvoice).reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0).toFixed(2));
   filtInv=_plAllInv.filter(i=>!isVoidInvoice(i));
 
+  // ── v14.36.0 D6: SHIPPING ON CANCELLED/RETURNED ORDERS WAS LOST FROM BOTH SIDES ──
+  // Dropping void invoices outright is right for GOODS — they came back and the money was
+  // refunded. It is WRONG for shipping. On a return we do not refund the shipping the
+  // customer paid, and the courier was paid regardless: that parcel physically travelled.
+  // Because the drop happened BEFORE shipCharged and shipActual were summed, both the
+  // retained shipping revenue and the shipping we actually spent vanished from the P&L, so
+  // the shipping line understated cost AND revenue on every returned order.
+  // A void invoice only counts here if it actually DISPATCHED (tracking number or dispatch
+  // date). One cancelled before it ever shipped cost nothing and its shipping would have
+  // been refunded, so it stays fully excluded exactly as before.
+  const _shipDispatched=i=>!!(String(i.tracking||'').trim()||String(i.dispatchDate||'').trim());
+  const _voidShipped=_plAllInv.filter(i=>isVoidInvoice(i)&&_shipDispatched(i));
+  const _shipInv=filtInv.concat(_voidShipped);
+  const _voidShipCharged=parseFloat(_voidShipped.reduce((s,i)=>s+(parseFloat(i.shipping)||0),0).toFixed(2));
+  const _voidShipCost=parseFloat(_voidShipped.reduce((s,i)=>s+(parseFloat(i.shippingCost)||0),0).toFixed(2));
+
   // ── CREDIT NOTES deducted from revenue ──
   // Derive date range from the filtered invoices passed in
   const _invDates=filtInv.map(i=>String(i.invDate||'').slice(0,10)).filter(Boolean).sort();
@@ -6481,14 +6834,19 @@ function renderPLContent(filtInv,filtPur){
   const grossMargin   = pct(grossProfit,suitRevExcl);
 
   // ── SHIPPING P&L ──
-  const shipActual    = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.shippingCost)||0),0).toFixed(2));
+  // v14.36.0 D6: shipping figures span _shipInv (live + dispatched-then-voided), not filtInv.
+  const shipActual    = parseFloat(_shipInv.reduce((s,i)=>s+(parseFloat(i.shippingCost)||0),0).toFixed(2));
+  const shipChargedPL = parseFloat((shipCharged+_voidShipCharged).toFixed(2));
+  const gstOnShipPL   = parseFloat(_shipInv.filter(i=>i.isGST===true||i.isGST==='true')
+                          .reduce((s,i)=>{const sh=parseFloat(i.shipping||0);return s+(sh-sh/1.18);},0).toFixed(2));
+  const shipChargedExclPL = parseFloat((shipChargedPL-gstOnShipPL).toFixed(2));
   const ipCostIncl    = ipPurchases.reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
   const itcOnIP       = ipPurchases.reduce((s,p)=>s+(parseFloat(p.gstAmt)||0),0);
   const ipCostExcl    = parseFloat((ipCostIncl-itcOnIP).toFixed(2));
   // Use purchases register India Post cost if available, else invoice shippingCost
   const shipCostUsed  = ipCostIncl>0 ? ipCostIncl : shipActual;
   const shipNetCost   = ipCostIncl>0 ? ipCostExcl : shipActual; // net of ITC if from register
-  const shipProfit    = parseFloat((shipChargedExcl-shipNetCost).toFixed(2));
+  const shipProfit    = parseFloat((shipChargedExclPL-shipNetCost).toFixed(2));
 
   // ── NET PROFIT ──
   const netProfit     = parseFloat((grossProfit+shipProfit).toFixed(2));
@@ -6539,7 +6897,7 @@ function renderPLContent(filtInv,filtPur){
       <div class="card-title">📊 P&L Statement — ${filtInv.length} invoice(s)${_voidCount>0?' · '+_voidCount+' cancelled/returned excluded':''}</div>
 
       ${head('💰 Revenue')}
-      ${_voidCount>0?subrow('Excluded: '+_voidCount+' Cancelled/Returned invoice(s)',_voidAmt,'#888'):''}
+      ${_voidCount>0?subrow('Excluded: '+_voidCount+' Cancelled/Returned invoice(s) — goods only; their shipping is kept below',_voidAmt,'#888'):''}
       ${row('Gross Sales collected from customers (incl. GST)',grossRevRaw)}
       ${totalCreditAmt>0?subrow('Less: Credit Notes issued ('+filtCNs.length+')',totalCreditAmt,'#c0392b'):''}
       ${totalCreditAmt>0?row('Net Revenue after Credit Notes',grossRev):''}
@@ -6560,15 +6918,20 @@ function renderPLContent(filtInv,filtPur){
         '⚠️ Add cost prices to invoices or enter purchases in Purchases Register')}
 
       ${head('🚚 Shipping')}
-      ${row('Shipping charged to customers (incl. 18% GST)',shipCharged)}
-      ${row('Shipping charged to customers (excl. GST)',shipChargedExcl)}
-      ${row('Actual shipping paid to India Post (incl. 18% GST)',shipCostUsed,
+      ${row('Shipping charged to customers (incl. 18% GST)',shipChargedPL)}
+      ${_voidShipCharged>0?subrow('…of which retained on '+_voidShipped.length+' cancelled/returned order(s) — not refunded',_voidShipCharged,'#888'):''}
+      ${row('Shipping charged to customers (excl. GST)',shipChargedExclPL)}
+      ${row('Actual shipping paid to courier (incl. 18% GST)',shipCostUsed,
         null,ipCostIncl>0?'From Purchases Register':'From invoice actual shipping cost field')}
+      ${_voidShipCost>0?subrow('…of which spent on cancelled/returned orders that still shipped',_voidShipCost,'#888'):''}
       ${itcOnIP>0?subrow('ITC on India Post shipping (18% GST)',itcOnIP,'#27ae60'):''}
       ${row('Net shipping cost (after ITC)',shipNetCost)}
       ${profBox('Shipping Profit / (Loss)',shipProfit,
         shipCostUsed===0?'⚠️ Enter India Post receipts in Purchases Register to track shipping P&L':
-        'Shipping collected (excl. GST): '+f(shipChargedExcl)+' · Net India Post cost: '+f(shipNetCost))}
+        'Shipping collected (excl. GST): '+f(shipChargedExclPL)+' · Net courier cost: '+f(shipNetCost)+
+        (shipProfit<0?' · You are paying the courier more than you charge on this period as a whole — normal, but watch the gap':' · You are recovering more than you pay on this period as a whole'))}
+      ${_voidShipped.length>0?`<div style="background:#fff8ee;border:1px solid var(--goldp);border-radius:8px;padding:9px 11px;font-size:11px;color:#7a5a20;margin-top:8px;line-height:1.5;">
+        ℹ️ ${_voidShipped.length} cancelled/returned order(s) in this period had already shipped. Their shipping is counted on BOTH sides above — the courier was paid, and the shipping the customer paid is not refunded. Only the goods are excluded. GST figures are unchanged: output tax on retained shipping is left as your credit notes recorded it — raise this with your CA if they want it split out.</div>`:''}
 
       ${profBox('Net Operating Profit',netProfit,
         filtInv.length+' sale(s) · '+filtPur.length+' purchase(s) entered · Consult your CA before filing')}
@@ -6637,7 +7000,7 @@ function buildLabelPage(){
     <div class="fg"><label>PIN Code</label><input id="lbl-to-pin" type="tel" inputmode="numeric" maxlength="6" placeholder="6-digit PIN code"/></div>
     <div class="row2">
       <div class="fg"><label>Bill / Invoice No.</label><input id="lbl-inv-no" placeholder="INV-001"/></div>
-      <div class="fg"><label>Tracking No.</label><input id="lbl-tracking2" placeholder="EE123456789IN"/></div>
+      <div class="fg"><label>Tracking No.</label><div style="display:flex;gap:8px;align-items:stretch;"><input id="lbl-tracking2" placeholder="EE123456789IN" style="flex:1;"/><button type="button" class="btn btn-o" onclick="openTrackScanner('lbl-tracking2')" title="Scan the barcode or printed number on the receipt" style="flex:0 0 auto;min-height:48px;padding:0 14px;font-size:18px;">📷</button></div></div>
     </div></div>
     <div class="card"><div class="card-title">🏠 From Address</div>
     <div style="font-size:12px;color:#888;margin-bottom:10px;">Brand name "Vismaad Creations" is printed automatically — enter address only below.</div>
@@ -7434,8 +7797,9 @@ const MUSLIM_NAMES=new Set([
 // Get best religion for a new invoice - checks overrides then auto-detects
 function getAutoReligion(name,phone,whatsapp){
   const overrides=lsGet('vc_religion_overrides',{});
-  const ph=(whatsapp||phone||'').replace(/\D/g,'');
-  if(ph&&overrides[ph])return overrides[ph];
+  const ph=phoneKey(whatsapp||phone||'');
+  const ov=ph?_phLookup(overrides,ph):null;
+  if(ov)return ov;
   const nameKey='name:'+(name||'').trim().toLowerCase();
   if(overrides[nameKey])return overrides[nameKey];
   return detectReligion(name||'');
@@ -7458,8 +7822,9 @@ function detectReligion(name){
 // Get religion for a customer — phone override always wins
 function getCustomerReligion(customer){
   const overrides=lsGet('vc_religion_overrides',{});
-  const ph=(customer.phone||'').replace(/\D/g,'');
-  if(ph&&overrides[ph])return overrides[ph];
+  const ph=phoneKey(customer.phone||'');
+  const ov=ph?_phLookup(overrides,ph):null;
+  if(ov)return ov;
   return detectReligion(customer.name);
 }
 
@@ -7469,8 +7834,9 @@ function getInvReligion(inv){
   if(inv.religion&&inv.religion!=='Unknown'&&inv.religion!=='')return inv.religion;
   // 2. Phone-based override (legacy)
   const overrides=lsGet('vc_religion_overrides',{});
-  const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
-  if(ph&&overrides[ph])return overrides[ph];
+  const ph=phoneKey(inv.custWhatsapp||inv.custPhone||'');
+  const ov=ph?_phLookup(overrides,ph):null;
+  if(ov)return ov;
   // 3. Name-based override (legacy)
   const nameKey='name:'+(inv.custName||'').trim().toLowerCase();
   if(overrides[nameKey])return overrides[nameKey];
@@ -7520,13 +7886,13 @@ function showReligionOverride(elOrKey){
   const isEl=elOrKey instanceof Element||elOrKey instanceof HTMLElement||(elOrKey&&typeof elOrKey==='object'&&elOrKey.dataset);
   let phone='',name='',currentRel='';
   if(isEl){
-    phone=(elOrKey.dataset.rphone||'').replace(/\D/g,'');
+    phone=phoneKey(elOrKey.dataset.rphone||'');
     name=elOrKey.dataset.rname||'';
     currentRel=elOrKey.dataset.rcurrent||'Unknown';
   }else{
     // Legacy registry key
     const d=_ag(elOrKey)||{};
-    phone=(d.phone||'').replace(/\D/g,'');
+    phone=phoneKey(d.phone||'');
     name=d.name||'';
     currentRel=d.religion||'Unknown';
   }
@@ -7578,7 +7944,7 @@ function showReligionOverride(elOrKey){
 }
 
 function applyReligionChange(phone,name,newReligion){
-  phone=(phone||'').replace(/\D/g,'');
+  phone=phoneKey(phone||'');
   // 1. Save to override store (keyed by phone if available, else name)
   const overrides=lsGet('vc_religion_overrides',{});
   const saveKey=phone||('name:'+(name||'').trim().toLowerCase());
@@ -7587,7 +7953,7 @@ function applyReligionChange(phone,name,newReligion){
   // 2. Save directly onto all matching invoices
   let changed=0;
   invoices.forEach(inv=>{
-    const invPh=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+    const invPh=phoneKey(inv.custWhatsapp||inv.custPhone||'');
     const invName=(inv.custName||'').trim().toLowerCase();
     const nameKey=(name||'').trim().toLowerCase();
     if((phone&&invPh===phone)||(name&&invName===nameKey)){
@@ -7728,7 +8094,7 @@ function getUniqueCustomers(){
   const map={};
   const sorted=[...invoices].sort((a,b)=>(b.invDate||'')>(a.invDate||'')?1:-1);
   sorted.forEach(inv=>{
-    const ph=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+    const ph=phoneKey(inv.custWhatsapp||inv.custPhone||'');
     if(!ph)return;
     if(!map[ph]){
       map[ph]={
@@ -7767,14 +8133,14 @@ function saveMsgLog(){lsSet('vc_msg_log',msgLog);scheduleAutoSync();}
 // also stores an all-digit phone as a number.
 function _mlKeyEq(a,b){return String(a==null?'':a)===String(b==null?'':b);}
 function hasSentMsg(phone,type,year){
-  return msgLog.some(l=>_mlKeyEq(l.phone,phone)&&l.type===type&&_mlKeyEq(l.year,year));
+  return msgLog.some(l=>_phEq(l.phone,phone)&&l.type===type&&_mlKeyEq(l.year,year));
 }
 function logMsg(phone,type,year,name){
   // Avoid duplicate entries locally
   const now=new Date().toISOString();
   const _yr=parseInt(year,10);
   const yrN=isNaN(_yr)?year:_yr; // store numeric locally; sheet will stringify it on the way back
-  if(!msgLog.some(l=>_mlKeyEq(l.phone,phone)&&l.type===type&&(year?_mlKeyEq(l.year,year):true))){
+  if(!msgLog.some(l=>_phEq(l.phone,phone)&&l.type===type&&(year?_mlKeyEq(l.year,year):true))){
     msgLog.push({phone:String(phone),type,year:yrN,sentDate:today(),name:name||'',updatedAt:now});
     saveMsgLog();
   }
@@ -7833,10 +8199,10 @@ function logMsgAR(arKey){
 }
 function hasSentFollowupSinceLastOrder(phone,lastOrder){
   // Returns true if a followup was sent on or after the customer's last order date
-  return msgLog.some(l=>_mlKeyEq(l.phone,phone)&&l.type==='followup'&&l.sentDate&&l.sentDate>=lastOrder);
+  return msgLog.some(l=>_phEq(l.phone,phone)&&l.type==='followup'&&l.sentDate&&l.sentDate>=lastOrder);
 }
 function isOptedOut(phone){
-  return msgLog.some(l=>_mlKeyEq(l.phone,phone)&&l.type==='followup_opt_out');
+  return msgLog.some(l=>_phEq(l.phone,phone)&&l.type==='followup_opt_out');
 }
 // One-time purge of all followup_opt_out entries (runs once ever via localStorage marker)
 function purgeOptOutsOnce(){
@@ -7874,7 +8240,7 @@ function neverReview(phone){
   logMsg(phone,'review_never',new Date().getFullYear(),'');
 }
 function isReviewNever(phone){
-  return!!(getReviewNever()[phone])||msgLog.some(l=>_mlKeyEq(l.phone,phone)&&l.type==='review_never');
+  return!!(_phLookup(getReviewNever(),phone))||msgLog.some(l=>_phEq(l.phone,phone)&&l.type==='review_never');
 }
 
 // ── DELIVERY REVIEW — one entry per delivered tracking number ──
@@ -7886,7 +8252,7 @@ function getPendingDeliveryReviews(dateFilter,showSkipped){
     ?Date.now()-parseInt(dateFilter)*24*3600*1000:0;
   const yr=new Date().getFullYear();
   invoices.forEach(inv=>{
-    const phone=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+    const phone=phoneKey(inv.custWhatsapp||inv.custPhone||'');
     if(!phone)return;
     if(isReviewNever(phone))return;
     if(cutoff){
@@ -7973,7 +8339,7 @@ function checkReviewPopup(){
       });
     }
     if(!inv)return;
-    const phone=(inv.custWhatsapp||inv.custPhone||'').replace(/\D/g,'');
+    const phone=phoneKey(inv.custWhatsapp||inv.custPhone||'');
     if(!phone)return;
     if(isReviewNever(phone))return;
     const msgKey='delivery_review_'+t;
@@ -8012,7 +8378,7 @@ function showReviewPopup(){
   const entry=_reviewPopupQueue[_reviewPopupIdx];
   const inv=invoices.find(i=>String(i.id)===String(entry.invId))||entry.inv;
   const {phone,productName,msgKey,trackNo,trackIndex,totalTracks}=entry;
-  const num=phone.length===10?'91'+phone:phone;
+  const num=isIndianPhoneKey(phone)?'91'+phone:phone;
   const msgText=getFestivalMessage('delivery_review',inv.custName||'',undefined,inv,trackNo,trackIndex,totalTracks);
   const yr=new Date().getFullYear();
   const pkgLabel=totalTracks>1?` — Package ${trackIndex} of ${totalTracks}`:'';
@@ -8334,9 +8700,9 @@ function showFollowupPopup(){
 
 function sendFollowup(){
   const c=_followupQueue[_followupIdx];if(!c)return;
-  const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
+  const ph=phoneKey(c.whatsapp||c.shippingPhone||'');
   if(!ph){toast('⚠️ No phone number for this customer');return;}
-  const num=ph.length===10?'91'+ph:ph;
+  const num=isIndianPhoneKey(ph)?'91'+ph:ph;
   const msg=getFestivalMessage('followup',c.name);
   window.open('https://wa.me/'+num+'?text='+encodeURIComponent(msg),'_blank');
   logMsg(c.phone,'followup',new Date().getFullYear(),c.name);
@@ -8429,7 +8795,7 @@ async function renderOutreachPage(){
     </div>`;
 
     deliveryReviews.forEach(({inv,phone,productName,msgKey,trackNo,trackIndex,totalTracks,skipped})=>{
-      const num=phone.length===10?'91'+phone:phone;
+      const num=isIndianPhoneKey(phone)?'91'+phone:phone;
       const msgText=getFestivalMessage('delivery_review',inv.custName||'',undefined,inv,trackNo,trackIndex,totalTracks);
       const pkgLabel=totalTracks>1?` — Pkg ${trackIndex}/${totalTracks}`:'';
       const skipLabel=skipped?'<span style="font-size:10px;background:#f0f0f0;color:#888;border-radius:8px;padding:1px 7px;margin-left:6px;">skipped</span>':'';
@@ -8470,8 +8836,8 @@ async function renderOutreachPage(){
   }else{
     followups.forEach((c,i)=>{
       const days=Math.round((new Date(todayStr)-new Date(c.lastOrder+'T00:00:00'))/(864e5));
-      const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
-      const num=ph.length===10?'91'+ph:ph;
+      const ph=phoneKey(c.whatsapp||c.shippingPhone||'');
+      const num=isIndianPhoneKey(ph)?'91'+ph:ph;
       const msg=getFestivalMessage('followup',c.name);
       const rCol=rColour[c.religion]||'#888';
       html+=`<div class="list-row" style="align-items:flex-start;gap:8px;">
@@ -8527,8 +8893,8 @@ async function renderOutreachPage(){
     window._sendAllData=window._sendAllData||{};
     window._sendAllData[f.key]={links:[],festKey:f.key,yr};
     const sendAllLinks=visible.map(c=>{
-      const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
-      const num=ph.length===10?'91'+ph:ph;
+      const ph=phoneKey(c.whatsapp||c.shippingPhone||'');
+      const num=isIndianPhoneKey(ph)?'91'+ph:ph;
       return{num,msg:getFestivalMessage(f.key,c.name,f.approx),phone:c.phone,name:c.name};
     });
     if(window._sendAllData&&window._sendAllData[f.key])window._sendAllData[f.key].links=[...sendAllLinks];
@@ -8548,8 +8914,8 @@ async function renderOutreachPage(){
       ${visible.length===0
         ?`<div style="color:#aaa;text-align:center;padding:12px;">No customers match current filters.</div>`
         :visible.map((c,ci)=>{
-          const ph=c.whatsapp||(c.shippingPhone.replace(/\D/g,''));
-          const num=ph.length===10?'91'+ph:ph;
+          const ph=phoneKey(c.whatsapp||c.shippingPhone||'');
+          const num=isIndianPhoneKey(ph)?'91'+ph:ph;
           const msg=getFestivalMessage(f.key,c.name,f.approx);
           const rCol=rColour[c.religion]||'#888';
           return`<div class="list-row" style="align-items:flex-start;gap:8px;">
@@ -8602,7 +8968,7 @@ function bulkSendReviews(){
   function openNext(){
     if(idx>=list.length){toast('✅ All review messages opened');renderOutreachPage();return;}
     const {inv,phone,productName,msgKey,trackNo,trackIndex,totalTracks}=list[idx];
-    const num=phone.length===10?'91'+phone:phone;
+    const num=isIndianPhoneKey(phone)?'91'+phone:phone;
     const msgText=getFestivalMessage('delivery_review',inv.custName||'',undefined,inv,trackNo,trackIndex,totalTracks);
     logMsg(phone,msgKey,yr,'');
     window.open('https://wa.me/'+num+'?text='+encodeURIComponent(msgText),'_blank');
@@ -8961,13 +9327,14 @@ const _prMoney=n=>'₹'+Math.round(n).toLocaleString('en-IN');
 async function showPartnerReport(){
   const sel=getSelectedInvoices();
   if(!sel.length){toast('⚠️ Select at least one invoice');return;}
-  if(!S.partnerWa){toast('⚠️ Add the Partner WhatsApp Number in Settings first',5000);return;}
+  if(!S.partnerWa&&!S.partnerWa2){toast('⚠️ Add a Partner WhatsApp Number in Settings first',5000);return;}
 
   const modal=document.getElementById('partner-report-modal');
   const statusEl=document.getElementById('pr-status');
   const prevEl=document.getElementById('pr-preview');
   if(prevEl)prevEl.value='';
   if(statusEl)statusEl.textContent='Looking up cities…';
+  renderPartnerSendRow();
   modal.classList.add('open');
 
   // Resolve every distinct PIN once, in parallel
@@ -9056,13 +9423,41 @@ async function showPartnerReport(){
   }
 }
 
-function sendPartnerReport(){
+// v14.36.0 D3: a second partner number is supported. Deliberately ONE BUTTON PER PARTNER
+// rather than a single send-to-both: window.open must sit in the synchronous user-gesture
+// call stack (the same iOS/Safari constraint noted elsewhere in this file), and two opens
+// from one tap gets the second blocked as a popup. The modal stays open after the first
+// send so the second button is still there to tap.
+function _partnerNumbers(){
+  const out=[];
+  const p1=String(S.partnerWa||'').replace(/\D/g,'');
+  const p2=String(S.partnerWa2||'').replace(/\D/g,'');
+  if(p1)out.push({n:1,ph:p1});
+  if(p2&&p2!==p1)out.push({n:2,ph:p2});
+  return out;
+}
+function renderPartnerSendRow(){
+  const row=document.getElementById('pr-send-row');
+  if(!row)return;
+  const list=_partnerNumbers();
+  let html='';
+  list.forEach(p=>{
+    const lbl=list.length>1?('💬 Send to Partner '+p.n):'💬 Send on WhatsApp';
+    html+='<button class="btn btn-p" style="flex:1;min-width:150px;" onclick="sendPartnerReport('+p.n+')">'+lbl+'</button>';
+  });
+  html+='<button class="btn btn-o" style="flex:1;min-width:110px;" onclick="copyPartnerReport()">📋 Copy</button>';
+  row.innerHTML=html;
+}
+function sendPartnerReport(which){
   const txt=(document.getElementById('pr-preview')?.value||_prMsg).trim();
   if(!txt){toast('⚠️ Nothing to send');return;}
-  const ph=String(S.partnerWa||'').replace(/\D/g,'');
-  if(!ph){toast('⚠️ Add the Partner WhatsApp Number in Settings');return;}
-  window.open('https://wa.me/'+ph+'?text='+encodeURIComponent(txt),'_blank');
-  document.getElementById('partner-report-modal').classList.remove('open');
+  const list=_partnerNumbers();
+  const pick=list.find(p=>p.n===(which||1))||list[0];
+  if(!pick){toast('⚠️ Add a Partner WhatsApp Number in Settings');return;}
+  window.open('https://wa.me/'+pick.ph+'?text='+encodeURIComponent(txt),'_blank');
+  // Modal is left OPEN when a second partner is configured, so the report can go to both.
+  if(list.length<2)document.getElementById('partner-report-modal').classList.remove('open');
+  else toast('✅ Sent to Partner '+pick.n+' — tap the other button for the second partner',5000);
 }
 
 function copyPartnerReport(){
@@ -12833,6 +13228,230 @@ function checkConfigBanner(){
 
 // Strict courier detection from tracking number format
 // Returns 'indiapost' | 'dtdc' | 'bluedart' | null
+// ═══════════════════════════════════════════
+// TRACKING NUMBER SCANNER (v14.36.0 D4)
+// ═══════════════════════════════════════════
+// Two paths, in order of reliability:
+//   1. BARCODE. India Post booking receipts print the article number as a Code128 barcode,
+//      so this is an EXACT read with no guessing. Native BarcodeDetector handles Chrome on
+//      Android; WebKit has never shipped it, so on iPhone a ZXing UMD build is lazy-loaded
+//      from CDN the first time the scanner is opened and then cached by the browser.
+//   2. OCR of the printed digits, via tesseract.js, on demand only — it is a multi-MB
+//      download and markedly less accurate on thermal receipt print, so it is never the
+//      default path, only the "🔤 Read printed number" fallback.
+//
+// EVERY candidate from EITHER path is validated before it is offered. India Post numbers are
+// S10 (2 letters + 8 serial digits + 1 check digit + 2 letters) and that check digit is a
+// mod-11 over fixed weights — so a misread digit is caught rather than silently written into
+// the invoice as a wrong AWB, which is the failure that matters here. Numbers that are not
+// India Post still get offered (DTDC/Blue Dart barcodes decode fine) but are flagged as
+// unverified, and the existing v14.29.0 courier picker handles them from there as usual.
+const S10_RE=/^([A-Z]{2})(\d{9})([A-Z]{2})$/;
+function s10CheckDigit(serial8){
+  const w=[8,6,4,2,3,5,9,7];
+  let sum=0;
+  for(let i=0;i<8;i++)sum+=parseInt(serial8[i],10)*w[i];
+  let c=11-(sum%11);
+  if(c===10)c=0;
+  if(c===11)c=5;
+  return String(c);
+}
+// -> {no, valid, courier, note}  or null when the text is not a plausible tracking number
+function validateTrackCandidate(raw){
+  const t=String(raw||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(t.length<8||t.length>20)return null;
+  const m=t.match(S10_RE);
+  if(m){
+    const digits=m[2];
+    const ok=s10CheckDigit(digits.slice(0,8))===digits[8];
+    return{no:t,valid:ok,courier:'indiapost',
+      note:ok?'✅ India Post — check digit verified':'⚠️ India Post format but the check digit does not match — likely a misread'};
+  }
+  const c=detectCourier(t);
+  if(c)return{no:t,valid:true,courier:c,note:'✅ Recognised as '+getCourierInfo(t).name+' (no check digit to verify)'};
+  return{no:t,valid:false,courier:null,note:'⚠️ Unrecognised format — check it against the receipt before using'};
+}
+
+let _scanTarget=null,_scanStream=null,_scanRAF=null,_scanDetector=null,_scanHit=null,_scanStop=false;
+const _SCAN_FORMATS=['code_128','code_39','codabar','ean_13','itf','qr_code','data_matrix','pdf417'];
+
+function _scanSay(msg,hint){
+  const a=document.getElementById('scan-status');if(a)a.textContent=msg;
+  if(hint!==undefined){const b=document.getElementById('scan-hint');if(b)b.textContent=hint;}
+}
+function _loadScript(src){
+  return new Promise((res,rej)=>{
+    if(document.querySelector('script[data-vc-src="'+src+'"]'))return res();
+    const el=document.createElement('script');
+    el.src=src;el.async=true;el.setAttribute('data-vc-src',src);
+    el.onload=()=>res();
+    el.onerror=()=>rej(new Error('load failed'));
+    document.head.appendChild(el);
+  });
+}
+
+function openTrackScanner(targetId){
+  _scanTarget=targetId;_scanHit=null;_scanStop=false;
+  const res=document.getElementById('scan-result');if(res)res.style.display='none';
+  const acc=document.getElementById('scan-accept');if(acc)acc.style.display='none';
+  document.getElementById('scan-modal').classList.add('open');
+  _scanSay('Starting camera…','Hold the barcode on the receipt inside the frame.');
+  _startScanCamera();
+}
+async function _startScanCamera(){
+  const video=document.getElementById('scan-video');
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    _scanSay('⚠️ This browser cannot open the camera','Type the number in by hand instead.');
+    return;
+  }
+  try{
+    _scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}},audio:false});
+    video.srcObject=_scanStream;
+    await video.play().catch(()=>{});
+  }catch(e){
+    _scanSay('⚠️ Camera blocked','Allow camera access for this site in your browser settings, or type the number in by hand.');
+    return;
+  }
+  _scanSay('Looking for a barcode…');
+  try{
+    await _ensureBarcodeDetector();
+  }catch(e){
+    _scanSay('Barcode reader unavailable','Tap “Read printed number” to read the digits instead — that needs a connection the first time.');
+    return;
+  }
+  _scanLoop();
+}
+async function _ensureBarcodeDetector(){
+  if(_scanDetector)return;
+  if(window.BarcodeDetector){
+    let fmts=_SCAN_FORMATS;
+    try{
+      const sup=await window.BarcodeDetector.getSupportedFormats();
+      const f=_SCAN_FORMATS.filter(x=>sup.indexOf(x)>=0);
+      if(f.length)fmts=f;
+    }catch(e){}
+    _scanDetector={native:new window.BarcodeDetector({formats:fmts})};
+    return;
+  }
+  // WebKit/iOS: no BarcodeDetector, ever. Fall back to ZXing.
+  _scanSay('Loading barcode reader…','First use needs a connection; it is cached after that.');
+  await _loadScript('https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js');
+  if(!window.ZXing||!window.ZXing.BrowserMultiFormatReader)throw new Error('zxing missing');
+  _scanDetector={zxing:new window.ZXing.BrowserMultiFormatReader()};
+}
+function _scanFrameCanvas(){
+  const video=document.getElementById('scan-video');
+  if(!video||!video.videoWidth)return null;
+  const c=document.createElement('canvas');
+  c.width=video.videoWidth;c.height=video.videoHeight;
+  c.getContext('2d').drawImage(video,0,0,c.width,c.height);
+  return c;
+}
+async function _scanLoop(){
+  if(_scanStop||!_scanDetector)return;
+  const video=document.getElementById('scan-video');
+  try{
+    let raw='';
+    if(_scanDetector.native&&video&&video.videoWidth){
+      const hits=await _scanDetector.native.detect(video);
+      if(hits&&hits.length)raw=hits[0].rawValue||'';
+    }else if(_scanDetector.zxing){
+      const c=_scanFrameCanvas();
+      if(c){
+        try{const r=_scanDetector.zxing.decodeFromCanvas(c);if(r)raw=r.getText()||'';}catch(e){/* no barcode this frame */}
+      }
+    }
+    if(raw){
+      const v=validateTrackCandidate(raw);
+      if(v){_showScanHit(v,'barcode');return;}
+    }
+  }catch(e){/* transient decode error — keep scanning */}
+  _scanRAF=setTimeout(()=>{ _scanLoop(); },_scanDetector.zxing?220:120);
+}
+function _showScanHit(v,how){
+  _scanHit=v;
+  _scanStop=true;
+  if(_scanRAF){clearTimeout(_scanRAF);_scanRAF=null;}
+  const res=document.getElementById('scan-result');
+  const no=document.getElementById('scan-result-no');
+  const note=document.getElementById('scan-result-note');
+  const acc=document.getElementById('scan-accept');
+  if(no)no.textContent=v.no;
+  if(note){note.textContent=v.note;note.style.color=v.valid?'#1a7f3c':'#c47b00';}
+  if(res)res.style.display='block';
+  if(acc){acc.style.display='';acc.textContent=v.valid?'✅ Use This Number':'⚠️ Use Anyway';}
+  _scanSay(how==='ocr'?'Read from the printed number':'Barcode read','Check it matches the receipt, then tap Use.');
+  if(navigator.vibrate)try{navigator.vibrate(60);}catch(e){}
+}
+async function runTrackOCR(){
+  _scanStop=true;
+  if(_scanRAF){clearTimeout(_scanRAF);_scanRAF=null;}
+  const c=_scanFrameCanvas();
+  if(!c){_scanSay('⚠️ No camera frame to read','Make sure the camera is running, then try again.');return;}
+  const btn=document.getElementById('scan-ocr');
+  if(btn)btn.classList.add('loading');
+  _scanSay('Reading the printed number…','First use downloads the reader — this can take a moment.');
+  try{
+    if(!window.Tesseract)await _loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
+    if(!window.Tesseract)throw new Error('tesseract missing');
+    const out=await window.Tesseract.recognize(c,'eng',{
+      // Restricting the alphabet is what makes receipt print usable: O/0 and I/1 confusions
+      // collapse, and anything that is not a tracking-number character cannot be produced.
+      tessedit_char_whitelist:'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    });
+    const text=((out&&out.data&&out.data.text)||'').toUpperCase();
+    const tokens=text.replace(/[^A-Z0-9\s]/g,' ').split(/\s+/).filter(Boolean);
+    // Also try joining adjacent tokens — receipts often break the number across spaces
+    for(let i=0;i<tokens.length;i++){
+      for(let j=1;j<=3&&i+j<=tokens.length;j++){
+        const cand=tokens.slice(i,i+j).join('');
+        const v=validateTrackCandidate(cand);
+        if(v&&v.valid){_showScanHit(v,'ocr');return;}
+      }
+    }
+    // Nothing verified — offer the best-looking unverified guess rather than nothing
+    for(let i=0;i<tokens.length;i++){
+      for(let j=1;j<=3&&i+j<=tokens.length;j++){
+        const v=validateTrackCandidate(tokens.slice(i,i+j).join(''));
+        if(v&&v.courier==='indiapost'){_showScanHit(v,'ocr');return;}
+      }
+    }
+    _scanSay('⚠️ Could not read a tracking number','Steady the phone, fill the frame with just the number, and try again — or type it in by hand.');
+    _scanStop=false;_scanLoop();
+  }catch(e){
+    _scanSay('⚠️ Text reader unavailable','It needs a connection the first time. Scan the barcode instead, or type the number in.');
+    _scanStop=false;_scanLoop();
+  }finally{
+    if(btn)btn.classList.remove('loading');
+  }
+}
+function acceptScannedTracking(){
+  if(!_scanHit||!_scanTarget){closeTrackScanner();return;}
+  const el=document.getElementById(_scanTarget);
+  if(!el){toast('⚠️ Could not find the tracking field');closeTrackScanner();return;}
+  const cur=String(el.value||'').trim();
+  const existing=cur.split(',').map(x=>x.trim().toUpperCase()).filter(Boolean);
+  if(existing.indexOf(_scanHit.no)>=0){
+    toast('ℹ️ That number is already on this order');
+  }else{
+    // Append rather than replace — a multi-package invoice is scanned one parcel at a time.
+    el.value=cur?(cur.replace(/,\s*$/,'')+', '+_scanHit.no):_scanHit.no;
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+    el.dispatchEvent(new Event('change',{bubbles:true}));
+    toast('✅ '+_scanHit.no+' added');
+  }
+  closeTrackScanner();
+}
+function closeTrackScanner(){
+  _scanStop=true;
+  if(_scanRAF){clearTimeout(_scanRAF);_scanRAF=null;}
+  if(_scanDetector&&_scanDetector.zxing){try{_scanDetector.zxing.reset();}catch(e){}}
+  if(_scanStream){try{_scanStream.getTracks().forEach(t=>t.stop());}catch(e){}_scanStream=null;}
+  const v=document.getElementById('scan-video');if(v)v.srcObject=null;
+  document.getElementById('scan-modal').classList.remove('open');
+  _scanHit=null;_scanTarget=null;
+}
+
 function detectCourier(trackNo){
   if(!trackNo)return null;
   const t=trackNo.trim().toUpperCase();
