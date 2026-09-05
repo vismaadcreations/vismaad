@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.36.0
+APP: Vismaad Creations v14.36.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 05-Sep-2026 — v14.36.0: MOBILE ZOOM FIX, PHONE PARSING REWRITE, 2ND PARTNER, TRACKING SCANNER, COURIER SPEND, P&L SHIPPING GAP.
+LAST_CHANGE: 05-Sep-2026 — v14.36.1: BARCODE SCANNING FIXED ON IPHONE.
+(E1) THE BARCODE SCANNER NEVER READ A BARCODE ON IPHONE — the OCR fallback worked, the camera worked, but the barcode path could not succeed under any conditions. v14.36.0 D4 called decodeFromCanvas() on the ZXing BrowserMultiFormatReader; that method does NOT exist in @zxing/library@0.21.3, the exact CDN build being lazy-loaded (verified by unpacking the published UMD bundle — BrowserMultiFormatReader is present, decodeFromCanvas is not; it was dropped from the browser layer). So every frame threw a TypeError straight into the inner catch, which was written to mean "no barcode in this frame" and swallowed it. The loop ran forever and looked alive. Android was never affected, as it uses the native BarcodeDetector. Replaced with the low-level path the removed method used internally and which is stable across builds: HTMLCanvasElementLuminanceSource -> HybridBinarizer -> BinaryBitmap -> reader.decodeBitmap(), all four exported by the same already-loaded bundle, so no extra download and no new dependency. THE SWALLOWING CATCH IS NOW NARROW: NotFoundException/ChecksumException/FormatException still mean "not this frame" and keep looping, while any other error stops the loop and shows "Barcode reader unavailable — tap Read printed number", so a future API break is VISIBLE instead of presenting as a scanner that simply never finds anything. Reader now built with TRY_HARDER and POSSIBLE_FORMATS restricted to CODE_128/CODE_39/ITF/QR/DATA_MATRIX — fewer formats per frame pays for the more tolerant search, so a slightly rotated thermal receipt still reads. Decode loop now works on a frame downscaled to 800px wide to hold the frame rate on older iPhones; _scanFrameCanvas() with no argument is unchanged, so OCR still gets the full-resolution frame it needs. No UI, validation, S10 check-digit, courier-picker or OCR behaviour changed.
 (D1) THE SCREEN ENLARGED ON EVERY TAP INTO A FIELD AND STAYED THERE — a regression from v14.35.0 C16, which removed maximum-scale=1.0/user-scalable=no so the dense tracking and GST tables could be pinch-zoomed. Mobile Safari auto-zooms the page whenever a field whose COMPUTED font-size is under 16px takes focus, and it never zooms back out, so the app was left enlarged until pinched out by hand. .fg input/select/textarea is 15px and dozens of inline-styled inputs are 11-14px. Fixed by forcing 16px on input/select/textarea under (max-width:767px),(pointer:coarse) — 16px is the documented threshold at which Safari does not zoom. !important is required because the offending sizes are inline styles, which otherwise beat a stylesheet rule. Padding trimmed on number/date inputs so the larger glyphs do not overflow the fixed-width compact fields (variant qty 52px, price 80px). Pinch-zoom stays enabled, so C16's reason for the change is preserved; Android is unaffected either way since Chrome does not auto-zoom on focus.
 (D2) PHONE NUMBERS WITH SPACES, HYPHENS OR BRACKETS WERE OFTEN MISSED, AND INTERNATIONAL ONES CORRUPTED THE SHIPPING PHONE. The paste-address parser used two positional regex templates that permitted at most ONE separator character between fixed digit positions. Confirmed failures: '+91  98765  43210' (double space, common when pasting from WhatsApp) detected NOTHING AT ALL; '(98765) 43210', '98765,43210' and '98765/43210' were missed entirely; '0044 7911 123456' and '001 415 555 0123' were never recognised because the international regex required a literal '+'; and worst, the broad Indian sweep ran over text the international match had already claimed, so '+1 647 986 5432' stored '6479865432' as the SHIPPING PHONE and placed it AHEAD of the real Indian number in the list, where it won the phone slot. Replaced with a tokeniser (extractPhones): the text is split into digit groups, a chain is continued across pure-separator gaps of ANY length, each chain is tested through phoneKey, and a run is claimed by whichever interpretation validates first — so an international number can no longer be re-read as an Indian one. Verified against 33 real-world formats. SEPARATELY, every customer-matching call site did a bare .replace(/\D/g,'') with no country-code handling, so the SAME person saved once as '9876543210' and once as '+91 98765 43210' became TWO customers: duplicate Outreach rows, follow-ups firing twice, and an opt-out on one form not covering the other. New phoneKey() collapses +91 / 91 / 0 / 00 / +91 (0) forms to the bare 10 digits and leaves genuine international numbers on their country code; wired into getUniqueCustomers, both religion-override paths, applyReligionChange, getSharePhone, isReviewNever, and the msgLog comparisons (hasSentMsg, logMsg, isOptedOut, hasSentFollowupSinceLastOrder) via a new phone-aware _phEq. NO MIGRATION IS NEEDED AND NO HISTORY IS LOST: _phEq/_phLookup reduce BOTH sides before comparing, so a message logged historically under '919876543210' still matches a customer now keyed '9876543210'. The four wa.me builders that hardcoded ph.length===10 now test isIndianPhoneKey, so an 11-digit international number is no longer left without its country code.
 (D3) SECOND PARTNER NUMBER. New S.partnerWa2 beside S.partnerWa, labelled Partner 1 / Partner 2 in Settings, localStorage-only — settingsForSheet is an allowlist so neither number can reach the Settings sheet. The Partner Report modal now renders one Send button PER configured number (renderPartnerSendRow) rather than a single send-to-both: window.open must sit in the synchronous user-gesture call stack on iOS/Safari, so two opens from one tap gets the second blocked as a popup. With two partners configured the modal stays open after the first send so the second button is still there; with one it closes exactly as before. Report content and grouping unchanged.
@@ -13337,14 +13338,30 @@ async function _ensureBarcodeDetector(){
   _scanSay('Loading barcode reader…','First use needs a connection; it is cached after that.');
   await _loadScript('https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js');
   if(!window.ZXing||!window.ZXing.BrowserMultiFormatReader)throw new Error('zxing missing');
-  _scanDetector={zxing:new window.ZXing.BrowserMultiFormatReader()};
+  // TRY_HARDER plus a narrow format list is the right trade for a thermal receipt: fewer
+  // formats to attempt per frame pays for the more tolerant (slower) search, so a slightly
+  // rotated or lightly printed Code128 still reads without dropping the frame rate.
+  let hints=null;
+  try{
+    const H=window.ZXing.DecodeHintType,F=window.ZXing.BarcodeFormat;
+    if(H&&F){
+      hints=new Map();
+      hints.set(H.TRY_HARDER,true);
+      hints.set(H.POSSIBLE_FORMATS,[F.CODE_128,F.CODE_39,F.ITF,F.QR_CODE,F.DATA_MATRIX]);
+    }
+  }catch(e){hints=null;}
+  _scanDetector={zxing:new window.ZXing.BrowserMultiFormatReader(hints),zxFailed:false};
 }
-function _scanFrameCanvas(){
+// maxW downscales the frame for the decode loop only. OCR calls this with no argument and
+// still gets the full-resolution frame, which it needs to resolve printed glyphs.
+function _scanFrameCanvas(maxW){
   const video=document.getElementById('scan-video');
   if(!video||!video.videoWidth)return null;
+  let w=video.videoWidth,h=video.videoHeight;
+  if(maxW&&w>maxW){h=Math.round(h*(maxW/w));w=maxW;}
   const c=document.createElement('canvas');
-  c.width=video.videoWidth;c.height=video.videoHeight;
-  c.getContext('2d').drawImage(video,0,0,c.width,c.height);
+  c.width=w;c.height=h;
+  c.getContext('2d').drawImage(video,0,0,w,h);
   return c;
 }
 async function _scanLoop(){
@@ -13356,9 +13373,29 @@ async function _scanLoop(){
       const hits=await _scanDetector.native.detect(video);
       if(hits&&hits.length)raw=hits[0].rawValue||'';
     }else if(_scanDetector.zxing){
-      const c=_scanFrameCanvas();
+      const c=_scanFrameCanvas(800);
       if(c){
-        try{const r=_scanDetector.zxing.decodeFromCanvas(c);if(r)raw=r.getText()||'';}catch(e){/* no barcode this frame */}
+        // decodeFromCanvas() was removed from the ZXing browser layer, so the bitmap is built
+        // explicitly here — the low-level path the convenience method used internally, and the
+        // one that stays put across builds.
+        try{
+          const src=new window.ZXing.HTMLCanvasElementLuminanceSource(c);
+          const bmp=new window.ZXing.BinaryBitmap(new window.ZXing.HybridBinarizer(src));
+          const r=_scanDetector.zxing.decodeBitmap(bmp);
+          if(r)raw=r.getText()||'';
+        }catch(e){
+          // NotFound/Checksum/Format simply mean there is no readable code in THIS frame —
+          // keep looping. Anything else is a real fault (a missing method, a broken build),
+          // and must surface rather than spin silently forever.
+          const n=(e&&(e.name||e.constructor&&e.constructor.name))||'';
+          const expected=/NotFound|Checksum|Format/i.test(n);
+          if(!expected){
+            _scanDetector.zxFailed=true;
+            _scanStop=true;
+            _scanSay('⚠️ Barcode reader unavailable','Tap “Read printed number” to read the digits instead, or type the number in.');
+            return;
+          }
+        }
       }
     }
     if(raw){
