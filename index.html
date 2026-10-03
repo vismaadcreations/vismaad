@@ -3,10 +3,20 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.36.2
+APP: Vismaad Creations v14.37.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 05-Sep-2026 — v14.36.2: BARCODE SCANNER STILL DEAD ON IPHONE (WRONG ERROR CLASSIFICATION) + EXPECTED DELIVERY IS NOW A RANGE.
+LAST_CHANGE: 03-Oct-2026 — v14.37.0: LINKED-STOCK ANOMALIES + SYNC RELIABILITY (DEVICES DRIFTING APART / ONE DEVICE "SYNC FAILED") + CONFIG BACKUP v2. REQUIRES Code.gs v4 (LockService + Inventory delete by prodNo) — redeploy the Apps Script.
+(G1) UNRELATED ARTICLES IN "LINKED TO:" WHILE ADDING STOCK. acceptLink appended a chip to #ip-linked-list but saveProduct only HID the container and never emptied it, so every chip accepted earlier in the session reappeared beside the next product. suggestLinks also reset _pendingLinks on each keystroke while leaving the old chips visible, so chips could show links that would not be saved. New _clearLinkChips() runs on every reset and after save.
+(G2) BACK-LINKS NEVER REACHED OTHER DEVICES. saveProduct pushed the back-linked sibling without bumping its updatedAt, so the updatedAt-wins merge ignored it elsewhere and pools became one-directional cross-device. updatedAt now bumped.
+(G3) DELETED PRODUCTS: NUMBER REUSE INHERITED OLD LINKS, AND DELETES NEVER PROPAGATED. _doDeleteProduct left the deleted number in siblings' linkedProducts; nextProdNo() is max+1, so the next product got the same number and silently joined the old pool. Siblings are now stripped and pushed. It also deleted by _editingProdNo instead of its own argument (fixed). Code.gs deleteRow only matched an 'id' column, which Inventory does not have, so the sheet row survived and the product came back on every sync — Code.gs v4 now matches prodNo. Product deletes now also write a TIMESTAMPED tombstone ('prod:<no>:<ms>') to DeletedIds; a tombstone removes only a product last touched BEFORE the delete, so a new product reusing the number is never removed. The inventory merge also refuses to resurrect a tombstoned row still on the sheet.
+(G4) ONE-TIME LINK REPAIR (repairLinksOnce, guarded vc_link_repair_v1): removes links to missing products / self; makes one-way links two-way only where both names still match exactly (the suggester's own rule). One-way links between different names are left untouched and listed in the console. Repaired products get a fresh updatedAt so the repair syncs.
+(G5) SYNC UPLOADS WERE FIRE-AND-FORGET — THE MAIN CAUSE OF DIFFERENT DATA ON DIFFERENT DEVICES. Every push inside syncAll used gsWrite (no-cors, unconfirmed) and vc_last_sync_time advanced regardless, so a dropped write (network blip, Apps Script simultaneous-execution cap hit by the all-at-once burst, iOS killing background requests) was never retried and the record lived on one device only. Now only records THIS device changed since the last confirmed sync (snapshot taken BEFORE the merge, so records just received from the sheet are no longer re-uploaded) are pushed via gsWriteConfirmed, three at a time (_pushConfirmedPool). The sync clock advances only if every upload confirmed; otherwise status shows amber "Partial sync", a toast gives the count, and the unconfirmed records are retried automatically. DeletedIds tombstone pushes are confirmed too. flushPendingWrites (app backgrounded) stays fire-and-forget by necessity, but the next sync now re-pushes those records with confirmation.
+gsWriteConfirmed now treats an {error} reply (e.g. lock busy) as unconfirmed; it previously counted any reply as success.
+(G6) "SYNC FAILED" ON ONE DEVICE, GREEN ON OTHERS. The post-sync repaint ran inside the sync's catch, so a render crash on one device (typically one malformed local record) was reported as a sync failure there only, though data had synced. Repaint now has its own try/catch and reports "Data synced, but a screen failed to refresh". readAll gets one retry before the per-sheet fallback. Every failure now records the STEP it happened at (_stage) plus the message in vc_last_sync_error, shown in the toast and in More → Sync info ("Last sync problem"), together with the last full-sync time.
+(G7) CONFIG BACKUP v2. Adds the values that live only on a device and were lost on a new phone / cleared browser: partnerWa, partnerWa2, religion overrides, custom Muslim / not-Muslim name lists, never-ask-review list. A v2 restore is authoritative for text fields (blank restores as blank); v1 files keep the old fill-if-present behaviour. Lists MERGE with the device's own, file winning on conflict. A restored calKey bumps S.updatedAt so the next sync cannot overwrite it with the sheet's older value.
+NOTE: no invoice/stock quantities are rewritten. Code.gs v4 must be deployed as a NEW VERSION of the existing deployment (same URL).
+PREV_CHANGE: 05-Sep-2026 — v14.36.2: BARCODE SCANNER STILL DEAD ON IPHONE (WRONG ERROR CLASSIFICATION) + EXPECTED DELIVERY IS NOW A RANGE.
 (F1) "BARCODE READER UNAVAILABLE" APPEARED IMMEDIATELY ON EVERY IPHONE SCAN. The v14.36.1 decode path itself is correct — HTMLCanvasElementLuminanceSource, HybridBinarizer, BinaryBitmap and decodeBitmap were all re-verified as present in @zxing/library@0.21.3. What was wrong is the NEW narrow catch that v14.36.1 added. It decided "no barcode in this frame" by testing err.name against /NotFound|Checksum|Format/. ZXing sets err.name from the CONSTRUCTOR'S CLASS NAME (CustomError does Object.defineProperty(this,'name',{value:new.target.name})), and the CDN file being lazy-loaded is index.min.js, in which every class is minified to a single letter — NotFoundException is emitted as `class o extends s`. So a perfectly ordinary empty frame threw an error whose .name was "o", the test failed, the error was judged a real fault, the loop stopped and the "unavailable" message showed. It fired on the FIRST frame, so the scanner never got a chance to read anything and looked broken outright — the opposite failure mode to v14.36.0, which looped forever and looked alive. Fixed by classifying on the STATIC `kind` property instead (new _zxKind(): getKind(), falling back to constructor.kind), which survives minification because it is assigned as a string literal — confirmed by grepping the published minified bundle for kind="NotFoundException" and friends. NotFound/Checksum/Format/ReaderException keep the loop running; an error with NO ZXing kind at all (a genuine TypeError/ReferenceError, i.e. a real API break) still stops the loop and shows the message, so v14.36.1's intent — make a future break VISIBLE — is preserved and now actually discriminates. Android/native BarcodeDetector was never affected by either bug. No UI, validation, S10 check-digit, courier-picker or OCR behaviour changed.
 (F2) EXPECTED DELIVERY DATE IN THE DISPATCH WHATSAPP MESSAGE IS NOW A RANGE, NOT A SINGLE DATE. It was a hardcoded dispatch date + 10 days for every courier, phrased "Expected delivery by <date>". Two problems: a single date reads as a promise rather than an estimate, and +10 days is the slow tail of India Post, so a DTDC parcel that would actually land in three days was quoted ten — needlessly poor news at the exact moment the customer is most eager. New buildDeliveryWindowText() derives the window from the ACTUAL couriers on the invoice via the existing groupTrackingByCourier: India Post 4–9 days, DTDC and Blue Dart 2–5, unrecognised courier 3–8 (DELIVERY_WINDOW_DAYS, one table, easy to retune). A mixed-courier invoice takes the WIDEST window (earliest low, latest high), since the first parcel may arrive much sooner but the order is only complete when the slowest lands. Reads "Expected delivery between 09 and 14 Sep 2026", collapsing the repeated month and year when both ends share them and spelling both out fully when they straddle a month. Falls back to an empty string on an unparseable dispatch date, exactly as the old code did, so the line is omitted rather than printing garbage. Only the initial-dispatch message carries this line; buildFollowupTrackingMessage is unchanged.
 PREV_CHANGE: 05-Sep-2026 — v14.36.1: BARCODE SCANNING FIXED ON IPHONE.
@@ -103,6 +113,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--ink);f
 .sync-dot.ok{background:#5dde8a;}
 .sync-dot.err{background:#e74c3c;}
 .sync-dot.busy{background:#f39c12;animation:pulse .8s infinite;}
+.sync-dot.warn{background:#f5b041;} /* v14.37.0: partial sync — some uploads did not confirm */
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
 /* ── SCROLL AREA ── */
@@ -1022,7 +1033,7 @@ body.gst-mode .gst-only{display:block;}
     <!-- Config Backup / Restore -->
     <div style="background:#f5f0ff;border:1px solid #c9aff7;border-radius:10px;padding:12px 14px;margin-top:16px;">
       <div style="font-size:13px;font-weight:600;color:#5c3d1e;margin-bottom:6px;">🔐 Config Backup &amp; Restore</div>
-      <div style="font-size:12px;color:#7c5e35;margin-bottom:12px;line-height:1.55;">Save your logo, QR code, GitHub token, Catalogue Sheet ID, WhatsApp number, UPI details, and tagline to a file. Restore instantly on any new device or after reinstall — no re-entering needed.</div>
+      <div style="font-size:12px;color:#7c5e35;margin-bottom:12px;line-height:1.55;">Save your logo, QR code, GitHub token, Catalogue Sheet ID, WhatsApp number, partner numbers, UPI details, tagline, API keys, religion corrections and review opt-outs to a file. Restore instantly on any new device or after reinstall — no re-entering needed.</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <button class="btn btn-o" style="flex:1;min-width:120px;" onclick="backupConfig()">💾 Backup Config</button>
         <button class="btn btn-o" style="flex:1;min-width:120px;" onclick="triggerConfigRestore()">📂 Restore Config</button>
@@ -2033,8 +2044,8 @@ function numberToWords(n){
 // GOOGLE SHEETS — CORS-safe
 // ═══════════════════════════════════════════
 function setSyncStatus(st){
-  const cls='sync-dot '+(st==='ok'?'ok':st==='err'?'err':st==='busy'?'busy':'');
-  const txt=st==='ok'?'Synced':st==='err'?'Sync failed':st==='busy'?'Syncing…':'Tap to sync';
+  const cls='sync-dot '+(st==='ok'?'ok':st==='err'?'err':st==='busy'?'busy':st==='warn'?'warn':'');
+  const txt=st==='ok'?'Synced':st==='err'?'Sync failed':st==='busy'?'Syncing…':st==='warn'?'Partial sync':'Tap to sync';
   const dot=document.getElementById('sync-dot');
   const lbl=document.getElementById('sync-label');
   if(dot)dot.className=cls;
@@ -2112,8 +2123,10 @@ function gsWriteConfirmed(sheet,data,_retry){
         resolve(false); // second attempt also timed out
       }
     },12000);
-    window[cb]=function(){
-      clearTimeout(timer);delete window[cb];try{document.head.removeChild(s);}catch{}resolve(true);
+    window[cb]=function(res){
+      clearTimeout(timer);delete window[cb];try{document.head.removeChild(s);}catch{}
+      // v14.37.0: an {error} reply (e.g. Code.gs v4 lock busy) is NOT a confirmation — it was counted as one
+      resolve(!(res&&res.error));
     };
     s.onerror=function(){
       clearTimeout(timer);delete window[cb];
@@ -2246,26 +2259,63 @@ async function syncAll(manual){
   if(syncing)return;syncing=true;setSyncStatus('busy');
   const _syncStart=Date.now(); // v14.25.0 C1: edits made DURING sync stay newer than lastSyncTime and push next cycle
   if(_autoSyncTimer){clearTimeout(_autoSyncTimer);_autoSyncTimer=null;}
+  let _stage='starting';
   try{
     const cleared=lsGet('vc_inv_cleared',null)==='1';
     // v14.26.0: single readAll round-trip for all sheets; per-sheet fallback keeps old Apps Script working
     let _bulk=null;
-    try{_bulk=await gsReadAll();}catch(e){console.warn('readAll unavailable — per-sheet fallback:',e.message);}
+    _stage='reading sheets'; // v14.37.0: recorded with any failure so the error says WHERE it broke
+    try{_bulk=await gsReadAll();}catch(e){
+      // v14.37.0: one retry before falling back — a single slow response on a weak connection used to
+      // drop straight into 12 sequential per-sheet reads, each able to time out and fail the whole sync
+      console.warn('readAll failed, retrying once:',e.message);
+      await new Promise(r=>setTimeout(r,1500));
+      try{_bulk=await gsReadAll();}catch(e2){console.warn('readAll unavailable — per-sheet fallback:',e2.message);}
+    }
+    // v14.37.0: snapshot what THIS device changed since the last confirmed sync, BEFORE the merge.
+    // Only these are pushed afterwards. Previously everything with updatedAt>lastSync was pushed,
+    // which also re-uploaded every record that had just arrived FROM the sheet.
+    const _lastSyncAtStart=lsGet('vc_last_sync_time',0);
+    const _isDirty=u=>!!u&&new Date(u).getTime()>_lastSyncAtStart;
+    const _dirty={
+      inv:new Set(invoices.filter(i=>_isDirty(i.invUpdatedAt)).map(i=>String(i.id))),
+      stk:new Set(inventory.filter(p=>_isDirty(p.updatedAt)).map(p=>String(p.prodNo))),
+      pur:new Set(purchases.filter(x=>_isDirty(x.updatedAt)).map(x=>String(x.id))),
+      sup:new Set(suppliers.filter(x=>_isDirty(x.updatedAt)).map(x=>String(x.id))),
+      bil:new Set(bills.filter(x=>_isDirty(x.updatedAt)).map(x=>String(x.id))),
+      stx:new Set(supplierTxns.filter(x=>_isDirty(x.updatedAt)).map(x=>String(x.id))),
+      cn:new Set(creditNotes.filter(x=>_isDirty(x.updatedAt)).map(x=>String(x.id))),
+      trk:new Set(Object.entries(trackingData).filter(([,td])=>_isDirty(td.updatedAt)).map(([k])=>String(k))),
+      set:_isDirty(S.updatedAt)
+    };
+    let _pushFailed=0;
     const rd=(sheet)=>_bulk?Promise.resolve(_bulk[sheet]||[]):gsRead(sheet);
     // v14.25.0 H1: cross-device deletion propagation via DeletedIds sheet.
     // Tombstones were localStorage-only — an invoice deleted on one device stayed
     // visible on every other device forever. Now tombstones sync both ways.
+    // v14.37.0: product tombstones ride the same DeletedIds sheet as 'prod:<prodNo>:<deletedAtMs>'.
+    // The timestamp matters: product numbers get REUSED (nextProdNo = max+1), so a tombstone may only
+    // remove a product that was last touched BEFORE the delete — never a new product given the same number.
+    const _prodTomb={};
+    _stage='syncing deletions';
     try{
       const remDel=await rd('DeletedIds');
       const remDelIds=remDel.map(r=>String(r.id||'').trim()).filter(Boolean);
       const localDel=getDeletedIds().map(String);
-      localDel.filter(id=>!remDelIds.includes(id)).forEach(id=>gsWrite('DeletedIds',{id:id,deletedAt:new Date().toISOString()}));
+      // v14.37.0: confirmed, not fire-and-forget — a lost tombstone meant the delete never reached other devices
+      for(const id of localDel.filter(id=>!remDelIds.includes(id))){
+        if(!(await gsWriteConfirmed('DeletedIds',{id:id,deletedAt:new Date().toISOString()})))_pushFailed++;
+      }
       const allDel=[...new Set([...localDel,...remDelIds])];
       lsSet('vc_deleted_ids',allDel);
       const _delSet=new Set(allDel);
       const _before=invoices.length;
       invoices=invoices.filter(i=>!_delSet.has(String(i.id).trim()));
       creditNotes=creditNotes.filter(c=>!_delSet.has(String(c.id).trim())); // v14.26.0: archived/deleted credit notes purge cross-device too
+      allDel.forEach(id=>{const m=/^prod:(\d+):(\d+)$/.exec(id);if(m){const n=parseInt(m[1]),t=parseInt(m[2]);if(!_prodTomb[n]||t>_prodTomb[n])_prodTomb[n]=t;}});
+      const _stkBefore=inventory.length;
+      inventory=inventory.filter(p=>!_isProdTombstoned(p,_prodTomb));
+      if(inventory.length<_stkBefore){_stripDanglingLinks();setTimeout(()=>toast('🗑 '+(_stkBefore-inventory.length)+' product(s) deleted on another device — removed here too',5000),1700);}
       if(invoices.length<_before)setTimeout(()=>toast('🗑 '+(_before-invoices.length)+' invoice(s) deleted on another device — removed here too',5000),1500);
     }catch(e){console.warn('DeletedIds sync failed:',e.message);}
     // Read sheets sequentially — gives each sheet full timeout
@@ -2274,6 +2324,7 @@ async function syncAll(manual){
     const remPur = await rd(SHEETS.purchases);
     const remSet = await rd(SHEETS.settings);
 
+    _stage='merging invoices';
     if(!cleared){
       const deletedIds=new Set(getDeletedIds());
       const localMap={};
@@ -2384,6 +2435,7 @@ async function syncAll(manual){
       invoices=Object.values(localMap).sort((a,b)=>(a.invDate||'')<(b.invDate||'')?-1:1);
     }
 
+    _stage='merging inventory';
     // INVENTORY — newer updatedAt wins; remote-only items added; collect conflicts for toast
     const sm={};inventory.forEach(l=>{sm[String(l.prodNo)]=l;});
     const invConflicts=[];
@@ -2391,6 +2443,7 @@ async function syncAll(manual){
       if(!r.prodNo)return;
       const key=String(r.prodNo);
       const parsed=parseInventoryRow(r);
+      if(_isProdTombstoned(parsed,_prodTomb)){gsDelete(SHEETS.inventory,parsed.prodNo);return;} // v14.37.0: deleted product — never resurrect it from the sheet
       if(!sm[key]){
         sm[key]=parsed; // new item from remote
       } else {
@@ -2415,6 +2468,7 @@ async function syncAll(manual){
       setTimeout(()=>toast(msg,4000),1200);
     }
 
+    _stage='merging purchases & suppliers';
     // PURCHASES — newer updatedAt wins; remote-only items added
     const pm={};purchases.forEach(l=>{pm[String(l.id)]=l;});
     remPur.forEach(r=>{
@@ -2538,6 +2592,7 @@ async function syncAll(manual){
     // Each article is now its own sheet row keyed by id=articleNumber (per-row format)
     // Legacy blob row (id='tracking_all') is still read as fallback for first sync after migration
     let remTracking=[];
+    _stage='merging tracking';
     try{remTracking=await rd(SHEETS.tracking);}catch(e){console.warn('Tracking sheet read failed:',e.message);}
     let remTrackingMap={};
     remTracking.forEach(r=>{
@@ -2583,6 +2638,7 @@ async function syncAll(manual){
 
     // MESSAGE LOG — read back from sheet so sent/followup/festival/never flags sync across devices
     try{
+      _stage='merging message log';
       const remMsgLog=await rd('MessageLog');
       if(remMsgLog&&remMsgLog.length){
         const localMap={};msgLog.forEach(l=>{localMap[String(l.phone)+'_'+l.type+'_'+String(l.year)]=l;});
@@ -2670,57 +2726,71 @@ async function syncAll(manual){
       }
     }catch(e){console.warn('PopupState sync failed:',e.message);}
 
+    _stage='saving locally';
     save();saveStk();savePur();saveSup();saveBills();
 
-    // Push back only records modified since last successful sync — avoids race condition
-    // on concurrent device writes. lastSyncTime is set at end of a successful sync.
-    const lastSync=lsGet('vc_last_sync_time',0);
-    // v14.35.0 A6: this used to `return true` for any record without a timestamp — the comment said
-    // "always push once", but nothing ever stamped the record afterwards, so "once" meant EVERY
-    // 20-second cycle, forever. Every pre-v14.13 invoice and every untimestamped tracking row fired
-    // a write on every single sync, which is what was burning the Apps Script quota and dragging
-    // each sync out. backfillUpdatedAtOnce() (run at init) now stamps those legacy records exactly
-    // once, so requiring a timestamp here is safe — and it matches flushPendingWrites(), which has
-    // always used this stricter form.
-    const needsPush=(updatedAt)=>{
-      if(!updatedAt)return false;
-      return new Date(updatedAt).getTime()>lastSync;
-    };
-    inventory.filter(p=>needsPush(p.updatedAt)).forEach(p=>gsWrite(SHEETS.inventory,flattenProduct(p)));
-    // H1: re-push invoices that were updated since last sync (catches failed initial writes)
-    invoices.filter(i=>needsPush(i.invUpdatedAt)).forEach(i=>gsWrite(SHEETS.invoices,flattenInvoice(i)));
-    purchases.filter(p=>needsPush(p.updatedAt)).forEach(p=>gsWrite(SHEETS.purchases,p));
-    suppliers.filter(s=>needsPush(s.updatedAt)).forEach(s=>gsWrite(SHEETS.suppliers,s));
-    bills.filter(b=>needsPush(b.updatedAt)).forEach(b=>gsWrite(SHEETS.bills,{...b,payments:JSON.stringify(b.payments||[])}));
-    supplierTxns.filter(t=>needsPush(t.updatedAt)).forEach(t=>gsWrite(SHEETS.supplierTxns,t));
-    if(S.updatedAt&&needsPush(S.updatedAt))gsWrite(SHEETS.settings,settingsForSheet()); // v14.25.0 C2+H5: sanitized, timestamp-gated
-    creditNotes.filter(cn=>needsPush(cn.updatedAt)).forEach(cn=>gsWrite('CreditNotes',cn));
-    // Push tracking — only entries updated since last sync
-    Object.entries(trackingData).filter(([,td])=>needsPush(td.updatedAt)).forEach(([key,td])=>{
-      gsWrite(SHEETS.tracking,{id:key,...td});
-    });
+    // v14.37.0 — CONFIRMED UPLOADS. Every push here used to be gsWrite (no-cors, fire-and-forget) and
+    // vc_last_sync_time was advanced regardless, so any write that was dropped — network blip, Apps
+    // Script's simultaneous-execution cap (all writes fired at once), or iOS killing the request when
+    // the app went to background — was NEVER retried. That record then lived on one device only, which
+    // is why devices drifted apart. Now: only records THIS device changed (the _dirty snapshot taken
+    // before the merge) are pushed, each through gsWriteConfirmed, three at a time; and the sync clock
+    // only moves forward when every one of them confirmed. Anything that failed is retried next cycle.
+    _stage='uploading changes';
+    const _jobs=[];
+    inventory.filter(p=>_dirty.stk.has(String(p.prodNo))).forEach(p=>_jobs.push([SHEETS.inventory,flattenProduct(p)]));
+    invoices.filter(i=>_dirty.inv.has(String(i.id))).forEach(i=>_jobs.push([SHEETS.invoices,flattenInvoice(i)]));
+    purchases.filter(x=>_dirty.pur.has(String(x.id))).forEach(x=>_jobs.push([SHEETS.purchases,x]));
+    suppliers.filter(x=>_dirty.sup.has(String(x.id))).forEach(x=>_jobs.push([SHEETS.suppliers,x]));
+    bills.filter(x=>_dirty.bil.has(String(x.id))).forEach(x=>_jobs.push([SHEETS.bills,{...x,payments:JSON.stringify(x.payments||[])}]));
+    supplierTxns.filter(x=>_dirty.stx.has(String(x.id))).forEach(x=>_jobs.push([SHEETS.supplierTxns,x]));
+    creditNotes.filter(x=>_dirty.cn.has(String(x.id))).forEach(x=>_jobs.push(['CreditNotes',x]));
+    Object.entries(trackingData).filter(([k])=>_dirty.trk.has(String(k))).forEach(([k,td])=>_jobs.push([SHEETS.tracking,{id:k,...td}]));
+    if(_dirty.set&&S.updatedAt)_jobs.push([SHEETS.settings,settingsForSheet()]); // v14.25.0 C2+H5: sanitized
+    _pushFailed+=await _pushConfirmedPool(_jobs,3);
 
     try{localStorage.removeItem('vc_inv_cleared');}catch(e){};
-    lsSet('vc_last_sync_time',_syncStart);
+    if(_pushFailed===0){
+      lsSet('vc_last_sync_time',_syncStart);
+      lsSet('vc_last_sync_error',null);
+      setSyncStatus('ok');
+    }else{
+      // Sync clock deliberately NOT advanced — the unconfirmed records stay "dirty" and are retried next cycle
+      lsSet('vc_last_sync_error',{at:new Date().toISOString(),stage:'uploading changes',msg:_pushFailed+' record(s) not confirmed by the sheet — will retry'});
+      setSyncStatus('warn');
+      toast('⚠️ Partial sync — '+_pushFailed+' change(s) not uploaded yet, will retry automatically',5000);
+      setTimeout(scheduleAutoSync,200); // after finally{} clears `syncing`, or scheduleAutoSync would no-op
+    }
     setInvNumber();
-    setSyncStatus('ok');
     const banner=document.getElementById('dash-sync-banner');
     if(banner)banner.style.display='flex';
-    // Render ALL sections on ALL pages so every screen reflects synced data
-    renderDashboard();
-    renderInventory();renderAgingGrid();updateInventoryStats();renderPostingQueue();
-    renderSales();
-    renderOutreachWidget();
-    renderSyncInfo();
-    if(manual===true)toast('☁️ Synced — '+invoices.length+' invoices'); // v14.25.0 M6: toast on manual sync only
+    // v14.37.0: the repaint is no longer inside the sync's failure path. A render crash on one device
+    // (typically one malformed local record) used to be reported as "Sync failed" on THAT device only,
+    // while the download and upload had in fact completed. It is now reported as a display error.
+    _stage='refreshing screens';
+    try{
+      renderDashboard();
+      renderInventory();renderAgingGrid();updateInventoryStats();renderPostingQueue();
+      renderSales();
+      renderOutreachWidget();
+      renderSyncInfo();
+    }catch(re){
+      console.error('Render after sync failed:',re);
+      lsSet('vc_last_sync_error',{at:new Date().toISOString(),stage:'refreshing screens (data synced OK)',msg:re.message||String(re)});
+      toast('⚠️ Data synced, but a screen failed to refresh: '+(re.message||re),6000);
+    }
+    if(manual===true&&_pushFailed===0)toast('☁️ Synced — '+invoices.length+' invoices'); // v14.25.0 M6: toast on manual sync only
     // Check for newly-delivered parcels pulled from sheet and show review/followup popups
     // (fires here — after remote PopupState is merged — so seen-list is always up to date)
     setTimeout(()=>{checkFollowupPopup();checkReviewPopup();},800);
     setTimeout(checkDupInvNos,1400); // v14.25.0 H4
   }catch(e){
     setSyncStatus('err');
-    const msg=e.message||'';
-    toast(msg.includes('Timeout')?'⚠️ '+msg:'⚠️ Sync failed: '+msg,5000);
+    const msg=e.message||String(e);
+    // v14.37.0: keep the failure (and the step it happened at) so it can be read in More → Sync info
+    lsSet('vc_last_sync_error',{at:new Date().toISOString(),stage:_stage,msg:msg});
+    try{renderSyncInfo();}catch(_){}
+    toast('⚠️ Sync failed while '+_stage+': '+msg,6000);
   }finally{syncing=false;}
 }
 
@@ -2815,6 +2885,7 @@ function init(){
     // Backfill linkedInvoices for all products (fixes pre-v14.9 data where invoices
     // weren't linked to products — runs every init, safe and idempotent)
     backfillAllLinkedInvoices();
+    repairLinksOnce(); // v14.37.0: one-time repair of dangling / one-way link data
     // Clear the bad v14.10 migration flag so all devices re-normalise with correct logic
     lsSet('vc_migration_v14_10', false);
     // Recompute qtySold for every product as qtyOriginal - qty (clamped to 0).
@@ -5838,7 +5909,8 @@ function saveProduct(){
     const lp=inventory.find(p=>parseInt(p.prodNo)===linkedNo);
     if(lp){
       if(!lp.linkedProducts)lp.linkedProducts=[];
-      if(!lp.linkedProducts.includes(prodNo))lp.linkedProducts.push(prodNo);
+      if(!lp.linkedProducts.map(Number).includes(prodNo))lp.linkedProducts.push(prodNo);
+      lp.updatedAt=new Date().toISOString(); // v14.37.0: without this the back-link never reached other devices (merge is updatedAt-wins)
       saveStk();gsWriteConfirmed(SHEETS.inventory,flattenProduct(lp)).then(ok=>{if(!ok)toast('⚠️ Product saved locally but sheet sync failed — tap sync to retry');});
     }
   });
@@ -5852,7 +5924,7 @@ function saveProduct(){
   const iq=document.getElementById('ip-qty');if(iq)iq.value='1';
   const ipn=document.getElementById('ip-num');if(ipn)ipn.value=nextProdNo();
   document.getElementById('ip-link-suggestions').style.display='none';
-  document.getElementById('ip-linked-display').style.display='none';
+  _clearLinkChips(); // v14.37.0
   toast('✅ Product #'+prodNo+' added');
 }
 function adjustStock(prodNo){
@@ -6179,13 +6251,25 @@ function printLabel(){
     toast('🖨️ Label opening — print on A4 Portrait, 100% scale');
   }
 }
+// v14.37.0: fixed-format date-time (toLocaleString output differs between browsers)
+function _fmtDT(v){const d=new Date(v);if(isNaN(d))return'';const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const p=n=>String(n).padStart(2,'0');return p(d.getDate())+' '+M[d.getMonth()]+' '+d.getFullYear()+', '+p(d.getHours())+':'+p(d.getMinutes());}
 function renderSyncInfo(){
   const el=document.getElementById('sync-info-rows');if(!el)return;
   el.innerHTML=`
     <div class="settings-row"><span class="settings-lbl">Invoices</span><span class="settings-val">${invoices.length}</span></div>
     <div class="settings-row"><span class="settings-lbl">Inventory items</span><span class="settings-val">${inventory.length}</span></div>
     <div class="settings-row"><span class="settings-lbl">Purchases</span><span class="settings-val">${purchases.length}</span></div>
-    <div class="settings-row"><span class="settings-lbl">Sheet ID</span><span class="settings-val" style="font-size:10px;">1-D3qG3DR1H2Gj0wnnXgUl8xPvZYu6JqVBfNqGIsderY</span></div>`;
+    <div class="settings-row"><span class="settings-lbl">Sheet ID</span><span class="settings-val" style="font-size:10px;">1-D3qG3DR1H2Gj0wnnXgUl8xPvZYu6JqVBfNqGIsderY</span></div>`
+    +(()=>{ // v14.37.0: last sync problem, so a device that keeps failing can say exactly where and why
+      const ls=lsGet('vc_last_sync_time',0);
+      const last=ls?'<div class="settings-row"><span class="settings-lbl">Last full sync</span><span class="settings-val">'+esc(_fmtDT(ls))+'</span></div>':'';
+      const er=lsGet('vc_last_sync_error',null);
+      if(!er)return last;
+      return last+'<div style="margin-top:8px;padding:10px 12px;background:#fdecea;border-radius:8px;font-size:12px;line-height:1.5;color:#7b241c;word-break:break-word;">'
+        +'<strong>Last sync problem</strong> · '+esc(_fmtDT(er.at))+'<br/>'
+        +'Step: '+esc(er.stage||'')+'<br/>Error: '+esc(er.msg||'')+'</div>';
+    })();
 }
 function loadAssetThumbs(){
   const lt=document.getElementById('logo-thumb');
@@ -9031,6 +9115,7 @@ let _pendingLinks=[];
 // ── LINK SUGGESTIONS ──
 function suggestLinks(name){
   _pendingLinks=[];
+  _clearLinkChips(); // v14.37.0: chips used to survive this reset, showing links that would NOT be saved
   const trimmed=(name||'').trim().toLowerCase();
   if(trimmed.length<3){
     document.getElementById('ip-link-suggestions').style.display='none';
@@ -9060,6 +9145,12 @@ function suggestLinks(name){
   }).join('');
 }
 
+// v14.37.0: the "Linked to:" chip list was only ever HIDDEN, never emptied — so chips accepted for
+// earlier products in the session reappeared beside the next product's links as unrelated articles.
+function _clearLinkChips(){
+  const l=document.getElementById('ip-linked-list');if(l)l.innerHTML='';
+  const d=document.getElementById('ip-linked-display');if(d)d.style.display='none';
+}
 function acceptLink(arKey){
   const d=_ag(arKey);if(!d.prodNo)return;
   if(!_pendingLinks.includes(d.prodNo))_pendingLinks.push(d.prodNo);
@@ -10479,11 +10570,25 @@ function deleteInvProduct() {
   if (!p) return;
   showConfirmModal('🗑 Delete Product','Delete product #'+p.prodNo+' &ldquo;'+esc(p.name)+'&rdquo;? This cannot be undone.',function(){_doDeleteProduct(p.prodNo);},null);return;}
 function _doDeleteProduct(prodNoArg){
-  const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(prodNoArg));
+  const delNo=parseInt(prodNoArg); // v14.37.0: was using _editingProdNo instead of its own argument
+  const p=inventory.find(x=>parseInt(x.prodNo)===delNo);
   if(!p)return;
-  inventory = inventory.filter(x => parseInt(x.prodNo) !== _editingProdNo);
+  inventory = inventory.filter(x => parseInt(x.prodNo) !== delNo);
+  // v14.37.0: remove this number from every sibling's link list. It used to stay behind, and because
+  // nextProdNo() is max+1, the NEXT product added got the same number and silently joined the old pool.
+  const nowIso=new Date().toISOString();
+  inventory.forEach(x=>{
+    if(Array.isArray(x.linkedProducts)&&x.linkedProducts.map(Number).includes(delNo)){
+      x.linkedProducts=x.linkedProducts.filter(n=>parseInt(n)!==delNo);
+      x.updatedAt=nowIso;
+      gsWriteConfirmed(SHEETS.inventory,flattenProduct(x)).then(ok=>{if(!ok)toast('⚠️ Link cleanup saved locally — will upload on next sync');});
+    }
+  });
+  // v14.37.0: tombstone so the delete reaches other devices (it never did) — timestamped so a new
+  // product that later reuses this number is not removed by it
+  const _del=getDeletedIds();_del.push('prod:'+delNo+':'+Date.now());lsSet('vc_deleted_ids',_del);
   saveStk();
-  gsDelete(SHEETS.inventory, _editingProdNo);
+  gsDelete(SHEETS.inventory, delNo);
   closeInvEditModal();
   renderInventory(); renderAgingGrid(); updateInventoryStats();
   toast('🗑 Product deleted');
@@ -12256,6 +12361,74 @@ function updateVariantQty(variantId, val) {
 // On variant products, product-level qty is DERIVED (recalcProductQtyFromVariants), so writing
 // p.qty directly on a variant product is silently reverted by the next recalc — every mutation
 // must go through the variants. Returns the variant id actually deducted (for undo), or null.
+
+// v14.37.0 — run confirmed writes with a small concurrency cap. Returns the number that FAILED.
+// Three at a time keeps well under Apps Script's per-user simultaneous-execution limit, which the old
+// all-at-once fire-and-forget burst could exceed (the excess was silently dropped).
+async function _pushConfirmedPool(jobs,limit){
+  let i=0,failed=0;
+  async function worker(){
+    while(i<jobs.length){
+      const [sheet,data]=jobs[i++];
+      const ok=await gsWriteConfirmed(sheet,data);
+      if(!ok){failed++;console.warn('Upload not confirmed:',sheet,data&&(data.id||data.prodNo));}
+    }
+  }
+  const n=Math.max(1,Math.min(limit||3,jobs.length));
+  if(!jobs.length)return 0;
+  await Promise.all(Array.from({length:n},worker));
+  return failed;
+}
+// v14.37.0 — a product is covered by a tombstone only if it was last touched BEFORE the delete,
+// so a NEW product that reuses the number (nextProdNo = max+1) is never removed by an old tombstone.
+function _isProdTombstoned(p,tomb){
+  const t=tomb&&tomb[parseInt(p.prodNo)];
+  if(!t)return false;
+  const u=p.updatedAt?new Date(p.updatedAt).getTime():0;
+  return !(u>t);
+}
+// v14.37.0 — drop link entries that point at a product that no longer exists, or at itself.
+// Returns the products changed (their updatedAt is bumped so the cleaned list reaches other devices).
+function _stripDanglingLinks(){
+  const have=new Set(inventory.map(p=>parseInt(p.prodNo)));
+  const changed=[];
+  inventory.forEach(p=>{
+    if(!Array.isArray(p.linkedProducts)||!p.linkedProducts.length)return;
+    const me=parseInt(p.prodNo);
+    const clean=[...new Set(p.linkedProducts.map(n=>parseInt(n)).filter(n=>n&&n!==me&&have.has(n)))];
+    if(clean.length!==p.linkedProducts.length){p.linkedProducts=clean;p.updatedAt=new Date().toISOString();changed.push(p);}
+  });
+  if(changed.length)saveStk();
+  return changed;
+}
+// v14.37.0 — one-time repair of link data left by the old bugs:
+//   (1) links to deleted products / to itself are removed;
+//   (2) a ONE-WAY link (A lists B, B does not list A) is made two-way ONLY when both names still
+//       match exactly, which is the rule the link suggester itself uses. One-way links between
+//       DIFFERENT names are left untouched (could be a renamed product) and listed in the console.
+// Changed products get a fresh updatedAt so the repair syncs to every device. Guarded, runs once.
+function repairLinksOnce(){
+  if(lsGet('vc_link_repair_v1',null)==='1')return;
+  try{
+    const changed=new Set(_stripDanglingLinks().map(p=>parseInt(p.prodNo)));
+    const byNo={};inventory.forEach(p=>{byNo[parseInt(p.prodNo)]=p;});
+    const nm=p=>String(p.name||'').trim().toLowerCase();
+    const mismatched=[];
+    inventory.forEach(a=>{
+      (a.linkedProducts||[]).forEach(n=>{
+        const b=byNo[parseInt(n)];if(!b)return;
+        if(!Array.isArray(b.linkedProducts))b.linkedProducts=[];
+        if(b.linkedProducts.map(Number).includes(parseInt(a.prodNo)))return;
+        if(nm(a)===nm(b)){b.linkedProducts.push(parseInt(a.prodNo));b.updatedAt=new Date().toISOString();changed.add(parseInt(b.prodNo));}
+        else mismatched.push('#'+a.prodNo+' → #'+b.prodNo);
+      });
+    });
+    if(mismatched.length)console.warn('repairLinksOnce: one-way links between different names left as-is:',mismatched.join(', '));
+    if(changed.size){saveStk();console.log('repairLinksOnce: repaired',changed.size,'products');}
+    lsSet('vc_link_repair_v1','1');
+  }catch(e){console.warn('repairLinksOnce:',e.message);}
+}
+
 // v14.27.0 — LINKED PRODUCT STOCK POOLING
 // Linked products share one physical stock pool. Selling more than the invoiced
 // product holds spills the overflow onto its linked siblings (ascending prodNo).
@@ -13144,9 +13317,17 @@ async function doUpiQrPrint(){
 // CONFIG BACKUP & RESTORE
 // ═══════════════════════════════════════════
 function backupConfig(){
+  // v14.37.0: _version 2 — adds every value that lives ONLY on this device and was lost on a new
+  // phone / cleared browser: partner numbers, religion corrections, custom name lists, never-ask list.
   const config={
-    _version:1,
+    _version:2,
     _created:new Date().toISOString(),
+    partnerWa:S.partnerWa||'',
+    partnerWa2:S.partnerWa2||'',
+    religionOverrides:lsGet('vc_religion_overrides',{}),
+    muslimNames:lsGet('vc_muslim_names',[]),
+    notMuslim:lsGet('vc_not_muslim',[]),
+    reviewNever:lsGet('vc_review_never',{}),
     githubPat:S.githubPat||'',
     catSheetId:S.catSheetId||'',
     tagline:S.tagline||'',
@@ -13185,19 +13366,31 @@ function handleConfigRestore(e){
   reader.onload=ev=>{
     try{
       const config=JSON.parse(ev.target.result);
-      if(!config||config._version!==1){toast('⚠️ Invalid config file');return;}
-      // Restore settings fields
-      if(config.githubPat)S.githubPat=config.githubPat;
-      if(config.catSheetId)S.catSheetId=config.catSheetId;
-      if(config.track123Key1)S.track123Key1=config.track123Key1;
-      if(config.track123Key2)S.track123Key2=config.track123Key2;
-      if(config.tagline)S.tagline=config.tagline;
-      if(config.waNumber)S.waNumber=config.waNumber;
-      if(config.upiId)S.upiId=config.upiId;
-      if(config.upiName)S.upiName=config.upiName;
-      if(config.upiPhone)S.upiPhone=config.upiPhone;
-      if(config.calKey)S.calKey=config.calKey;
+      if(!config||(config._version!==1&&config._version!==2)){toast('⚠️ Invalid config file');return;}
+      // v14.37.0: a v2 file is authoritative for its text fields, so a value left blank on purpose is
+      // restored as blank. v1 files keep the old fill-only-if-present behaviour.
+      const _v2=config._version===2;
+      const _calBefore=S.calKey||'';
+      ['githubPat','catSheetId','track123Key1','track123Key2','tagline','waNumber','upiId','upiName','upiPhone','calKey','partnerWa','partnerWa2'].forEach(k=>{
+        if(!Object.prototype.hasOwnProperty.call(config,k))return;
+        if(config[k]||_v2)S[k]=config[k]||'';
+      });
+      // calKey is the one restored field that also syncs to the Settings sheet — stamp it, or the next
+      // sync would see the sheet's (older-stamped) value as newer and overwrite what was just restored
+      if((S.calKey||'')!==_calBefore)S.updatedAt=new Date().toISOString();
       lsSet('vc_s',S);
+      if(_v2){
+        // Lists are MERGED, file winning on conflict — restoring must never wipe corrections made on this device
+        if(config.religionOverrides&&typeof config.religionOverrides==='object')
+          lsSet('vc_religion_overrides',{...lsGet('vc_religion_overrides',{}),...config.religionOverrides});
+        if(config.reviewNever&&typeof config.reviewNever==='object')
+          lsSet('vc_review_never',{...lsGet('vc_review_never',{}),...config.reviewNever});
+        const fM=Array.isArray(config.muslimNames)?config.muslimNames:[];
+        const fN=Array.isArray(config.notMuslim)?config.notMuslim:[];
+        const mus=[...new Set([...lsGet('vc_muslim_names',[]).filter(n=>!fN.includes(n)),...fM])];
+        const notM=[...new Set([...lsGet('vc_not_muslim',[]).filter(n=>!fM.includes(n)),...fN])];
+        lsSet('vc_muslim_names',mus);lsSet('vc_not_muslim',notM);
+      }
       // Restore images
       if(config.logoB64){logoB64=config.logoB64;lsSet('vc_logo',logoB64);}
       if(config.qrB64){qrB64=config.qrB64;lsSet('vc_qr',qrB64);}
@@ -13212,6 +13405,7 @@ function handleConfigRestore(e){
       if(st){st.textContent='✅ Config restored! All settings, logo and QR are back.';st.style.display='block';setTimeout(()=>{st.style.display='none';},7000);}
       toast('✅ Config restored successfully!');
       if(S.calKey)fetchFestivals(true);
+      if(S.updatedAt)scheduleAutoSync();
     }catch(err){toast('⚠️ Could not read config file: '+err.message);}
   };
   reader.readAsText(f);
