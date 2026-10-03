@@ -3,10 +3,19 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.39.0
+APP: Vismaad Creations v14.39.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 03-Oct-2026 — v14.39.0: SUPPLIER BILL IMPORT READS PDFs AND BILL PHOTOS ON THE DEVICE (no Claude, no API). No Code.gs change.
+LAST_CHANGE: 04-Oct-2026 - v14.39.1: PHONE SHOWED OLD DELIVERY STATUSES + RESET PHONE RE-ASKED FOLLOW-UPS/DELIVERY MESSAGES + SEND DELIVERY MESSAGES FROM THE PHONE. No Code.gs change.
+(J1) TRACKING RECONCILE. INV-442/444/445 showed "Awaiting Update" on the phone while the laptop had them Delivered: the sheet had NO row for their four parcels. The import's upload (one row at a time, 550ms apart) could be cut short by the laptop sleeping, the tab closing or the sheet being busy, and nothing ever compared this device's records with the sheet again. Every sync now uploads (confirmed, 3 at a time) any tracking record that is missing from the sheet, newer than the sheet's copy, or Delivered here while the sheet says otherwise (re-stamped so other devices accept it). Runs only after the Tracking sheet was actually read.
+(J2) TRACKING IMPORT GUARDS. India Post's bulk file answers "N/A" for articles it no longer holds data on; those rows overwrote real data (82 parcels became "In Transit" on 3 Oct). Rows with no status / N/A are now ignored, and a Delivered parcel is never downgraded by a later file. Only rows that actually changed are uploaded, through the confirmed pool instead of the slow batch, with a "N tracking updates waiting to upload" note on the Dashboard and the Tracking page until done.
+(J3) DELIVERED IS FINAL IN THE SYNC MERGE, AND THE TEST IS EXACT. The merge's lock used includes('delivered'), which also matched "Not Delivered". New _isDeliveredStatus() (exact). A remote Delivered now also replaces a local non-Delivered record even if the local one is newer.
+(J4) MESSAGE LOG RECONCILE. logMsg() wrote "message sent" records fire-and-forget; on iPhone the app goes to the background the instant WhatsApp opens, which kills that request, so the record lived on one device only and a reset phone asked again. logMsg now uses a confirmed write, and every sync uploads each local record the sheet does not have.
+(J5) WELCOME SCREEN NO LONGER WIPES SHARED SETTINGS. A fresh install (cleared history / new home-screen shortcut) first reads the business details from the sheet and skips the welcome screen when they are there. If it still appears, completeSetup keeps the sheet's follow-up pause, resume date, GST start date and Calendarific key instead of rebuilding settings without them and writing that to the sheet as newest (which switched follow-ups back on for every device). If the sheet cannot be reached it writes nothing and lets the first sync fill everything from the sheet. Sheet dates for gstStartDate/fuResumeDate are normalised to YYYY-MM-DD in the settings merge.
+(J6) PROMPTS WAIT FOR THE SHEET. Follow-up and delivery prompts, lists and dashboard counts stay empty until this session has read Settings, MessageLog and PopupState from the sheet (_sessionSheetRead), so a reset device never prompts from its own empty history.
+(J7) SEND DELIVERY MESSAGES FROM THE PHONE. New per-device setting "Delivery message prompts on this device" (Settings, localStorage only). OFF on the laptop: after an import or sync it only says "N parcels delivered, send the messages from your phone" and marks nothing as handled; the phone (ON) pops them up after its next sync. The Dashboard outreach card's delivery line is now a tappable "N delivery messages to send" opening the send list. The popup and the list gain "Already sent"; the list gains "Mark All as Already Sent" (recorded locally in one pass, uploaded by the sync).
+NOTE: no data is rewritten except tracking records being re-uploaded where the sheet lacks them. Open the app on the laptop first so its next sync fills the missing tracking rows; then turn delivery prompts OFF there.
+PREV_CHANGE: 03-Oct-2026 — v14.39.0: SUPPLIER BILL IMPORT READS PDFs AND BILL PHOTOS ON THE DEVICE (no Claude, no API). No Code.gs change.
 (I1) 📄 CHOOSE PDF. Reads the text layer of a PDF produced by the supplier's billing software, every page, using pdf.js 3.11.174 lazy-loaded from cdnjs on first use only (cached by the browser after that, so app start-up is unaffected). Positioned text items are regrouped into visual rows (same baseline ±3pt, left to right) and fed to the same parser as Paste. Verified on Singh Collection bill 2026-27/2687: both lines, invoice no., date, GSTIN and ₹14,250 total read exactly. A PDF with no text layer (a scan) is detected and the user is pointed to the photo reader. Replaces the bill on screen (asks first if something is entered).
 (I2) 📷 BILL PHOTO. Pick or take one photo per page (several at once for multi-page bills). Each photo is scaled to ~2000px wide, converted to greyscale and contrast-stretched (2nd–98th percentile) on a canvas, then read by tesseract.js 5.1.1, the same lazy-loaded engine and CDN URL as the tracking scanner's OCR, so it is downloaded once for both. One worker for all pages (page-segmentation mode 6, row by row), terminated afterwards; progress shown per page. Photos picked while lines are already on screen are APPENDED as further pages and only fill header fields that are still empty.
 (I3) LAYOUT-INDEPENDENT ROW SOLVER (sbSolveRow). A bill row is accepted only when two of its numbers multiply to the row's last number (qty × list price = Amount, ±₹1), qty a whole number 1–500, price ₹20–₹99,999; or, when qty is unreadable, a price equal to the amount (qty 1). HSN is the LAST 6–8 digit number before qty (the HSN column, not the one inside the description). OCR slips such as O→0, l→1 and 2.895.00 are normalised first. Used for PDF text and photos; Claude's pasted block is read as before.
@@ -552,6 +561,7 @@ body.gst-mode .gst-only{display:block;}
       👁 Show
     </button>
   </div>
+  <div class="trk-upload-note" style="display:none;background:#fff8e1;border:1px solid #f5c26b;border-radius:10px;padding:10px 12px;font-size:13px;color:#7a5200;margin-bottom:14px;"></div>
   <div id="dash-sync-banner" class="sync-banner" style="display:none;">
     ☁️ Data synced with Google Sheets — accessible on all your devices
   </div>
@@ -1041,6 +1051,16 @@ body.gst-mode .gst-only{display:block;}
         </div>
         <button class="btn btn-o" style="width:100%;min-height:44px;" onclick="archivePreGst()">📦 Archive Pre-GST Data</button>
         <div id="gst-archive-note" style="font-size:11px;color:#888;margin-top:6px;"></div>
+      </div>
+    </div>
+
+    <!-- v14.39.1: per-device delivery prompts -->
+    <div style="background:#f0f7ff;border:1px solid #c8dff5;border-radius:10px;padding:12px 14px;margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:6px;">📦 Delivery message prompts on this device</div>
+      <div style="font-size:12px;color:#888;margin-bottom:10px;line-height:1.5;">Turn OFF on the laptop you import tracking on, and leave ON on your phone. The laptop then only tells you how many messages are waiting, and the phone pops them up after its next sync. Saved on this device only.</div>
+      <div style="display:flex;gap:10px;">
+        <button id="dp-here-on" class="btn btn-o" style="flex:1;min-height:44px;" onclick="setDeliveryPromptsHere(true)">🔔 On</button>
+        <button id="dp-here-off" class="btn btn-o" style="flex:1;min-height:44px;" onclick="setDeliveryPromptsHere(false)">🔕 Off</button>
       </div>
     </div>
 
@@ -1897,6 +1917,10 @@ function fmtGSTInvNo(n){
   return'INV/'+fy+'/'+String(n).padStart(3,'0');
 }
 let items=[],itemId=0,selChannel='',currentInv=null,syncing=false;
+// v14.39.1: true once THIS session has read Settings + MessageLog + PopupState from the sheet.
+// Follow-up and delivery prompts wait for it, so a freshly installed or reset device never prompts
+// from its own empty history.
+let _sessionSheetRead=false;
 let logoB64=lsGet('vc_logo',null);
 let qrB64 =lsGet('vc_qr',null);
 
@@ -2648,9 +2672,9 @@ async function syncAll(manual){
         if(_remT>_locT){
           S={...S,gstin:rs.gstin||'',address:rs.address||'',phone:rs.phone||'',email:rs.email||'',
             gstEnabled:rs.gstEnabled==='true'||rs.gstEnabled===true,calKey:rs.calKey||'',
-            gstStartDate:rs.gstStartDate||'',
+            gstStartDate:toISODate(rs.gstStartDate)||'', // v14.39.1: sheet hands dates back as long strings
             fuPaused:rs.fuPaused==='true'||rs.fuPaused===true,
-            fuResumeDate:rs.fuResumeDate||'',updatedAt:rs.updatedAt};
+            fuResumeDate:toISODate(rs.fuResumeDate)||'',updatedAt:rs.updatedAt};
         }
         // else local is newer — keep local; push-back below updates the sheet
       }else{
@@ -2663,9 +2687,9 @@ async function syncAll(manual){
           gstEnabled:rs.gstEnabled!==undefined?(rs.gstEnabled==='true'||rs.gstEnabled===true):
                      (S.gstEnabled!==undefined?S.gstEnabled:true),
           calKey:rs.calKey||S.calKey||'',
-          gstStartDate:rs.gstStartDate||S.gstStartDate||'',
+          gstStartDate:toISODate(rs.gstStartDate)||S.gstStartDate||'',
           fuPaused:rs.fuPaused!==undefined?(rs.fuPaused==='true'||rs.fuPaused===true):(S.fuPaused===true||S.fuPaused==='true'),
-          fuResumeDate:rs.fuResumeDate||S.fuResumeDate||''};
+          fuResumeDate:toISODate(rs.fuResumeDate)||S.fuResumeDate||''};
         if(rs.updatedAt&&!S.updatedAt)S.updatedAt=rs.updatedAt;
       }
       lsSet('vc_s',S);
@@ -2676,8 +2700,10 @@ async function syncAll(manual){
     // Legacy blob row (id='tracking_all') is still read as fallback for first sync after migration
     let remTracking=[];
     _stage='merging tracking';
-    try{remTracking=await rd(SHEETS.tracking);}catch(e){console.warn('Tracking sheet read failed:',e.message);}
+    let _trkReadOk=false; // v14.39.1: reconcile only runs when the sheet was actually read
+    try{remTracking=await rd(SHEETS.tracking);_trkReadOk=true;}catch(e){console.warn('Tracking sheet read failed:',e.message);}
     let remTrackingMap={};
+    const _remTrkRows=new Set(); // v14.39.1: article numbers that have their own row on the sheet
     remTracking.forEach(r=>{
       if(!r.id)return;
       if(String(r.id).trim()==='tracking_all'&&r.data){
@@ -2689,6 +2715,7 @@ async function syncAll(manual){
       } else {
         // Per-row format (current)
         const key=String(r.id).trim().toUpperCase();
+        _remTrkRows.add(key);
         remTrackingMap[key]={
           articleType:r.articleType||'',bookedAt:r.bookedAt||'',bookedOn:r.bookedOn||'',
           destination:r.destination||'',status:r.status||'',lastEvent:r.lastEvent||'',
@@ -2696,7 +2723,8 @@ async function syncAll(manual){
           lastEventLocation:r.lastEventLocation||'',
           deliveredOn:r.deliveredOn||null,
           source:r.source||'',
-          updatedAt:r.updatedAt||new Date().toISOString()
+          // v14.39.1: a row with no timestamp used to be stamped NOW here, so it beat every real update
+          updatedAt:r.updatedAt||''
         };
       }
     });
@@ -2707,22 +2735,57 @@ async function syncAll(manual){
       const local=trackingData[K]||trackingData[key];
       const remTime=rd.updatedAt?new Date(rd.updatedAt).getTime():0;
       const locTime=local&&local.updatedAt?new Date(local.updatedAt).getTime():0;
-      // Never overwrite a locally-Delivered status with a non-Delivered remote entry
-      const localDelivered=local&&(local.status||'').toLowerCase().includes('delivered');
-      const remDelivered=(rd.status||'').toLowerCase().includes('delivered');
+      // Never overwrite a locally-Delivered status with a non-Delivered remote entry.
+      // v14.39.1: exact match. includes('delivered') also matched "Not Delivered" and locked it in.
+      const localDelivered=!!local&&_isDeliveredStatus(local.status);
+      const remDelivered=_isDeliveredStatus(rd.status);
       if(localDelivered&&!remDelivered)return; // lock delivered
+      // v14.39.1: Delivered is final in the other direction too. A remote Delivered replaces a local
+      // non-Delivered record even when the local one carries a newer timestamp; otherwise the
+      // reconcile below would push the stale local status back over the sheet's Delivered.
+      if(remDelivered&&local&&!localDelivered){
+        if(key!==K&&trackingData[key])delete trackingData[key];
+        trackingData[K]=rd;
+        return;
+      }
       // Remote wins if newer OR equal (avoids stale local persisting indefinitely)
       if(!local||remTime>=locTime){
         if(key!==K&&trackingData[key])delete trackingData[key];
         trackingData[K]=rd;
       }
     });
+    // v14.39.1 — TRACKING RECONCILE. An import's upload could be cut short (laptop asleep, tab closed,
+    // sheet busy) and nothing ever compared this device's records with the sheet again, so parcels the
+    // laptop knew were Delivered never reached the phone (INV-442/444/445). Every sync now uploads any
+    // record that is missing from the sheet, newer than the sheet's copy, or Delivered here while the
+    // sheet says otherwise (re-stamped so other devices accept it). Runs only after a successful read.
+    const _trkReconcile=new Set();
+    if(_trkReadOk){
+      const _nowIso=new Date().toISOString();
+      Object.entries(trackingData).forEach(([k,td])=>{
+        if(!td||typeof td!=='object')return;
+        const K=String(k).trim().toUpperCase();
+        if(!K||K==='TRACKING_ALL')return;
+        if(!_remTrkRows.has(K)){_trkReconcile.add(String(k));return;}
+        const rem=remTrackingMap[K];
+        if(_isDeliveredStatus(td.status)&&!_isDeliveredStatus(rem&&rem.status)){
+          td.updatedAt=_nowIso;_trkReconcile.add(String(k));return;
+        }
+        const lt=td.updatedAt?new Date(td.updatedAt).getTime():0;
+        const rt=rem&&rem.updatedAt?new Date(rem.updatedAt).getTime():0;
+        if(lt>rt)_trkReconcile.add(String(k));
+      });
+      if(_trkReconcile.size)console.log('v14.39.1 tracking reconcile: uploading',_trkReconcile.size,'record(s) the sheet is missing or behind on');
+    }
     saveTracking();
 
     // MESSAGE LOG — read back from sheet so sent/followup/festival/never flags sync across devices
+    let _msgReadOk=false,_psReadOk=false;
+    const _msgReconcile=[]; // v14.39.1: local "message sent" records the sheet is missing
     try{
       _stage='merging message log';
       const remMsgLog=await rd('MessageLog');
+      _msgReadOk=true;
       if(remMsgLog&&remMsgLog.length){
         const localMap={};msgLog.forEach(l=>{localMap[String(l.phone)+'_'+l.type+'_'+String(l.year)]=l;});
         let changed=false;
@@ -2752,12 +2815,25 @@ async function syncAll(manual){
         });
         if(changed)saveMsgLog();
       }
+      // v14.39.1 — MESSAGE LOG RECONCILE. logMsg() used a fire-and-forget write, and on iPhone the app
+      // is usually sent to the background the instant WhatsApp opens, which kills that request. The
+      // record then lived on one device only, and every other device (or a reset phone) asked again.
+      // Every sync now uploads, with confirmation, each local record the sheet does not have.
+      const _mlNorm=(ph,ty,yr)=>{const n=parseInt(yr,10);return phoneKey(String(ph==null?'':ph))+'|'+String(ty||'')+'|'+(isNaN(n)?String(yr==null?'':yr):String(n));};
+      const _remMl=new Set((remMsgLog||[]).filter(r=>r&&r.phone&&r.type).map(r=>_mlNorm(r.phone,r.type,r.year)));
+      msgLog.forEach(l=>{
+        if(!l||!l.phone||!l.type)return;
+        if(_remMl.has(_mlNorm(l.phone,l.type,l.year)))return;
+        _msgReconcile.push(['MessageLog',{id:String(l.phone)+'_'+l.type+'_'+l.year,phone:String(l.phone),type:l.type,year:l.year,sentDate:l.sentDate||'',name:l.name||'',updatedAt:l.updatedAt||new Date().toISOString()}]);
+      });
+      if(_msgReconcile.length)console.log('v14.39.1 message log reconcile: uploading',_msgReconcile.length,'record(s) missing from the sheet');
     }catch(e){console.warn('MessageLog sync failed:',e.message);}
 
     // POPUP STATE — sync review_popup_seen, review_skipped, followup_shown_date across devices
     // so popups already actioned on one device don't re-appear on another
     try{
       const remPS=await rd('PopupState');
+      _psReadOk=true;
       const localSeen=lsGet('vc_review_popup_seen',[]);
       const localSkipped=lsGet('vc_review_skipped',{});
       const localFollowupDate=lsGet('vc_followup_shown_date','')||'';
@@ -2828,8 +2904,12 @@ async function syncAll(manual){
     bills.filter(x=>_dirty.bil.has(String(x.id))).forEach(x=>_jobs.push([SHEETS.bills,{...x,payments:JSON.stringify(x.payments||[])}]));
     supplierTxns.filter(x=>_dirty.stx.has(String(x.id))).forEach(x=>_jobs.push([SHEETS.supplierTxns,x]));
     creditNotes.filter(x=>_dirty.cn.has(String(x.id))).forEach(x=>_jobs.push(['CreditNotes',x]));
-    Object.entries(trackingData).filter(([k])=>_dirty.trk.has(String(k))).forEach(([k,td])=>_jobs.push([SHEETS.tracking,{id:k,...td}]));
+    Object.entries(trackingData).filter(([k])=>_dirty.trk.has(String(k))||_trkReconcile.has(String(k))).forEach(([k,td])=>_jobs.push([SHEETS.tracking,{id:String(k).trim().toUpperCase(),...td}]));
     if(_dirty.set&&S.updatedAt)_jobs.push([SHEETS.settings,settingsForSheet()]); // v14.25.0 C2+H5: sanitized
+    _msgReconcile.forEach(j=>_jobs.push(j)); // v14.39.1
+    // v14.39.1: prompts may fire only once this session has seen the sheet's settings and message
+    // history. Set before the uploads so a long first upload does not hold the prompts back.
+    if(_msgReadOk&&_psReadOk)_sessionSheetRead=true;
     _pushFailed+=await _pushConfirmedPool(_jobs,3);
 
     try{localStorage.removeItem('vc_inv_cleared');}catch(e){};
@@ -2930,7 +3010,7 @@ function showSubPage(id){
   if(id==='pl')renderPLSubPage();
   if(id==='labels')loadLabelDefaults();
   if(id==='outreach')renderOutreachPage();
-  if(id==='tracking')renderTrackingPage();
+  if(id==='tracking'){renderTrackingPage();_renderTrkUploadNote();}
   if(id==='dsreport')renderDSReport();
   if(id==='courierspend')setCourierSpendPeriod('thismonth');
 }
@@ -3025,9 +3105,49 @@ function init(){
     });
     if(_fixed)lsSet('vc_religion_overrides',_ov);
     if(!S.address){
-      showSetupScreen();
+      // v14.39.1: a fresh install (cleared history / new home-screen shortcut) starts with empty
+      // storage. Read the business details from the sheet first and only show the welcome screen
+      // when the sheet has none — the welcome screen used to overwrite the shared settings.
+      restoreSettingsFromSheet().then(ok=>{
+        if(ok){toast('✅ Business details restored from Google Sheets');initContinue();}
+        else showSetupScreen();
+      });
       return;
     }
+    initContinue();
+  }catch(e){
+    console.error('Init error:',e);
+    toast('⚠️ Load error — please refresh',5000);
+  }
+}
+// v14.39.1: Settings row from the sheet, or null (offline / not set up). Never throws.
+async function fetchSheetSettings(){
+  try{
+    const rows=await gsRead(SHEETS.settings);
+    const rs=(rows||[]).find(r=>String(r.id||'').trim()==='settings')||(rows||[])[0];
+    return rs||null;
+  }catch(e){console.warn('Settings read failed:',e.message);return undefined;}
+}
+// Settings fields that live on the sheet, coerced from the sheet's strings
+function _settingsFromRow(rs){
+  return{gstin:rs.gstin||'',address:rs.address||'',phone:rs.phone||'',email:rs.email||'',
+    gstEnabled:rs.gstEnabled==='true'||rs.gstEnabled===true,calKey:rs.calKey||'',
+    gstStartDate:toISODate(rs.gstStartDate)||'',
+    fuPaused:rs.fuPaused==='true'||rs.fuPaused===true,
+    fuResumeDate:toISODate(rs.fuResumeDate)||'',
+    updatedAt:rs.updatedAt||''};
+}
+async function restoreSettingsFromSheet(){
+  showLoading('Checking your saved business details…');
+  const rs=await fetchSheetSettings();
+  hideLoading();
+  if(!rs||!String(rs.address||'').trim())return false;
+  S={...S,..._settingsFromRow(rs)};
+  lsSet('vc_s',S);
+  return true;
+}
+function initContinue(){
+  try{
     loadSettings();
     applyGSTMode();
     setInvNumber();
@@ -3189,9 +3309,16 @@ function setSetupGST(on){
   if(note)note.style.display=!on?'block':'none';
 }
 
-function completeSetup(){
+async function completeSetup(){
   const address=(document.getElementById('setup-address')?.value||'').trim();
   if(!address){toast('⚠️ Business address is required');return;}
+  // v14.39.1: read the sheet first so the follow-up pause, its resume date, the GST start date and
+  // the Calendarific key are KEPT. Previously this rebuilt settings without them, stamped them as
+  // newest and wrote them to the sheet, switching follow-ups back on for every device.
+  showLoading('Saving…');
+  const _rs=await fetchSheetSettings();
+  hideLoading();
+  const _sheetKeep=_rs?_settingsFromRow(_rs):null;
   if(_setupGSTEnabled){
     const gstin=(document.getElementById('setup-gstin')?.value||'').trim().toUpperCase();
     if(!gstin){toast('⚠️ GSTIN is required when GST registered');return;}
@@ -3200,8 +3327,20 @@ function completeSetup(){
     S={gstin:'',address,phone:(document.getElementById('setup-phone')?.value||'').trim(),email:(document.getElementById('setup-email')?.value||'').trim(),gstEnabled:false,updatedAt:new Date().toISOString()};
     invoices.forEach(inv=>{if(inv.isGST===undefined)inv.isGST=false;});save();
   }
-  lsSet('vc_s',S);gsWriteConfirmed(SHEETS.settings,settingsForSheet()).then(ok=>{if(!ok)toast('⚠️ Settings saved locally but sheet sync failed — tap sync to retry');});
+  if(_sheetKeep){
+    S.calKey=_sheetKeep.calKey||'';S.gstStartDate=_sheetKeep.gstStartDate||'';
+    S.fuPaused=_sheetKeep.fuPaused;S.fuResumeDate=_sheetKeep.fuResumeDate||'';
+  }
+  if(_rs===undefined){
+    // Sheet unreachable: write nothing and carry no timestamp, so the first sync fills every
+    // field from the sheet (legacy presence-based merge) instead of this screen overwriting it.
+    S.updatedAt='';
+    lsSet('vc_s',S);
+  }else{
+    lsSet('vc_s',S);gsWriteConfirmed(SHEETS.settings,settingsForSheet()).then(ok=>{if(!ok)toast('⚠️ Settings saved locally but sheet sync failed — tap sync to retry');});
+  }
   const el=document.getElementById('setup-screen');if(el)el.style.display='none';
+  normaliseMsgLogOnce();
   applyGSTMode();loadSettings();setInvNumber();setDates();addItem();renderDashboard();loadAssetThumbs();
   setTimeout(()=>syncAll(),1000);
   toast('✅ Setup complete! Welcome to Vismaad Creations');
@@ -3269,6 +3408,7 @@ function saveSettings(){
 function toggleSettings(){
   const c=document.getElementById('settings-card');
   if(c)c.style.display=c.style.display==='none'?'block':'none';
+  renderDeliveryPromptToggle(); // v14.39.1
 }
 
 
@@ -4127,6 +4267,10 @@ function setSort(btn,sort){
 // Track123 and the sheet-sync merge stored them verbatim. renderSales() looks up by UPPERCASE,
 // so any lowercase-keyed record was invisible and every shipping filter misclassified.
 // tdGet() tolerates either casing; new writes are normalised to uppercase.
+// v14.39.1: one exact Delivered test for tracking statuses ("Not Delivered" is NOT delivered)
+function _isDeliveredStatus(st){return /^\s*delivered\s*$/i.test(String(st==null?'':st));}
+// v14.39.1: India Post's bulk file returns "N/A" (or nothing) for articles it no longer has data on
+function _isNoDataValue(v){const x=String(v==null?'':v).trim();return !x||/^(n\/?a|na|-|--|null|none|no record)$/i.test(x);}
 function tdGet(t){
   if(!t)return undefined;
   const k=String(t).trim();
@@ -8311,8 +8455,8 @@ function _mlKeyEq(a,b){return String(a==null?'':a)===String(b==null?'':b);}
 function hasSentMsg(phone,type,year){
   return msgLog.some(l=>_phEq(l.phone,phone)&&l.type===type&&_mlKeyEq(l.year,year));
 }
-function logMsg(phone,type,year,name){
-  // Avoid duplicate entries locally
+// v14.39.1: local record only; the message-log reconcile in syncAll uploads it (3 at a time, confirmed)
+function _logMsgLocal(phone,type,year,name){
   const now=new Date().toISOString();
   const _yr=parseInt(year,10);
   const yrN=isNaN(_yr)?year:_yr; // store numeric locally; sheet will stringify it on the way back
@@ -8320,8 +8464,15 @@ function logMsg(phone,type,year,name){
     msgLog.push({phone:String(phone),type,year:yrN,sentDate:today(),name:name||'',updatedAt:now});
     saveMsgLog();
   }
-  // Always push to sheet so other devices pick it up on sync
-  gsWrite('MessageLog',{id:phone+'_'+type+'_'+year,phone:String(phone),type,year:yrN,sentDate:today(),name:name||'',updatedAt:now});
+  return{now,yrN};
+}
+function logMsg(phone,type,year,name){
+  // Avoid duplicate entries locally
+  const {now,yrN}=_logMsgLocal(phone,type,year,name);
+  // Always push to sheet so other devices pick it up on sync.
+  // v14.39.1: confirmed write; if it is lost (iPhone backgrounds the app as WhatsApp opens), the
+  // message-log reconcile in syncAll uploads it on the next sync.
+  gsWriteConfirmed('MessageLog',{id:phone+'_'+type+'_'+year,phone:String(phone),type,year:yrN,sentDate:today(),name:name||'',updatedAt:now}).then(ok=>{if(!ok)scheduleAutoSync();});
 }
 // v14.35.0 A6: one-time updatedAt backfill for every record type except inventory (already done in
 // v14.22.6). Idempotent and guarded; fills blanks only. The stamp is deliberately backdated to the
@@ -8424,6 +8575,7 @@ function isReviewNever(phone){
 // showSkipped: bool
 function getPendingDeliveryReviews(dateFilter,showSkipped){
   const results=[];
+  if(!_sessionSheetRead)return results; // v14.39.1: never list from an unsynced history
   const cutoff=dateFilter&&dateFilter!=='all'
     ?Date.now()-parseInt(dateFilter)*24*3600*1000:0;
   const yr=new Date().getFullYear();
@@ -8494,7 +8646,25 @@ function getDeliveredInvNos(){
 let _reviewPopupQueue=[];
 let _reviewPopupIdx=0;
 
+// v14.39.1: per-device switch — tracking is imported on the laptop, but WhatsApp is quicker on the
+// phone. With prompts OFF here the device only reports how many messages are waiting and leaves
+// them un-handled, so the phone (prompts ON) pops them up after its next sync.
+function deliveryPromptsHere(){return lsGet('vc_delivery_prompts_here',true)!==false;}
+function setDeliveryPromptsHere(on){
+  lsSet('vc_delivery_prompts_here',!!on);
+  renderDeliveryPromptToggle();
+  toast(on?'🔔 Delivery prompts ON for this device':'🔕 Delivery prompts OFF here — send them from your phone');
+  if(on)setTimeout(checkReviewPopup,300);
+}
+function renderDeliveryPromptToggle(){
+  const on=deliveryPromptsHere();
+  const a=document.getElementById('dp-here-on'),b=document.getElementById('dp-here-off');
+  if(a){a.style.background=on?'var(--brown)':'';a.style.color=on?'#fff':'';}
+  if(b){b.style.background=!on?'var(--brown)':'';b.style.color=!on?'#fff':'';}
+}
+let _dpOffToastSig='';
 function checkReviewPopup(){
+  if(!_sessionSheetRead)return; // v14.39.1: wait until this session has the sheet's history
   const seenRaw=lsGet('vc_review_popup_seen',null);
   const seen=Array.isArray(seenRaw)?seenRaw:[];
   const deliveredNow=getDeliveredTrackNos();
@@ -8531,6 +8701,15 @@ function checkReviewPopup(){
     actionable.push({invId:String(inv.id),inv,phone,productName,msgKey,trackNo:t,trackIndex,totalTracks});
   });
   if(!actionable.length)return;
+  if(!deliveryPromptsHere()){
+    // v14.39.1: nothing is marked as handled here — the phone picks these up
+    const sig=actionable.map(a=>a.trackNo).sort().join(',');
+    if(sig!==_dpOffToastSig){
+      _dpOffToastSig=sig;
+      toast('📱 '+actionable.length+' parcel'+(actionable.length>1?'s':'')+' delivered — send the message'+(actionable.length>1?'s':'')+' from your phone',6000);
+    }
+    return;
+  }
   _reviewPopupQueue=actionable;
   _reviewPopupIdx=0;
   showReviewPopup();
@@ -8571,9 +8750,10 @@ function showReviewPopup(){
         onclick="logMsg('${phone}','${msgKey}',${yr},'');_reviewPopupIdx++;showReviewPopup();"
         class="btn btn-g" style="min-height:48px;text-decoration:none;text-align:center;">💬 Send Delivery Message</a>
       <div style="display:flex;gap:8px;">
+        <button class="btn btn-o" style="flex:1;min-height:44px;" onclick="logMsg('${phone}','${msgKey}',${yr},'');_reviewPopupIdx++;showReviewPopup();">✓ Already Sent</button>
         <button class="btn btn-o" style="flex:1;min-height:44px;" onclick="skipReview('${trackNo}');_reviewPopupIdx++;showReviewPopup();">⏭ Skip (7 days)</button>
-        <button class="btn btn-o" style="flex:1;min-height:44px;color:#c0392b;" onclick="neverReview('${phone}');_reviewPopupIdx++;showReviewPopup();">🚫 Never Remind</button>
       </div>
+      <button class="btn btn-o" style="min-height:40px;color:#c0392b;font-size:13px;" onclick="neverReview('${phone}');_reviewPopupIdx++;showReviewPopup();">🚫 Never Remind This Customer</button>
     </div>`;
   const counter=document.getElementById('review-popup-counter');
   if(counter&&_reviewPopupQueue.length>1)counter.textContent=(_reviewPopupIdx+1)+' of '+_reviewPopupQueue.length;
@@ -8743,6 +8923,7 @@ function fuDueDate(lastOrder){
   }catch{return '';}
 }
 function fuEligible(c){
+  if(!_sessionSheetRead)return false; // v14.39.1
   if(isFuPaused())return false;
   if(isOptedOut(c.phone))return false;
   if(hasSentFollowupSinceLastOrder(c.phone,c.lastOrder))return false;
@@ -8801,9 +8982,10 @@ async function renderOutreachWidget(){
   widget.style.display='block';
   let html='';
   if(deliveryReviews.length>0){
-    html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
-      <span style="font-size:13px;">📦 ${deliveryReviews.length} delivery review${deliveryReviews.length>1?'s':''} to send</span>
-      <span style="font-size:12px;color:#888;">${deliveryReviews.length} parcel${deliveryReviews.length>1?'s':''}</span>
+    // v14.39.1: tappable — opens the send list (Send on WhatsApp / Already sent / Skip per row)
+    html+=`<div onclick="showSubPage('outreach')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;margin:2px 0 6px;background:var(--goldp);border-radius:10px;cursor:pointer;">
+      <span style="font-size:14px;font-weight:600;color:var(--brown);">📦 ${deliveryReviews.length} delivery message${deliveryReviews.length>1?'s':''} to send</span>
+      <span style="font-size:13px;font-weight:600;color:var(--brown);white-space:nowrap;">${deliveryPromptsHere()?'Send →':'📱 on phone'}</span>
     </div>`;
   }
   if(isFuPaused()){
@@ -8832,6 +9014,7 @@ let _followupQueue=[];
 let _followupIdx=0;
 
 async function checkFollowupPopup(){
+  if(!_sessionSheetRead)return; // v14.39.1
   if(isFuPaused())return; // v14.26.0: paused — no popup, and don't burn today's shown-marker
   // Show at most once per calendar day per device (prevents re-firing on every page reload)
   // Cross-device dedup is handled by msgLog (synced via sheet) via hasSentFollowupSinceLastOrder
@@ -8968,7 +9151,8 @@ async function renderOutreachPage(){
     html+=`<div style="display:flex;gap:8px;margin-bottom:12px;">
       <button class="btn btn-g" style="flex:1;min-height:42px;font-size:13px;" onclick="bulkSendReviews()">💬 Send All (${deliveryReviews.length})</button>
       <button class="btn btn-o" style="flex:1;min-height:42px;font-size:13px;" onclick="bulkSkipReviews()">⏭ Skip All</button>
-    </div>`;
+    </div>
+    <button class="btn btn-o" style="width:100%;min-height:40px;font-size:13px;margin:-4px 0 12px;" onclick="bulkMarkReviewsSent()">✓ Mark All (${deliveryReviews.length}) as Already Sent</button>`;
 
     deliveryReviews.forEach(({inv,phone,productName,msgKey,trackNo,trackIndex,totalTracks,skipped})=>{
       const num=isIndianPhoneKey(phone)?'91'+phone:phone;
@@ -8986,6 +9170,8 @@ async function renderOutreachPage(){
           <a href="https://wa.me/${num}?text=${encodeURIComponent(msgText)}" target="_blank"
             onclick="logMsg('${phone}','${msgKey}',${yr},'');setTimeout(()=>renderOutreachPage(),600);"
             class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;text-align:center;">💬 Send</a>
+          <button class="btn btn-o btn-sm" style="min-height:34px;font-size:11px;"
+            onclick="logMsg('${phone}','${msgKey}',${yr},'');renderOutreachPage();renderOutreachWidget();">✓ Already sent</button>
           <button class="btn btn-o btn-sm" style="min-height:34px;font-size:11px;"
             onclick="skipReview('${trackNo||inv.invNo}');renderOutreachPage();">⏭ Skip</button>
           <button class="btn btn-o btn-sm" style="min-height:34px;font-size:11px;color:#c0392b;"
@@ -9125,6 +9311,23 @@ async function renderOutreachPage(){
 
 function setReviewDateFilter(v){_reviewDateFilter=v;renderOutreachPage();}
 function toggleReviewShowSkipped(v){_reviewShowSkipped=v;renderOutreachPage();}
+
+// v14.39.1: clear a backlog of delivery messages that were already sent outside the app's records
+function bulkMarkReviewsSent(){
+  const list=getPendingDeliveryReviews(_reviewDateFilter,_reviewShowSkipped);
+  if(!list.length){toast('Nothing to mark');return;}
+  showConfirmModal('✓ Mark as already sent',
+    'Record <b>'+list.length+'</b> delivery message'+(list.length>1?'s':'')+' as already sent? They will stop appearing on every device. Nothing is sent to customers.',
+    function(){
+      const yr=new Date().getFullYear();
+      // Recorded locally in one pass, then uploaded by the sync (3 at a time) instead of firing
+      // dozens of simultaneous writes at the sheet.
+      list.forEach(({phone,msgKey})=>_logMsgLocal(phone,msgKey,yr,''));
+      toast('✓ '+list.length+' marked as sent — uploading to the sheet');
+      if(!syncing)setTimeout(()=>syncAll(),400);else scheduleAutoSync();
+      renderOutreachPage();renderOutreachWidget();
+    },null);
+}
 
 // Bulk skip all visible reviews
 function bulkSkipReviews(){
@@ -9832,6 +10035,24 @@ function exportTrackingTemplate(){
   });
 }
 
+// v14.39.1: confirmed upload of imported tracking rows with a visible "waiting to upload" count.
+let _trkUploadPending=0;
+function _renderTrkUploadNote(){
+  const t=_trkUploadPending>0?('☁️ '+_trkUploadPending+' tracking update'+(_trkUploadPending>1?'s':'')+' waiting to upload — keep the app open'):'';
+  document.querySelectorAll('.trk-upload-note').forEach(el=>{el.textContent=t;el.style.display=t?'block':'none';});
+}
+async function _uploadTrackingRecords(jobs){
+  _trkUploadPending+=jobs.length;_renderTrkUploadNote();
+  let failed=0;
+  for(let i=0;i<jobs.length;i+=3){
+    const chunk=jobs.slice(i,i+3);
+    failed+=await _pushConfirmedPool(chunk,3);
+    _trkUploadPending=Math.max(0,_trkUploadPending-chunk.length);_renderTrkUploadNote();
+  }
+  if(failed>0){toast('⚠️ '+failed+' tracking update(s) not confirmed yet — they will upload on the next sync',6000);scheduleAutoSync();}
+  else toast('☁️ Tracking saved to sheet ('+jobs.length+' record'+(jobs.length>1?'s':'')+')');
+}
+
 // Import tracking results from filled bulk-articles-tracking.xlsx
 function handleTrackingImport(e){
   const file=e.target.files[0];
@@ -9858,13 +10079,19 @@ function handleTrackingImport(e){
         const colStatus=findCol('Status');
         const colEvent=findCol('Last Event');
 
-        let updated=0,skipped=0;
+        let updated=0,skipped=0,keptDelivered=0,noData=0;
+        const changedArts=[]; // v14.39.1: only rows that actually changed are uploaded
         rows.forEach(function(row){
           const art=(row[colArticle]||'').toString().trim().toUpperCase();
           if(!art){skipped++;return;}
-          const statusVal=colStatus?row[colStatus]||'':'';
+          const statusVal=String(colStatus?row[colStatus]||'':'').trim();
+          // v14.39.1: India Post answers "N/A" for articles it no longer holds data on. Those rows used
+          // to overwrite whatever we had (82 parcels became "In Transit" on 3 Oct). Ignored now.
+          if(_isNoDataValue(statusVal)){noData++;return;}
           // Stamp deliveredOn: use today's import date if status is Delivered and no prior deliveredOn
-          const existing=trackingData[art];
+          const existing=tdGet(art);
+          // v14.39.1: Delivered is final — a later file saying otherwise never downgrades it
+          if(existing&&_isDeliveredStatus(existing.status)&&!_isDeliveredStatus(statusVal)){keptDelivered++;return;}
           const wasDelivered=existing&&/^delivered$/i.test(existing.status||'');
           const isNowDelivered=/^delivered$/i.test(statusVal);
           const deliveredOn=(isNowDelivered&&existing&&existing.deliveredOn)?existing.deliveredOn
@@ -9879,6 +10106,7 @@ function handleTrackingImport(e){
             deliveredOn:deliveredOn||(existing&&existing.deliveredOn)||null,
             updatedAt:new Date().toISOString()
           };
+          changedArts.push(art);
           updated++;
         });
         // Write bookedOn back to invoice dispatchDate if present — tracking sheet wins
@@ -9909,22 +10137,19 @@ function handleTrackingImport(e){
         });
         if(dispUpdated>0){save();}
         saveTracking();
-        // Push each updated article as its own sheet row using confirmed batch write
-        const updatedArts=rows.map(r=>(r[colArticle]||'').toString().trim().toUpperCase()).filter(Boolean);
-        const trackRecords=updatedArts.filter(art=>tdGet(art)).map(art=>({id:art,...tdGet(art)}));
+        // v14.39.1: upload through the confirmed pool (3 at a time) instead of the slow one-by-one batch.
+        // Anything not confirmed is picked up by the tracking reconcile on the next sync.
+        const trackRecords=[...new Set(changedArts)].filter(art=>tdGet(art)).map(art=>[SHEETS.tracking,{id:art,...tdGet(art)}]);
         renderTrackingPage();
         renderSales(); // refresh badges
         // Check for newly-delivered items and show review popup if any
         setTimeout(()=>checkReviewPopup(),800);
-        toast('✅ '+updated+' tracking records imported'+(skipped?' ('+skipped+' skipped)':'')+' — saving to sheet…');
-        if(trackRecords.length){
-          gsWriteBatch(SHEETS.tracking,trackRecords,(done,failed,total)=>{
-            if(done+failed===total){
-              if(failed>0)toast('⚠️ '+failed+' tracking record(s) not synced to sheet — tap sync to retry');
-              else toast('☁️ Tracking synced to sheet ('+done+' records)');
-            }
-          });
-        }
+        const _notes=[];
+        if(keptDelivered)_notes.push(keptDelivered+' kept as Delivered');
+        if(noData)_notes.push(noData+' with no data from India Post ignored');
+        if(skipped)_notes.push(skipped+' skipped');
+        toast('✅ '+updated+' tracking records imported'+(_notes.length?' ('+_notes.join(', ')+')':'')+(trackRecords.length?' — uploading…':''),6000);
+        if(trackRecords.length)_uploadTrackingRecords(trackRecords);
       }catch(err){toast('❌ Import error: '+err.message,6000);}
     };
     reader.onerror=function(){hideLoading();toast('❌ Could not read file');};
@@ -9960,6 +10185,7 @@ function buildTrackingPage(){
       <button class="btn btn-g" style="flex:1;" onclick="document.getElementById('tracking-import').click()">📤 Import Results</button>
     </div>
     <input type="file" id="tracking-import" accept=".xlsx,.xls" style="display:none;" onchange="handleTrackingImport(event)"/>
+    <div class="trk-upload-note" style="display:none;background:#fff8e1;border:1px solid #f5c26b;border-radius:8px;padding:8px 10px;font-size:12px;color:#7a5200;margin-top:8px;"></div>
     ${total?'<button class="btn btn-d btn-sm" style="width:100%;margin-bottom:4px;" onclick="showConfirmModal(\'🗑 Clear Tracking\',\'Clear all '+total+' stored tracking records? This cannot be undone.\',clearTrackingData,null)">🗑 Clear All Tracking Data</button>':''}
   </div>
   <div class="card" style="margin-bottom:14px;">
