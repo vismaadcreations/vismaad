@@ -3,10 +3,26 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.37.0
+APP: Vismaad Creations v14.39.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 03-Oct-2026 — v14.37.0: LINKED-STOCK ANOMALIES + SYNC RELIABILITY (DEVICES DRIFTING APART / ONE DEVICE "SYNC FAILED") + CONFIG BACKUP v2. REQUIRES Code.gs v4 (LockService + Inventory delete by prodNo) — redeploy the Apps Script.
+LAST_CHANGE: 03-Oct-2026 — v14.39.0: SUPPLIER BILL IMPORT READS PDFs AND BILL PHOTOS ON THE DEVICE (no Claude, no API). No Code.gs change.
+(I1) 📄 CHOOSE PDF. Reads the text layer of a PDF produced by the supplier's billing software, every page, using pdf.js 3.11.174 lazy-loaded from cdnjs on first use only (cached by the browser after that, so app start-up is unaffected). Positioned text items are regrouped into visual rows (same baseline ±3pt, left to right) and fed to the same parser as Paste. Verified on Singh Collection bill 2026-27/2687: both lines, invoice no., date, GSTIN and ₹14,250 total read exactly. A PDF with no text layer (a scan) is detected and the user is pointed to the photo reader. Replaces the bill on screen (asks first if something is entered).
+(I2) 📷 BILL PHOTO. Pick or take one photo per page (several at once for multi-page bills). Each photo is scaled to ~2000px wide, converted to greyscale and contrast-stretched (2nd–98th percentile) on a canvas, then read by tesseract.js 5.1.1, the same lazy-loaded engine and CDN URL as the tracking scanner's OCR, so it is downloaded once for both. One worker for all pages (page-segmentation mode 6, row by row), terminated afterwards; progress shown per page. Photos picked while lines are already on screen are APPENDED as further pages and only fill header fields that are still empty.
+(I3) LAYOUT-INDEPENDENT ROW SOLVER (sbSolveRow). A bill row is accepted only when two of its numbers multiply to the row's last number (qty × list price = Amount, ±₹1), qty a whole number 1–500, price ₹20–₹99,999; or, when qty is unreadable, a price equal to the amount (qty 1). HSN is the LAST 6–8 digit number before qty (the HSN column, not the one inside the description). OCR slips such as O→0, l→1 and 2.895.00 are normalised first. Used for PDF text and photos; Claude's pasted block is read as before.
+(I4) RED LINES. A photo row that cannot be solved is read around the "Pcs" word (qty before, price after; qty also derived as amount ÷ price). If both are found the line is filled but stays RED with "≠ bill ₹x" until it agrees with the printed amount; if not, it becomes a BLANK RED LINE (as requested), keeping the printed amount when it was read. Matching lines show "✓ bill". A "My numbers are right" button on a mismatched line clears it when the printed amount itself was misread. The summary counts red lines, and Add to Inventory warns that empty red lines are skipped and mismatched ones will be saved as typed. Tested on the 15-line photo of bill 3645 (curled paper): the clean rows solve exactly; the damaged bottom rows come back red for hand entry, and the grand-total check exposes any shortfall.
+(I5) Header fields (invoice no., date with time dropped, grand total, first GSTIN on the bill = supplier) are read from PDF and photo text too. The GSTIN is validated with the official mod-36 check character and common OCR swaps (O/0, I/1, S/5, B/8, 14th char Z) are undone automatically. Supplier name fills when a saved supplier has that GSTIN.
+NOTE: nothing is saved until Add to Inventory; v14.38.0 behaviour (pending review, renumbering, pricing rule) is unchanged.
+PREV_CHANGE: 03-Oct-2026 — v14.38.0: SUPPLIER BILL IMPORT INTO INVENTORY (+ REVIEW / CONFIRM FLOW, DELETE WITH RENUMBERING). No Code.gs change.
+(H1) NEW "📥 Import Supplier Bill" card on the Inventory page (collapsible, above Add Product). Header: supplier (datalist from Suppliers, GSTIN auto-fills from a matching supplier), supplier GSTIN, invoice no., bill date, grand total. Lines: Qty, List Price (= cost, GST-inclusive, exactly as printed on the bill), Sale Price, HSN. "+ Line" and "+ Page" (pages only label the lines; line numbers run on across pages).
+(H2) TWO WAYS IN, ONE REVIEW SCREEN. (a) PASTE: "Read pasted text" accepts the block Claude produces from bill photos (SUPPLIER/GSTIN/INVOICE/DATE/TOTAL lines + "L1 | hsn | qty | price" rows), and ALSO text copied straight out of the supplier's PDF (rows recognised by "<hsn> <qty> Pcs. <price>", plus "Invoice No.", "Dated" and "Grand Total"). Time on the bill date is ignored. (b) TYPE: enter qty and list price per line. Either way nothing is written until "Add to Inventory".
+(H3) DEFAULT SALE PRICE = cost × 1.30 (markup), rounded to nearest ₹10, and any round hundred drops by 5 (1,900 → 1,895; 3,000 → 2,995; 150 stays). Computed in integer arithmetic (cost×13/100) so no float edge cases. Editable per line; a hand-typed sale price is never overwritten when the cost changes.
+(H4) LIVE CHECK: total qty and Σ(qty × list price) are compared to the bill's grand total (₹1 tolerance) — green tick or red difference. Proceeding on a mismatch asks first. Importing an invoice no. already used for the same supplier asks first. Shows which product numbers will be assigned (continues from the highest existing number).
+(H5) ONE PRODUCT PER LINE, qty as billed, named "Bill <last part of invoice no.> · Line <n>" so identical bill descriptions ("SUIT DUPATA") can never be treated as the same product by the link suggester. New fields reviewStatus:'pending', importName, billNo, billDate (as printed), billSupplier, billSupplierGstin, billLine — all ride the existing {...p} spread in flattenProduct/parseInventoryRow; Apps Script adds the columns on first write. Saved to the device in one pass (instant), uploaded in the background three at a time via gsWriteConfirmed; any unconfirmed upload is retried by the normal sync.
+(H6) REVIEW FLOW. Register rows of pending items carry an amber "⏳ Review" badge, an amber edge and the bill reference; a banner shows the pending count with a one-tap filter; the status filter gains "⏳ Pending review"; register search now also matches invoice no. and supplier. The Edit modal shows the bill reference and a "✅ Save & Confirm" button, which refuses while the name is still the placeholder. Pending items stay sellable on invoices and stay visible in Catalogue / Price List (as requested). The link suggester ignores pending items.
+(H7) DELETE BEFORE CONFIRMING, WITH RENUMBERING. Deleting a pending item (🗑 on its row or Delete in the editor) moves every higher-numbered product down by one, but ONLY when every one of them is still pending and untouched (no sale, no invoice or dropship line referencing it, no linked invoices/products, no variants/photos, no reel posted). Otherwise the gap is left and the dialog says which product blocked it, so no invoice, photo or link can ever point at the wrong article. Sheet safety: the moved products UPSERT onto the existing rows (Code.gs matches prodNo), and only the single vacated top number is deleted and tombstoned (timestamped before the moved rows' updatedAt), so other devices follow and no write/delete pair ever targets the same row. Deletes are blocked while an import's background upload is still running, so a late upload cannot overwrite a renumbered row.
+NOTE: no existing data is rewritten. Products added by hand behave exactly as before.
+PREV_CHANGE: 03-Oct-2026 — v14.37.0: LINKED-STOCK ANOMALIES + SYNC RELIABILITY (DEVICES DRIFTING APART / ONE DEVICE "SYNC FAILED") + CONFIG BACKUP v2. REQUIRES Code.gs v4 (LockService + Inventory delete by prodNo) — redeploy the Apps Script.
 (G1) UNRELATED ARTICLES IN "LINKED TO:" WHILE ADDING STOCK. acceptLink appended a chip to #ip-linked-list but saveProduct only HID the container and never emptied it, so every chip accepted earlier in the session reappeared beside the next product. suggestLinks also reset _pendingLinks on each keystroke while leaving the old chips visible, so chips could show links that would not be saved. New _clearLinkChips() runs on every reset and after save.
 (G2) BACK-LINKS NEVER REACHED OTHER DEVICES. saveProduct pushed the back-linked sibling without bumping its updatedAt, so the updatedAt-wins merge ignored it elsewhere and pools became one-directional cross-device. updatedAt now bumped.
 (G3) DELETED PRODUCTS: NUMBER REUSE INHERITED OLD LINKS, AND DELETES NEVER PROPAGATED. _doDeleteProduct left the deleted number in siblings' linkedProducts; nextProdNo() is max+1, so the next product got the same number and silently joined the old pool. Siblings are now stripped and pushed. It also deleted by _editingProdNo instead of its own argument (fixed). Code.gs deleteRow only matched an 'id' column, which Inventory does not have, so the sheet row survived and the product came back on every sync — Code.gs v4 now matches prodNo. Product deletes now also write a TIMESTAMPED tombstone ('prod:<no>:<ms>') to DeletedIds; a tombstone removes only a product last touched BEFORE the delete, so a new product reusing the number is never removed. The inventory merge also refuses to resurrect a tombstoned row still on the sheet.
@@ -332,6 +348,23 @@ body.gst-mode .gst-only{display:block;}
 .variant-add-photo{width:72px;height:72px;border-radius:8px;border:1.5px dashed var(--gold);background:var(--goldp);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:11px;color:var(--brown);font-weight:600;gap:2px;flex-shrink:0;}
 .photo-upload-progress{height:4px;background:var(--goldp);border-radius:2px;overflow:hidden;margin-top:6px;}
 .photo-upload-progress-bar{height:100%;background:var(--gold);border-radius:2px;transition:width .3s;}
+
+/* ── SUPPLIER BILL IMPORT (v14.38.0) ── */
+.sb-line{display:grid;grid-template-columns:30px 70px minmax(0,1fr) minmax(0,1fr) 96px 38px;grid-template-areas:"ln qty list sale hsn del" "ln amt amt amt amt del";gap:4px 6px;align-items:end;padding:8px 0;border-bottom:1px dashed var(--border);}
+.sb-line label{display:flex;flex-direction:column;gap:2px;font-size:10px;font-weight:600;color:var(--brown);text-transform:uppercase;letter-spacing:.3px;min-width:0;}
+.sb-line input{width:100%;min-width:0;padding:8px 8px;border-radius:8px;border:1.5px solid var(--border);background:var(--cream);font-size:14px;font-family:'DM Sans',sans-serif;color:var(--ink);}
+.sb-line input:focus{outline:none;border-color:var(--gold);}
+.sb-ln{grid-area:ln;font-weight:700;color:var(--brown);font-size:13px;align-self:center;}
+.sb-qty{grid-area:qty;}.sb-list{grid-area:list;}.sb-sale{grid-area:sale;}.sb-hsn{grid-area:hsn;}
+.sb-amt{grid-area:amt;font-size:11px;color:#888;}
+.sb-del{grid-area:del;align-self:center;background:transparent;border:1.5px solid var(--red);color:var(--red);border-radius:8px;height:36px;cursor:pointer;font-size:14px;}
+.sb-page{font-size:11px;font-weight:700;color:#fff;background:var(--brown);display:inline-block;padding:2px 10px;border-radius:10px;margin:10px 0 2px;}
+@media(max-width:560px){
+  .sb-line{grid-template-columns:26px minmax(0,1fr) minmax(0,1fr) 38px;grid-template-areas:"ln qty list del" "ln sale hsn del" "ln amt amt del";}
+}
+.badge-review{background:#fff3cd;color:#b9770e;border:1px solid #f5c26b;}
+.sb-line.sb-bad{background:#fdecea;border-radius:8px;border-bottom-color:#e6b0aa;padding:8px 6px;}
+.sb-line.sb-bad input{border-color:#e74c3c;}
 
 /* ── CATALOGUE MODE ── */
 .cat-mode-bar{background:var(--goldp);border-radius:10px;padding:10px 12px;margin-bottom:12px;}
@@ -732,6 +765,50 @@ body.gst-mode .gst-only{display:block;}
   </div>
   <div id="ist-cost-note" style="display:none;font-size:11px;color:#c47b00;margin:-6px 0 12px;text-align:center;"></div>
 
+  <!-- v14.38.0 — Supplier bill import (collapsible, collapsed by default) -->
+  <details class="card collapse-card" id="sb-card">
+    <summary class="collapse-summary">
+      <span class="card-title" style="margin:0;display:inline;">📥 Import Supplier Bill</span>
+      <span class="collapse-chevron">▾</span>
+    </summary>
+    <div style="margin-top:12px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+        <button class="btn btn-g btn-sm" onclick="sbPickPhoto()">📷 Bill photo</button>
+        <button class="btn btn-o btn-sm" onclick="sbPickPdf()">📄 Choose PDF</button>
+        <button class="btn btn-o btn-sm" onclick="sbTogglePaste()" id="sb-paste-btn">📋 Paste bill text</button>
+        <button class="btn btn-o btn-sm" onclick="sbReset(true)">↺ Clear</button>
+      </div>
+      <input type="file" id="sb-photo-input" accept="image/*" multiple style="display:none;" onchange="sbReadPhotos(event)"/>
+      <input type="file" id="sb-pdf-input" accept="application/pdf,.pdf" style="display:none;" onchange="sbReadPdf(event)"/>
+      <div id="sb-status" style="display:none;border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:12px;line-height:1.5;"></div>
+      <div style="font-size:11px;color:#888;margin:-4px 0 12px;">Photo tip: flat bill, good light, shot straight from above, one photo per page.</div>
+      <div id="sb-paste-box" style="display:none;margin-bottom:14px;">
+        <div class="fg" style="margin-bottom:8px;"><label>Paste here</label>
+          <textarea id="sb-paste" rows="6" placeholder="Paste the block Claude gave you, or text copied from the supplier's PDF bill"></textarea></div>
+        <button class="btn btn-p btn-sm" style="width:100%;" onclick="sbParsePaste()">🔍 Read pasted text</button>
+        <div style="font-size:11px;color:#888;margin-top:6px;">Reading fills the form below. Nothing is saved until you tap Add to Inventory.</div>
+      </div>
+      <div class="row2">
+        <div class="fg"><label>Supplier</label><input id="sb-supplier" list="sb-sup-list" placeholder="e.g. Singh Collection" oninput="sbSupplierInput()"/><datalist id="sb-sup-list"></datalist></div>
+        <div class="fg"><label>Supplier GSTIN</label><input id="sb-gstin" maxlength="15" placeholder="03XXXXX1234X1Z5" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"/></div>
+      </div>
+      <div class="row2">
+        <div class="fg"><label>Invoice No. *</label><input id="sb-invno" placeholder="e.g. 2026-27/3645" oninput="sbRenderSummary()"/></div>
+        <div class="fg"><label>Bill Date (Date Received) *</label><input type="date" id="sb-date"/></div>
+      </div>
+      <div class="fg"><label>Grand Total on Bill (₹) <span style="font-weight:400;color:#aaa;">(for the check)</span></label>
+        <input type="number" id="sb-total" inputmode="decimal" placeholder="e.g. 60985" oninput="sbRenderSummary()"/></div>
+      <div style="font-size:12px;font-weight:600;color:var(--brown);margin:4px 0 2px;">Lines <span style="font-weight:400;color:#888;">· List Price = cost incl. GST · Sale auto = cost × 1.30, rounded</span></div>
+      <div id="sb-lines"></div>
+      <div style="display:flex;gap:8px;margin:10px 0 12px;">
+        <button class="btn btn-o btn-sm" style="flex:1;" onclick="sbAddLine(false)">+ Line</button>
+        <button class="btn btn-o btn-sm" style="flex:1;" onclick="sbAddLine(true)">+ Page</button>
+      </div>
+      <div id="sb-summary" style="background:var(--goldp);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--brown);margin-bottom:12px;line-height:1.6;"></div>
+      <button class="btn btn-p" id="sb-add-btn" onclick="sbCommit()">📥 Add to Inventory</button>
+    </div>
+  </details>
+
   <!-- Add product -->
   <div class="card">
     <div class="card-title">➕ Add Product</div>
@@ -779,7 +856,7 @@ body.gst-mode .gst-only{display:block;}
     <div style="margin-top:12px;">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
         <select id="inv-status-filter" onchange="renderInventory()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--cream);font-size:12px;">
-          <option value="">All</option><option value="instock">In Stock</option><option value="sold">Sold Out</option>
+          <option value="">All</option><option value="instock">In Stock</option><option value="sold">Sold Out</option><option value="pending">⏳ Pending review</option>
         </select>
         <button class="btn btn-o btn-sm" onclick="toggleInvPrintMode()" id="inv-print-mode-btn" style="white-space:nowrap;">🖨️ Price List</button>
         <button class="btn btn-o btn-sm" onclick="toggleCatalogueMode()" id="inv-cat-mode-btn" style="white-space:nowrap;">📖 Catalogue</button>
@@ -812,6 +889,7 @@ body.gst-mode .gst-only{display:block;}
           </div>
         </div>
       </div>
+      <div id="inv-pending-banner" style="display:none;background:#fff3cd;border:1.5px solid #f5c26b;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#7a5200;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"></div>
       <div id="inv-list"></div>
     </div>
   </details>
@@ -1273,6 +1351,11 @@ body.gst-mode .gst-only{display:block;}
           <select id="iem-inv-select"><option value="">select invoice</option></select></div>
         <button class="btn btn-p btn-sm" style="margin-top:8px;" onclick="confirmMarkSoldLinked()">Confirm Link & Mark Sold</button>
       </div>
+    </div>
+    <div id="iem-review-box" style="display:none;background:#fff3cd;border:1.5px solid #f5c26b;border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+      <div style="font-size:13px;font-weight:700;color:#7a5200;margin-bottom:4px;">⏳ Auto-added from a supplier bill</div>
+      <div id="iem-review-ref" style="font-size:12px;color:#7a5200;margin-bottom:10px;line-height:1.5;"></div>
+      <button class="btn btn-g" style="width:100%;" onclick="saveInvEdit(true)">✅ Save &amp; Confirm</button>
     </div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="saveInvEdit()">Save Changes</button>
@@ -2815,6 +2898,7 @@ function showPage(id,btn){
     const _ipn=document.getElementById('ip-num');if(_ipn)_ipn.value=nextProdNo();
     const _ipd=document.getElementById('ip-date');if(_ipd&&!_ipd.value)_ipd.value=today();
     const _iph=document.getElementById('ip-hsn');if(_iph&&!_iph.options.length){_hsnManual.ip=false;initHsnSelect('ip',DEFAULT_HSN);}
+    sbInitForm(); // v14.38.0
   }
   if(id==='sales')renderSales();
   if(id==='more')renderSyncInfo();
@@ -6015,13 +6099,15 @@ function renderInventory(){
     const s=parseInt(p.qty)||0;
     if(sf==='instock'&&s===0)return false;
     if(sf==='sold'&&s>0)return false;
+    if(sf==='pending'&&!isPendingReview(p))return false; // v14.38.0
     if(q){
-      const hay=[p.prodNo,p.name,p.hsn||DEFAULT_HSN,p.fabric,p.notes].map(x=>String(x==null?'':x).toLowerCase()).join(' ');
+      const hay=[p.prodNo,p.name,p.hsn||DEFAULT_HSN,p.fabric,p.notes,p.billNo,p.billSupplier].map(x=>String(x==null?'':x).toLowerCase()).join(' ');
       if(hay.indexOf(q)===-1)return false;
     }
     return true;
   }).sort((a,b)=>parseInt(b.prodNo)-parseInt(a.prodNo)); // v14.32.0 — newest (highest #) first
   const el=document.getElementById('inv-list');if(!el)return;
+  renderPendingBanner(); // v14.38.0
   if(!filtered.length){el.innerHTML='<div style="color:#aaa;text-align:center;padding:20px;">No products</div>';return;}
   el.innerHTML=filtered.map(p=>{
     const s=parseInt(p.qty)||0,orig=parseInt(p.qtyOriginal)||s;
@@ -6034,14 +6120,15 @@ function renderInventory(){
     const varBadge=varCount?`<span style="background:var(--goldp);color:var(--brown);padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;">📷 ${varCount}v ${photoCount}p</span>`:'';
     // Row onclick — print mode, cat mode, or edit
     const rowClick=_invPrintMode?`toggleInvPrintSelect(${p.prodNo})`:_catMode?`toggleCatSelect(${p.prodNo})`:``;
-    const rowBg=(_invPrintMode&&isPrintSelected)||(_catMode&&isCatSelected)?'background:var(--goldp);border-radius:10px;':'';
+    const rowBg=((_invPrintMode&&isPrintSelected)||(_catMode&&isCatSelected)?'background:var(--goldp);border-radius:10px;':'')+(isPendingReview(p)?'border-left:4px solid #f5b041;padding-left:8px;':''); // v14.38.0
     return`<div class="list-row" style="${rowBg}" onclick="${rowClick}">
       ${_invPrintMode?`<div style="display:flex;align-items:center;padding-right:8px;"><input type="checkbox" ${isPrintSelected?'checked':''} onchange="toggleInvPrintSelect(${p.prodNo})" onclick="event.stopPropagation()" style="width:20px;height:20px;cursor:pointer;accent-color:var(--brown);flex-shrink:0;"/></div>`:''}
       ${_catMode?`<div style="display:flex;align-items:center;padding-right:8px;"><div class="cat-sel-check ${isCatSelected?'checked':''}" onclick="event.stopPropagation();toggleCatSelect(${p.prodNo})">${isCatSelected?'✓':''}</div></div>`:''}
       <div style="flex:1;">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-size:18px;font-weight:700;color:var(--brown);">#${p.prodNo}</span>${badge}${varBadge}
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-size:18px;font-weight:700;color:var(--brown);">#${p.prodNo}</span>${isPendingReview(p)?'<span class="badge badge-review">⏳ Review</span>':''}${badge}${varBadge}
         ${s>0?`<span style="background:${ac.bg};color:${ac.fg};padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;">${ac.lbl}</span>`:''}</div>
         <div class="list-main" style="margin-top:3px;">${p.name}</div>
+        ${p.billNo?`<div class="list-sub" style="color:#9a6a00;">🧾 ${esc(sbBillRef(p))}</div>`:''}
         ${(()=>{const mp=marginPct(p.cost,p.sellPrice);const mc=mp===null?'':(mp<0?'#e74c3c':'#27ae60');
           return`<div class="list-sub">${p.cost?'Cost ₹'+p.cost+' · ':''}${mp!==null?`<span style="color:${mc};font-weight:600;">${mp>=0?'+':''}${mp}% margin</span> · `:''}${s} of ${orig} in stock${p.notes?' · '+p.notes:''}</div>`;})()}
         <div class="list-sub" style="margin-top:1px;"><span style="background:var(--goldp);color:var(--brown);padding:1px 6px;border-radius:6px;font-size:10px;font-weight:600;">HSN ${p.hsn||DEFAULT_HSN}</span>${p.dateAdded?`<span style="color:#888;font-size:10px;margin-left:6px;">📅 Recd ${fmtDate(p.dateAdded)}</span>`:'<span style="color:#c47b00;font-size:10px;margin-left:6px;">📅 No date</span>'}</div>
@@ -6065,6 +6152,7 @@ function renderInventory(){
         ${!_invPrintMode&&!_catMode?`<div style="display:flex;gap:6px;margin-top:6px;">
           <button class="btn btn-o btn-sm" onclick="event.stopPropagation();adjustStock(${p.prodNo})">± Stock</button>
           <button class="btn btn-o btn-sm" onclick="event.stopPropagation();openInvEdit(${p.prodNo})">✏️ Edit</button>
+          ${isPendingReview(p)?`<button class="btn btn-d btn-sm" title="Delete before confirming" onclick="event.stopPropagation();deletePendingProduct(${p.prodNo})">🗑</button>`:''}
         </div>`:''}
       </div>
     </div>`;
@@ -9124,7 +9212,7 @@ function suggestLinks(name){
   // Find unsold products with exactly same name (case insensitive)
   const matches=inventory.filter(p=>
     p.name.trim().toLowerCase()===trimmed&&
-    parseInt(p.qty)>0
+    parseInt(p.qty)>0&&!isPendingReview(p)
   );
   const listEl=document.getElementById('ip-link-list');
   const sugEl=document.getElementById('ip-link-suggestions');
@@ -10415,6 +10503,13 @@ function openInvEdit(prodNo) {
   document.getElementById('iem-sold-link').style.display = 'none';
   renderSoldToSection(p);
   renderVariantsList(p);
+  // v14.38.0 — pending (bill-imported) product: show bill reference + Save & Confirm
+  const _rb=document.getElementById('iem-review-box');
+  if(_rb){
+    _rb.style.display=isPendingReview(p)?'block':'none';
+    const _rr=document.getElementById('iem-review-ref');
+    if(_rr)_rr.innerHTML=isPendingReview(p)?esc(sbBillRef(p))+'<br/>Rename it and check the prices, then confirm.':'';
+  }
   document.getElementById('inv-edit-modal').classList.add('open');
 }
 
@@ -10527,11 +10622,17 @@ function viewInvoiceFromInventory(invId) {
   }
 }
 
-function saveInvEdit() {
+function saveInvEdit(confirmReview) {
   const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
   if (!p) return;
   const newName = (document.getElementById('iem-name').value || '').trim();
   if (!newName) { toast('⚠️ Product name required'); return; }
+  // v14.38.0 — confirming a bill-imported product needs a real name, not the placeholder
+  if (confirmReview === true) {
+    if ((p.importName && newName === p.importName) || /^Bill .+ · Line \d+$/.test(newName)) { toast('⚠️ Give it a real product name before confirming'); return; }
+    p.reviewStatus = 'confirmed';
+    p.confirmedAt = new Date().toISOString();
+  }
   p.name = newName;
   p.fabric = document.getElementById('iem-fabric').value || '';
   p.hsn = (document.getElementById('iem-hsn').value || DEFAULT_HSN).trim();
@@ -10562,12 +10663,13 @@ function saveInvEdit() {
   pushProductToCatalogueSheet(p);
   closeInvEditModal();
   renderInventory(); renderAgingGrid(); updateInventoryStats(); renderPostingQueue();
-  toast('✅ Product #' + _editingProdNo + ' updated');
+  toast(confirmReview === true ? '✅ Product #' + p.prodNo + ' confirmed' : '✅ Product #' + p.prodNo + ' updated');
 }
 
 function deleteInvProduct() {
   const p = inventory.find(x => parseInt(x.prodNo) === _editingProdNo);
   if (!p) return;
+  if (isPendingReview(p)) { deletePendingProduct(p.prodNo); return; } // v14.38.0
   showConfirmModal('🗑 Delete Product','Delete product #'+p.prodNo+' &ldquo;'+esc(p.name)+'&rdquo;? This cannot be undone.',function(){_doDeleteProduct(p.prodNo);},null);return;}
 function _doDeleteProduct(prodNoArg){
   const delNo=parseInt(prodNoArg); // v14.37.0: was using _editingProdNo instead of its own argument
@@ -14127,6 +14229,613 @@ async function refreshCourierTracking(){
     :'✅ '+updated+' shipment status(es) updated';
   toast(msg,4000);
   checkReviewPopup();
+}
+
+// ═══════════════════════════════════════════
+// v14.38.0 — SUPPLIER BILL IMPORT + PENDING REVIEW · v14.39.0 — PDF + BILL PHOTO READERS, PER-LINE AMOUNT CHECK
+// ═══════════════════════════════════════════
+function isPendingReview(p){return !!p&&p.reviewStatus==='pending';}
+function sbBillRef(p){
+  if(!p||!p.billNo)return'';
+  return (p.billSupplier?p.billSupplier+' · ':'')+'Bill '+p.billNo+(p.billDate?' ('+p.billDate+')':'')+(p.billLine?' · Line '+p.billLine:'');
+}
+// Default sale price: cost × 1.30, nearest ₹10, round hundreds drop by 5 (1900→1895, 150 stays).
+// Integer arithmetic (cost×13/100 = cost×1.3/10) so 2895 → 3760 exactly, no float drift.
+function sbSalePrice(cost){
+  cost=parseFloat(cost)||0;if(cost<=0)return 0;
+  let r=Math.round(cost*13/100)*10;
+  if(r>0&&r%100===0)r-=5;
+  return r;
+}
+function sbShortBillNo(no){
+  const t=String(no||'').trim();if(!t)return'';
+  const parts=t.split('/').map(x=>x.trim()).filter(Boolean);
+  return parts.length?parts[parts.length-1]:t;
+}
+// Accepts DD-MM-YYYY / DD/MM/YYYY / DD.MM.YYYY (time after it is ignored) or YYYY-MM-DD → YYYY-MM-DD
+function sbParseDate(str){
+  const t=String(str||'').trim();
+  let m=t.match(/(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);
+  if(m){const d=parseInt(m[1]),mo=parseInt(m[2]);if(d>=1&&d<=31&&mo>=1&&mo<=12)return m[3]+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0');}
+  m=t.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if(m)return m[0];
+  return'';
+}
+function sbYmdToDmy(ymd){const m=String(ymd||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);return m?m[3]+'-'+m[2]+'-'+m[1]:'';}
+function sbNum(v){return parseFloat(String(v==null?'':v).replace(/[₹,\s]/g,''))||0;}
+
+let _sbLines=[];      // {id,page,qty,price,hsn,sell,sellManual,amt,unread}  amt = Amount printed on the bill line (v14.39.0)
+let _sbSeq=0;
+let _sbUploading=0;   // background uploads in flight — deletes wait for these
+
+function sbInitForm(){
+  const dl=document.getElementById('sb-sup-list');
+  if(dl){
+    const names=[...new Set((suppliers||[]).map(x=>String(x.name||'').trim()).filter(Boolean))];
+    dl.innerHTML=names.map(n=>'<option value="'+esc(n)+'"></option>').join('');
+  }
+  if(!_sbLines.length)sbAddLine(false,true);
+  else sbRenderLines();
+}
+function sbSupplierInput(){
+  const nm=(document.getElementById('sb-supplier')?.value||'').trim().toLowerCase();
+  const g=document.getElementById('sb-gstin');
+  if(!nm||!g||g.value)return;
+  const sup=(suppliers||[]).find(x=>String(x.name||'').trim().toLowerCase()===nm);
+  if(sup&&sup.gstin)g.value=String(sup.gstin).toUpperCase();
+}
+function sbTogglePaste(){
+  const b=document.getElementById('sb-paste-box');if(!b)return;
+  const open=b.style.display==='none';
+  b.style.display=open?'block':'none';
+  if(open)setTimeout(()=>{const t=document.getElementById('sb-paste');if(t)t.focus();},50);
+}
+function sbCurPage(){return _sbLines.length?_sbLines[_sbLines.length-1].page:1;}
+function sbAddLine(newPage,silent){
+  const page=newPage?sbCurPage()+1:sbCurPage();
+  _sbLines.push({id:++_sbSeq,page,qty:'',price:'',hsn:DEFAULT_HSN,sell:'',sellManual:false});
+  sbRenderLines();
+  if(!silent)setTimeout(()=>{const e=document.getElementById('sbq-'+_sbSeq);if(e)e.focus();},30);
+}
+function sbRemoveLine(id){
+  _sbLines=_sbLines.filter(l=>l.id!==id);
+  if(!_sbLines.length)_sbLines.push({id:++_sbSeq,page:1,qty:'',price:'',hsn:DEFAULT_HSN,sell:'',sellManual:false});
+  sbRenderLines();
+}
+function sbRenderLines(){
+  const el=document.getElementById('sb-lines');if(!el)return;
+  const multiPage=_sbLines.some(l=>l.page>1);
+  let html='',lastPage=0;
+  _sbLines.forEach((l,i)=>{
+    if(multiPage&&l.page!==lastPage){html+='<div class="sb-page">Page '+l.page+'</div>';lastPage=l.page;}
+    html+=`<div class="sb-line${sbLineBad(l)?' sb-bad':''}" id="sbl-${l.id}">
+      <div class="sb-ln">L${i+1}</div>
+      <label class="sb-qty">Qty<input id="sbq-${l.id}" type="number" inputmode="numeric" min="1" value="${l.qty}" oninput="sbLineInput(${l.id},'qty',this.value)"/></label>
+      <label class="sb-list">List ₹<input id="sbp-${l.id}" type="number" inputmode="decimal" value="${l.price}" oninput="sbLineInput(${l.id},'price',this.value)"/></label>
+      <label class="sb-sale">Sale ₹<input id="sbs-${l.id}" type="number" inputmode="decimal" value="${l.sell}" oninput="sbLineInput(${l.id},'sell',this.value)"/></label>
+      <label class="sb-hsn">HSN<input id="sbh-${l.id}" inputmode="numeric" value="${esc(l.hsn)}" oninput="sbLineInput(${l.id},'hsn',this.value)"/></label>
+      <button class="sb-del" title="Remove line" onclick="sbRemoveLine(${l.id})">✕</button>
+      <div class="sb-amt" id="sba-${l.id}">${sbLineAmtText(l)}</div>
+    </div>`;
+  });
+  el.innerHTML=html;
+  sbRenderSummary();
+}
+// v14.39.0 — a line is RED when it could not be read (and is still empty), or when qty × list price
+// disagrees with the Amount printed on that bill line. Fixing the numbers turns it back to normal.
+function sbLineBad(l){
+  const q=parseInt(l.qty)||0,p=sbNum(l.price),a=sbNum(l.amt);
+  if(l.unread&&(!q||!p))return true;
+  if(a>0&&q&&p&&Math.abs(q*p-a)>1)return true;
+  return false;
+}
+function sbLineAmtText(l){
+  const q=parseInt(l.qty)||0,p=sbNum(l.price),sell=sbNum(l.sell),a=sbNum(l.amt);
+  let t='';
+  if(l.unread&&(!q||!p))t='<span style="color:#c0392b;font-weight:700;">Could not read this line. Enter qty and list price'+(a>0?' (bill amount ₹'+a.toLocaleString('en-IN')+')':'')+'</span>';
+  else if(q&&p){
+    t='Amount ₹'+(q*p).toLocaleString('en-IN');
+    if(a>0)t+=Math.abs(q*p-a)<=1?' <span style="color:#1e8449;font-weight:700;">✓ bill</span>':' <span style="color:#c0392b;font-weight:700;">≠ bill ₹'+a.toLocaleString('en-IN')+'</span> <button type="button" onclick="sbAcceptLine('+l.id+')" style="border:1px solid #c0392b;background:#fff;color:#c0392b;border-radius:6px;font-size:11px;padding:2px 6px;cursor:pointer;">My numbers are right</button>';
+    const mp=marginPct(p,sell);
+    if(mp!==null)t+=' · <span style="color:'+(mp<0?'#e74c3c':'#27ae60')+';font-weight:600;">'+(mp>=0?'+':'')+mp+'%</span>';
+  }
+  return t||'&nbsp;';
+}
+function sbLineInput(id,field,val){
+  const l=_sbLines.find(x=>x.id===id);if(!l)return;
+  if(field==='qty')l.qty=val;
+  else if(field==='price'){
+    l.price=val;
+    if(!l.sellManual){
+      const sp=sbSalePrice(sbNum(val));
+      l.sell=sp?String(sp):'';
+      const se=document.getElementById('sbs-'+id);if(se)se.value=l.sell;
+    }
+  }
+  else if(field==='sell'){l.sell=val;l.sellManual=String(val).trim()!=='';}
+  else if(field==='hsn')l.hsn=String(val).trim();
+  const a=document.getElementById('sba-'+id);if(a)a.innerHTML=sbLineAmtText(l);
+  const row=document.getElementById('sbl-'+id);if(row)row.classList.toggle('sb-bad',sbLineBad(l));
+  sbRenderSummary();
+}
+// The printed amount itself was misread: user vouches for qty and price, so stop comparing this line
+function sbAcceptLine(id){const l=_sbLines.find(x=>x.id===id);if(!l)return;l.amt=0;l.unread=false;
+  const a=document.getElementById('sba-'+id);if(a)a.innerHTML=sbLineAmtText(l);
+  const row=document.getElementById('sbl-'+id);if(row)row.classList.toggle('sb-bad',sbLineBad(l));sbRenderSummary();}
+function sbFilledLines(){return _sbLines.filter(l=>(parseInt(l.qty)||0)>0||sbNum(l.price)>0);}
+function sbRedLines(){return _sbLines.filter(sbLineBad);}
+function sbRenderSummary(){
+  const el=document.getElementById('sb-summary');if(!el)return;
+  const lines=sbFilledLines();
+  const qty=lines.reduce((s,l)=>s+(parseInt(l.qty)||0),0);
+  const val=Math.round(lines.reduce((s,l)=>s+(parseInt(l.qty)||0)*sbNum(l.price),0)*100)/100;
+  const gt=sbNum(document.getElementById('sb-total')?.value);
+  let chk='';
+  if(gt>0&&lines.length){
+    const diff=Math.round((val-gt)*100)/100;
+    chk=Math.abs(diff)<=1
+      ?'<div style="color:#1e8449;font-weight:700;">✅ Matches the bill total ₹'+gt.toLocaleString('en-IN')+'</div>'
+      :'<div style="color:#c0392b;font-weight:700;">❌ Lines add up to ₹'+val.toLocaleString('en-IN')+', bill says ₹'+gt.toLocaleString('en-IN')+' (difference ₹'+Math.abs(diff).toLocaleString('en-IN')+')</div>';
+  }
+  const red=sbRedLines().length;
+  if(red)chk+='<div style="color:#c0392b;font-weight:700;">🔴 '+red+' red line'+(red>1?'s':'')+' to fix</div>';
+  const start=nextProdNo();
+  const invNo=(document.getElementById('sb-invno')?.value||'').trim();
+  el.innerHTML=lines.length
+    ?'<div><b>'+lines.length+'</b> line'+(lines.length>1?'s':'')+' · <b>'+qty+'</b> pcs · ₹'+val.toLocaleString('en-IN')+'</div>'+chk
+      +'<div style="color:#7c5e35;font-size:12px;margin-top:2px;">Will be added as #'+start+(lines.length>1?' to #'+(start+lines.length-1):'')
+      +(invNo?', named "Bill '+esc(sbShortBillNo(invNo))+' · Line 1"…':'')+'</div>'
+    :'<div style="color:#888;">Enter quantity and list price for each line, or paste the bill text.</div>';
+  const btn=document.getElementById('sb-add-btn');
+  if(btn)btn.textContent=lines.length?'📥 Add '+lines.length+' product'+(lines.length>1?'s':'')+' to Inventory':'📥 Add to Inventory';
+}
+
+// ── Readers (v14.39.0). All three feed the same review grid; nothing is saved until "Add to Inventory".
+function sbStatus(msg,isErr){
+  const el=document.getElementById('sb-status');if(!el)return;
+  el.style.display=msg?'block':'none';
+  el.style.background=isErr?'#fde8e8':'var(--goldp)';
+  el.style.color=isErr?'#c0392b':'var(--brown)';
+  el.innerHTML=msg||'';
+}
+// OCR-tolerant number: "2,895.0O" → 2895, "2.895.00" → 2895, "1.0O" → 1
+function sbTok2Num(tok){
+  let t=String(tok||'').replace(/[Oo]/g,'0').replace(/[Il|]/g,'1').replace(/,/g,'');
+  if(!/^\d+(\.\d+)*$/.test(t))return null;
+  const parts=t.split('.');
+  if(parts.length>2){const dec=parts.pop();t=parts.join('')+'.'+dec;}
+  const n=parseFloat(t);return isNaN(n)?null:n;
+}
+function sbLineNumbers(line){
+  return String(line).split(/[\s₹`]+/).map(x=>x.replace(/^[^\dOoIl]+|[^\dOoIl]+$/g,'')).filter(x=>/\d/.test(x)).map(sbTok2Num).filter(n=>n!==null);
+}
+// Solve a bill row from its numbers: find qty × list price = amount (the last number), ±₹1.
+// Self-checking, so it does not depend on the exact column layout or on reading "Pcs." correctly.
+function sbIsHsnLike(n){return /^[56]\d{5,7}$/.test(String(Math.round(n)))&&Math.abs(n-Math.round(n))<0.001;}
+function sbHsnBefore(nums,i){const h=nums.slice(0,i).map(n=>String(Math.round(n))).filter(x=>/^\d{6,8}$/.test(x));return h.length?h[h.length-1]:'';} // HSN column (last), not the one in the description
+function sbSolveRow(nums){
+  if(nums.length<3)return null;
+  for(let k=nums.length-1;k>=2&&k>=nums.length-2;k--){
+    const a=nums[k];if(!(a>=20)||a>=1000000||sbIsHsnLike(a))continue;
+    for(let gap=1;gap<=3;gap++){
+      for(let i=0;i+gap<k;i++){
+        const q=nums[i],p=nums[i+gap];
+        if(Math.abs(q-Math.round(q))>0.001||q<1||q>500)continue;
+        if(!(p>=20&&p<100000))continue;
+        if(Math.round(q)===1&&k!==nums.length-1)continue; // CGST amt = SGST amt — never read that as qty 1
+        if(Math.abs(q*p-a)<=1)return{qty:Math.round(q),price:p,amt:a,hsn:sbHsnBefore(nums,i)};
+      }
+    }
+    // Qty unreadable but price = amount → qty is 1 (amount = qty × price). Last number only.
+    if(k===nums.length-1&&a>=100)for(let j=1;j<k;j++){
+      const p=nums[j];
+      if(p>=20&&p<100000&&!sbIsHsnLike(p)&&Math.abs(p-a)<=1)return{qty:1,price:p,amt:a,hsn:sbHsnBefore(nums,j)};
+    }
+  }
+  return null;
+}
+// Partial read around the "Pcs" word: qty just before it, list price just after. Used only when the
+// row could not be solved; the line stays RED if qty × price disagrees with the printed amount.
+function sbAnchorRow(line,nums){
+  const m=String(line).match(/([\dOoIl.,]+)\W{0,3}\s*P[ceo]?s\b\.?\W{0,3}\s*([\dOoIl.,]+)/i);
+  let q=null,p=null;
+  if(m){q=sbTok2Num(m[1].replace(/[^\dOoIl.,]/g,''));p=sbTok2Num(m[2].replace(/[^\dOoIl.,]/g,''));}
+  if(q!==null&&(Math.abs(q-Math.round(q))>0.001||q<1||q>500))q=null;
+  if(p!==null&&!(p>=20&&p<100000))p=null;
+  let a=nums.length?nums[nums.length-1]:0;
+  if(!(a>=20)||a>=1000000||sbIsHsnLike(a))a=0;
+  // qty unreadable, or misread so qty × price ≠ amount: when amount ÷ price is a whole number, that IS the qty
+  if(p&&a&&Math.abs(a/p-Math.round(a/p))<0.002&&Math.round(a/p)>=1&&Math.round(a/p)<=500&&(q===null||Math.abs(q*p-a)>1))q=Math.round(a/p);
+  return{qty:q,price:p,amt:a};
+}
+function sbLooksLikeRow(line){
+  if(/GSTIN|Total\s*Qty|Grand|Taxable|Rupees|Invoice\s*No|Dated|Tel|Email|S\.?\s*N\.?\s+Goods/i.test(line))return false;
+  if(/\bP[ceo]?s\b/i.test(line))return true;
+  // HSN alone is not enough (OCR splits a row's tail onto its own line) — also needs the serial no. in front
+  return /\b[56]\d{5}\b/.test(line)&&/^\W{0,6}\d{1,3}\s*[|!{\/\]\)]?\s*[A-Za-z]/.test(line);
+}
+// GSTIN check character (mod-36, official algorithm). Used to undo OCR O/0, I/1, S/5, B/8 slips.
+function sbGstinValid(g){
+  const cs='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  if(!/^[0-9A-Z]{15}$/.test(g))return false;
+  let t=0;for(let i=0;i<14;i++){const v=cs.indexOf(g[i])*(i%2?2:1);t+=Math.floor(v/36)+v%36;}
+  return cs[(36-t%36)%36]===g[14];
+}
+function sbFixGstin(g){
+  g=String(g||'').toUpperCase();
+  if(g.length!==15)return g;
+  // GSTIN structure: 2 digits (state) · PAN = 5 letters, 4 digits, 1 letter · entity no. · 'Z' · check char.
+  // Force each fixed position to its type first: the check character alone cannot tell O from 0.
+  const toD={'O':'0','Q':'0','D':'0','I':'1','L':'1','S':'5','B':'8','Z':'2','G':'6'};
+  const toL={'0':'O','1':'I','5':'S','8':'B','2':'Z','6':'G'};
+  const dPos=[0,1,7,8,9,10],lPos=[2,3,4,5,6,11];
+  let c=g.split('');
+  dPos.forEach(i=>{if(toD[c[i]])c[i]=toD[c[i]];});
+  lPos.forEach(i=>{if(toL[c[i]])c[i]=toL[c[i]];});
+  c[13]='Z';
+  g=c.join('');
+  if(sbGstinValid(g))return g;
+  const sw={'O':'0','0':'O','I':'1','1':'I','S':'5','5':'S','B':'8','8':'B'};
+  for(const i of [14,12]){if(sw[g[i]]){const t=g.slice(0,i)+sw[g[i]]+g.slice(i+1);if(sbGstinValid(t))return t;}}
+  return g;
+}
+// Header fields from free text (PDF text, OCR text or a pasted block)
+function sbParseHeader(text,hdr){
+  let m;
+  const all=String(text).replace(/\r?\n/g,' ');
+  if(!hdr.invNo&&(m=all.match(/Invoice\s*No\.?\s*[:;]?\s*(\d{4}\s*[-–]\s*\d{2}\s*\/\s*\d+|[0-9A-Za-z\/\-]{3,})/i)))hdr.invNo=m[1].replace(/\s+/g,'').replace('–','-');
+  if(!hdr.date&&(m=all.match(/Dated?\s*[:;]?\s*(\d{1,2}\s*[-\/.]\s*\d{1,2}\s*[-\/.]\s*\d{4})/i)))hdr.date=sbParseDate(m[1].replace(/\s+/g,''));
+  if(!hdr.total&&(m=all.match(/Grand\s*Total.{0,40}?(\d[\d,]*\.\d{2})/i)||all.match(/Grand\s*Total\D{0,12}([\d,]{3,})/i)))hdr.total=sbNum(m[1]);
+  if(!hdr.gstin&&(m=all.match(/GSTIN\s*[:;]?\s*([0-9OISBZ]{2}[A-Z0-9]{13})/i)))hdr.gstin=sbFixGstin(m[1].toUpperCase()); // first GSTIN on a bill is the seller's
+  if(!hdr.supplier&&hdr.gstin){
+    const sup=(suppliers||[]).find(x=>x.gstin&&String(x.gstin).toUpperCase()===hdr.gstin);
+    if(sup)hdr.supplier=sup.name;
+  }
+  return hdr;
+}
+// Text → {hdr, lines}. mode 'text' = Claude block or PDF text; mode 'ocr' = photo text (adds blank red lines)
+function sbParseText(raw,mode){
+  const hdr={},lines=[];let page=1;
+  String(raw||'').split(/\r?\n/).forEach(t=>{
+    const line=t.trim();if(!line)return;
+    let m;
+    if(/^PAGE\s*\d+$/i.test(line)){page=parseInt(line.replace(/\D/g,''))||page+1;return;}
+    if((m=line.match(/^SUPPLIER\s*:\s*(.+)$/i))){hdr.supplier=m[1].trim();return;}
+    if((m=line.match(/^GSTIN\s*:\s*([0-9A-Z]{15})\s*$/i))){hdr.gstin=sbFixGstin(m[1].toUpperCase());return;}
+    if((m=line.match(/^INVOICE\s*:\s*(\S+)\s*$/i))){hdr.invNo=m[1].trim();return;}
+    if((m=line.match(/^DATE\s*:\s*(.+)$/i))){hdr.date=sbParseDate(m[1]);return;}
+    if((m=line.match(/^TOTAL\s*:\s*([\d,.]+)\s*$/i))){hdr.total=sbNum(m[1]);return;}
+    // Claude's block row: "L1 | 540754 | 3 | 2895" (exactly numeric fields — an OCR'd "12|SUIT DUPATA…" is not one)
+    if((m=line.match(/^L?\d+\s*\|\s*(\d{4,8})?\s*\|\s*(\d+)\s*\|\s*([\d,]+(?:\.\d+)?)\s*$/i))){
+      const qty=parseInt(m[2]),price=sbNum(m[3]);
+      if(qty>0&&price>0)lines.push({page,qty,price,hsn:m[1]||DEFAULT_HSN,amt:0});
+      return;
+    }
+    const sol=sbSolveRow(sbLineNumbers(line));
+    if(!sbLooksLikeRow(line)&&!(sol&&mode==='ocr'&&sbLineNumbers(line).length>=5))return;
+    if(sol){lines.push({page,qty:sol.qty,price:sol.price,hsn:sol.hsn||DEFAULT_HSN,amt:sol.amt});return;}
+    if(mode==='ocr'){
+      const nums=sbLineNumbers(line);
+      const an=sbAnchorRow(line,nums);
+      const hs=(line.match(/\b[56]\d{5}\b/g)||[]);
+      const hsn=hs.length?hs[hs.length-1]:DEFAULT_HSN;
+      if(an.qty&&an.price)lines.push({page,qty:an.qty,price:an.price,hsn,amt:an.amt}); // red via ≠ bill if it disagrees
+      else lines.push({page,qty:'',price:'',hsn,amt:an.amt,unread:true});              // blank red line
+    }
+  });
+  sbParseHeader(raw,hdr);
+  return{hdr,lines};
+}
+// Put parsed results on screen. mode 'replace' = new bill; 'append' = extra pages of the bill on screen.
+function sbApplyParsed(res,mode){
+  const {hdr,lines}=res;
+  const set=(id,v,onlyIfEmpty)=>{const e=document.getElementById(id);if(!e||v===undefined||v==='')return;if(onlyIfEmpty&&e.value)return;e.value=v;};
+  const soft=mode==='append';
+  set('sb-supplier',hdr.supplier,soft);set('sb-gstin',hdr.gstin,soft);set('sb-invno',hdr.invNo,soft);
+  set('sb-date',hdr.date,soft);set('sb-total',hdr.total||'',soft);
+  const mk=l=>({id:++_sbSeq,page:l.page,qty:l.qty===''?'':String(l.qty),price:l.price===''?'':String(l.price),hsn:l.hsn,
+    sell:l.price===''?'':String(sbSalePrice(l.price)),sellManual:false,amt:l.amt||0,unread:!!l.unread});
+  if(mode==='append'){
+    const keep=sbFilledLines().length?_sbLines.filter(l=>(parseInt(l.qty)||0)>0||sbNum(l.price)>0||l.unread):[];
+    const base=keep.length?Math.max(...keep.map(l=>l.page)):0;
+    const firstPage=lines.length?Math.min(...lines.map(l=>l.page)):1;
+    _sbLines=keep.concat(lines.map(l=>mk({...l,page:base+(l.page-firstPage)+1})));
+  }else{
+    _sbLines=lines.map(mk);
+  }
+  if(!_sbLines.length)sbAddLine(false,true);else sbRenderLines();
+  const sbC=document.getElementById('sb-card');if(sbC)sbC.open=true;
+}
+
+// (a) PASTE — Claude's block, or text copied from the supplier's PDF
+function sbParsePaste(){
+  const raw=(document.getElementById('sb-paste')?.value||'');
+  if(!raw.trim()){toast('⚠️ Paste the bill text first');return;}
+  const res=sbParseText(raw,'text');
+  if(!res.lines.length){toast('⚠️ No bill lines found in the pasted text',5000);return;}
+  sbApplyParsed(res,'replace');
+  document.getElementById('sb-paste-box').style.display='none';
+  sbStatus('');
+  toast('🔍 Read '+res.lines.length+' line'+(res.lines.length>1?'s':'')+' — check them, then tap Add',4000);
+}
+function sbHasData(){return sbFilledLines().length>0||!!(document.getElementById('sb-invno')?.value||'').trim();}
+
+// (b) PDF — reads the text layer of a PDF made by billing software (pdf.js, lazy-loaded once)
+const SB_PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+const SB_PDFJS_WORKER='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+function sbPickPdf(){
+  const go=()=>{const i=document.getElementById('sb-pdf-input');if(i){i.value='';i.click();}};
+  if(sbHasData()){showConfirmModal('📄 Read PDF','This replaces the bill currently on screen. Continue?',go,null);return;}
+  go();
+}
+// Rebuild visual rows from positioned text items (same baseline = same row, left to right)
+function sbPdfItemsToText(items){
+  const rows=[];
+  items.forEach(it=>{
+    if(!it.str||!it.str.trim())return;
+    const x=it.transform[4],y=it.transform[5];
+    let r=rows.find(r=>Math.abs(r.y-y)<=3);
+    if(!r){r={y,parts:[]};rows.push(r);}
+    r.parts.push({x,s:it.str});
+  });
+  rows.sort((a,b)=>b.y-a.y);
+  return rows.map(r=>r.parts.sort((a,b)=>a.x-b.x).map(p=>p.s).join(' ').replace(/\s+/g,' ').trim()).join('\n');
+}
+async function sbReadPdf(ev){
+  const f=ev.target.files&&ev.target.files[0];if(!f)return;
+  sbStatus('📄 Reading '+esc(f.name)+'…');
+  try{
+    if(!window.pdfjsLib){sbStatus('📄 Loading the PDF reader (first time only)…');await _loadScript(SB_PDFJS);}
+    if(!window.pdfjsLib)throw new Error('PDF reader could not load — check your internet connection');
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc=SB_PDFJS_WORKER;
+    const buf=await f.arrayBuffer();
+    const pdf=await window.pdfjsLib.getDocument({data:buf}).promise;
+    let text='',chars=0;
+    for(let n=1;n<=pdf.numPages;n++){
+      sbStatus('📄 Reading page '+n+' of '+pdf.numPages+'…');
+      const page=await pdf.getPage(n);
+      const tc=await page.getTextContent();
+      chars+=tc.items.reduce((s,it)=>s+(it.str||'').trim().length,0);
+      text+=(n>1?'\nPAGE '+n+'\n':'')+sbPdfItemsToText(tc.items)+'\n';
+    }
+    if(chars<20){sbStatus('⚠️ This PDF has no readable text — it is probably a scan. Use 📷 Bill photo instead.',true);return;}
+    const res=sbParseText(text,'text');
+    if(!res.lines.length){sbStatus('⚠️ No bill lines found in this PDF. If it is from a different supplier, send a sample to Claude so the reader can be extended.',true);return;}
+    sbApplyParsed(res,'replace');
+    sbStatus('✅ Read '+res.lines.length+' line'+(res.lines.length>1?'s':'')+' from '+pdf.numPages+' page'+(pdf.numPages>1?'s':'')+'. Check them, then tap Add.');
+  }catch(e){
+    sbStatus('⚠️ Could not read the PDF: '+esc(e.message||String(e)),true);
+  }
+}
+
+// (c) PHOTO — OCR on the device (tesseract.js, same engine as the tracking scanner, lazy-loaded once)
+const SB_TESS='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+let _sbOcrBusy=false;
+function sbPickPhoto(){
+  if(_sbOcrBusy){toast('⏳ Still reading the last photo');return;}
+  const i=document.getElementById('sb-photo-input');if(i){i.value='';i.click();}
+}
+// Downscale/upscale to ~2000px wide, greyscale and stretch contrast — helps OCR on phone photos
+function sbPrepImage(file){
+  return new Promise((resolve,reject)=>{
+    const url=URL.createObjectURL(file);
+    const img=new Image();
+    img.onload=()=>{
+      try{
+        const target=2000,sc=Math.min(2.5,target/Math.max(1,img.naturalWidth));
+        const w=Math.round(img.naturalWidth*sc),h=Math.round(img.naturalHeight*sc);
+        const c=document.createElement('canvas');c.width=w;c.height=h;
+        const ctx=c.getContext('2d',{willReadFrequently:true});
+        ctx.drawImage(img,0,0,w,h);
+        const d=ctx.getImageData(0,0,w,h),px=d.data;
+        const hist=new Uint32Array(256),g=new Uint8ClampedArray(w*h);
+        for(let i=0,j=0;i<px.length;i+=4,j++){const v=(px[i]*299+px[i+1]*587+px[i+2]*114)/1000|0;g[j]=v;hist[v]++;}
+        const total=w*h;let acc=0,lo=0,hi=255;
+        for(let v=0;v<256;v++){acc+=hist[v];if(acc>=total*0.02){lo=v;break;}}
+        acc=0;for(let v=255;v>=0;v--){acc+=hist[v];if(acc>=total*0.02){hi=v;break;}}
+        const span=Math.max(1,hi-lo);
+        for(let i=0,j=0;i<px.length;i+=4,j++){const v=Math.max(0,Math.min(255,(g[j]-lo)*255/span));px[i]=px[i+1]=px[i+2]=v;}
+        ctx.putImageData(d,0,0);
+        URL.revokeObjectURL(url);resolve(c);
+      }catch(e){URL.revokeObjectURL(url);reject(e);}
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Could not open this image'));};
+    img.src=url;
+  });
+}
+async function sbReadPhotos(ev){
+  const files=[...(ev.target.files||[])];if(!files.length)return;
+  if(_sbOcrBusy)return;
+  _sbOcrBusy=true;
+  const mode=sbFilledLines().length?'append':'replace';
+  let worker=null;
+  try{
+    if(!window.Tesseract){sbStatus('📷 Loading the text reader (first time only, a few MB)…');await _loadScript(SB_TESS);}
+    if(!window.Tesseract)throw new Error('Text reader could not load — check your internet connection');
+    let curPage=0;
+    worker=await window.Tesseract.createWorker('eng',1,{logger:m=>{
+      if(m&&m.status==='recognizing text'&&curPage)sbStatus('📷 Reading page '+curPage+' of '+files.length+'… '+Math.round((m.progress||0)*100)+'%');
+    }});
+    await worker.setParameters({tessedit_pageseg_mode:'6',preserve_interword_spaces:'1'});
+    let text='';
+    for(let n=0;n<files.length;n++){
+      curPage=n+1;
+      sbStatus('📷 Preparing page '+curPage+' of '+files.length+'…');
+      const canvas=await sbPrepImage(files[n]);
+      const out=await worker.recognize(canvas);
+      text+=(n>0?'\nPAGE '+(n+1)+'\n':'')+((out&&out.data&&out.data.text)||'')+'\n';
+    }
+    const res=sbParseText(text,'ocr');
+    if(!res.lines.length){sbStatus('⚠️ No bill lines found in the photo. Try a flatter, brighter, straight-on photo, or type the lines below.',true);return;}
+    sbApplyParsed(res,mode);
+    const red=res.lines.filter(l=>l.unread).length;
+    sbStatus('✅ Read '+(res.lines.length-red)+' line'+(res.lines.length-red===1?'':'s')+(red?' · <b style="color:#c0392b;">'+red+' red line'+(red>1?'s':'')+' to fill in</b>':'')+'. Check every line against the bill, then tap Add.');
+  }catch(e){
+    sbStatus('⚠️ Could not read the photo: '+esc(e.message||String(e)),true);
+  }finally{
+    _sbOcrBusy=false;
+    if(worker){try{await worker.terminate();}catch(e){}}
+  }
+}
+
+function sbReset(ask){
+  const go=()=>{
+    ['sb-supplier','sb-gstin','sb-invno','sb-date','sb-total','sb-paste'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+    _sbLines=[];sbAddLine(false,true);sbStatus('');
+  };
+  if(ask&&sbFilledLines().length){showConfirmModal('↺ Clear bill','Clear everything entered for this bill?',go,null);return;}
+  go();
+}
+function sbCommit(){
+  const lines=sbFilledLines();
+  if(!lines.length){toast('⚠️ Add at least one line');return;}
+  const bad=lines.findIndex(l=>!((parseInt(l.qty)||0)>0)||!(sbNum(l.price)>0));
+  if(bad>=0){toast('⚠️ Line '+(_sbLines.indexOf(lines[bad])+1)+' needs both qty and list price');return;}
+  const invNo=(document.getElementById('sb-invno')?.value||'').trim();
+  const dateYmd=document.getElementById('sb-date')?.value||'';
+  if(!invNo){toast('⚠️ Enter the invoice number');return;}
+  if(!dateYmd){toast('⚠️ Enter the bill date');return;}
+  const supplier=(document.getElementById('sb-supplier')?.value||'').trim();
+  const warnings=[];
+  const val=lines.reduce((s,l)=>s+(parseInt(l.qty)||0)*sbNum(l.price),0);
+  const gt=sbNum(document.getElementById('sb-total')?.value);
+  if(gt>0&&Math.abs(val-gt)>1)warnings.push('Lines add up to ₹'+(Math.round(val*100)/100).toLocaleString('en-IN')+' but the bill total is ₹'+gt.toLocaleString('en-IN')+'.');
+  const red=sbRedLines();
+  const redEmpty=red.filter(l=>!((parseInt(l.qty)||0)>0&&sbNum(l.price)>0)).length;
+  if(redEmpty)warnings.push(redEmpty+' red line'+(redEmpty>1?'s are':' is')+' still empty and will be skipped.');
+  if(red.length-redEmpty)warnings.push((red.length-redEmpty)+' line'+(red.length-redEmpty>1?'s do':' does')+' not match the amount printed on the bill.');
+  const dup=inventory.filter(p=>String(p.billNo||'').trim()===invNo&&String(p.billSupplier||'').trim().toLowerCase()===supplier.toLowerCase());
+  if(dup.length)warnings.push('Invoice '+esc(invNo)+' was already imported ('+dup.length+' product'+(dup.length>1?'s':'')+', e.g. #'+dup[0].prodNo+').');
+  if(warnings.length){
+    showConfirmModal('⚠️ Check before adding',warnings.map(w=>'• '+w).join('<br/>')+'<br/><br/>Add anyway?',()=>_sbDoCommit(lines,invNo,dateYmd,supplier),null);
+    return;
+  }
+  _sbDoCommit(lines,invNo,dateYmd,supplier);
+}
+function _sbDoCommit(lines,invNo,dateYmd,supplier){
+  const gstin=(document.getElementById('sb-gstin')?.value||'').trim().toUpperCase();
+  const short=sbShortBillNo(invNo);
+  const billDate=sbYmdToDmy(dateYmd);
+  const nowIso=new Date().toISOString();
+  let no=nextProdNo();const first=no;
+  const added=lines.map((l,i)=>{
+    const qty=parseInt(l.qty)||1,cost=sbNum(l.price);
+    const sell=sbNum(l.sell)>0?sbNum(l.sell):sbSalePrice(cost);
+    const name='Bill '+short+' · Line '+(i+1);
+    return{
+      prodNo:no++,name,qty,qtyOriginal:qty,qtySold:0,
+      fabric:'',hsn:(String(l.hsn||'').trim()||DEFAULT_HSN),
+      cost,sellPrice:sell,dateAdded:dateYmd,
+      dateReel:'',dateStory1:'',dateStory2:'',
+      linkedProducts:[],notes:'',
+      reviewStatus:'pending',importName:name,
+      billNo:invNo,billDate,billSupplier:supplier,billSupplierGstin:gstin,billLine:i+1,
+      updatedAt:nowIso,
+    };
+  });
+  inventory.push(...added);
+  inventory.sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
+  saveStk();
+  renderInventory();renderAgingGrid();updateInventoryStats();renderPostingQueue();
+  const ipn=document.getElementById('ip-num');if(ipn)ipn.value=nextProdNo();
+  sbReset(false);
+  const sf=document.getElementById('inv-status-filter');if(sf){sf.value='pending';renderInventory();}
+  toast('✅ Added #'+first+(added.length>1?' to #'+(first+added.length-1):'')+' — marked ⏳ Review',4500);
+  // Background upload — the device copy is already saved; anything unconfirmed is retried by the normal sync
+  _sbUploading++;
+  _pushConfirmedPool(added.map(p=>[SHEETS.inventory,flattenProduct(p)]),3)
+    .then(failed=>{if(failed)toast('⚠️ '+failed+' imported product(s) not uploaded yet — will retry on next sync',5000);})
+    .catch(()=>{})
+    .finally(()=>{_sbUploading=Math.max(0,_sbUploading-1);});
+}
+
+// ── Pending banner ──
+function renderPendingBanner(){
+  const b=document.getElementById('inv-pending-banner');if(!b)return;
+  const n=inventory.filter(isPendingReview).length;
+  const sf=document.getElementById('inv-status-filter')?.value||'';
+  if(!n){b.style.display='none';if(sf==='pending'){}return;}
+  b.style.display='flex';
+  b.innerHTML='<span>⏳ <b>'+n+'</b> product'+(n>1?'s':'')+' from supplier bills need review</span>'
+    +(sf==='pending'
+      ?'<button class="btn btn-o btn-sm" onclick="document.getElementById(\'inv-status-filter\').value=\'\';renderInventory()">Show all</button>'
+      :'<button class="btn btn-o btn-sm" onclick="document.getElementById(\'inv-status-filter\').value=\'pending\';renderInventory()">Show them</button>');
+}
+
+// ── Delete pending product, renumbering the ones above it where safe ──
+function _sbRefProdNos(){
+  const set=new Set();
+  (invoices||[]).forEach(inv=>{try{expandItems(inv.itemsArr).forEach(it=>{const n=parseInt(it.prodNo);if(n)set.add(n);(it.spill||[]).forEach(sp=>{const k=parseInt(sp&&(sp.prodNo||sp.n));if(k)set.add(k);});});}catch(e){}});
+  return set;
+}
+function _sbMovableReason(x,refs){
+  if(!isPendingReview(x))return 'already confirmed';
+  if((parseInt(x.qtySold)||0)>0||(x.linkedInvoices||[]).length||refs.has(parseInt(x.prodNo)))return 'already on an invoice';
+  if((x.variants||[]).length)return 'has photos / variants';
+  if((x.linkedProducts||[]).length)return 'is linked to other products';
+  if(x.dateReel||x.dateStory1||x.dateStory2)return 'already posted';
+  return '';
+}
+function _sbRenumberPlan(delNo){
+  const refs=_sbRefProdNos();
+  const above=inventory.filter(x=>parseInt(x.prodNo)>delNo).sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
+  for(const x of above){const r=_sbMovableReason(x,refs);if(r)return{moves:[],blocker:'#'+x.prodNo+' '+r};}
+  return{moves:above,blocker:''};
+}
+function deletePendingProduct(prodNo){
+  const delNo=parseInt(prodNo);
+  const p=inventory.find(x=>parseInt(x.prodNo)===delNo);if(!p)return;
+  if(_sbUploading>0){toast('⏳ Still uploading the last bill — try again in a few seconds',4000);return;}
+  const plan=_sbRenumberPlan(delNo);
+  const refs=_sbRefProdNos();
+  const selfUsed=_sbMovableReason(p,refs);
+  let body='Delete #'+delNo+' &ldquo;'+esc(p.name)+'&rdquo;?';
+  if(selfUsed&&selfUsed!=='already confirmed')body+='<br/><br/>⚠️ This product '+esc(selfUsed)+'.';
+  if(plan.moves.length){
+    const lo=parseInt(plan.moves[0].prodNo),hi=parseInt(plan.moves[plan.moves.length-1].prodNo);
+    body+='<br/><br/>#'+lo+(hi>lo?'–#'+hi:'')+' will move down by one to fill the gap.';
+  }else if(plan.blocker){
+    body+='<br/><br/>Numbers after it will not change, because '+esc(plan.blocker)+'. #'+delNo+' will stay unused.';
+  }
+  showConfirmModal('🗑 Delete product',body,()=>_sbDoDeletePending(delNo),null);
+}
+function _sbDoDeletePending(delNo){
+  if(_sbUploading>0){toast('⏳ Still uploading the last bill — try again in a few seconds',4000);return;}
+  const p=inventory.find(x=>parseInt(x.prodNo)===delNo);if(!p)return;
+  const plan=_sbRenumberPlan(delNo); // re-checked at the moment of deleting
+  const t=Date.now();
+  inventory=inventory.filter(x=>parseInt(x.prodNo)!==delNo);
+  const jobs=[];
+  // Same sibling-link cleanup as _doDeleteProduct (pending items normally have none)
+  inventory.forEach(x=>{
+    if(Array.isArray(x.linkedProducts)&&x.linkedProducts.map(Number).includes(delNo)){
+      x.linkedProducts=x.linkedProducts.filter(n=>parseInt(n)!==delNo);
+      x.updatedAt=new Date(t+1).toISOString();jobs.push(x);
+    }
+  });
+  let vacated=delNo;
+  if(plan.moves.length){
+    // Moved rows UPSERT onto the existing sheet rows (Code.gs matches prodNo); only the top number is vacated.
+    // updatedAt is set AFTER the tombstone time so a tombstone can never remove a moved product.
+    const iso=new Date(t+1).toISOString();
+    plan.moves.forEach(x=>{x.prodNo=parseInt(x.prodNo)-1;x.updatedAt=iso;if(!jobs.includes(x))jobs.push(x);});
+    vacated=parseInt(plan.moves[plan.moves.length-1].prodNo)+1;
+  }
+  const _del=getDeletedIds();_del.push('prod:'+vacated+':'+t);lsSet('vc_deleted_ids',_del);
+  inventory.sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
+  try{_invPrintSelected.clear();_catSelected.clear();}catch(e){}
+  saveStk();
+  gsDelete(SHEETS.inventory,vacated);
+  if(jobs.length){
+    _pushConfirmedPool(jobs.map(x=>[SHEETS.inventory,flattenProduct(x)]),3)
+      .then(failed=>{if(failed)toast('⚠️ '+failed+' renumbered product(s) not uploaded yet — will retry on next sync',5000);})
+      .catch(()=>{});
+  }
+  const m=document.getElementById('inv-edit-modal');
+  if(m&&m.classList.contains('open'))closeInvEditModal();
+  renderInventory();renderAgingGrid();updateInventoryStats();renderPostingQueue();
+  const ipn=document.getElementById('ip-num');if(ipn)ipn.value=nextProdNo();
+  toast(plan.moves.length?'🗑 #'+delNo+' deleted · '+plan.moves.length+' product'+(plan.moves.length>1?'s':'')+' renumbered':'🗑 #'+delNo+' deleted',4000);
 }
 
 init();
