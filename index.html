@@ -3,10 +3,14 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.40.1
+APP: Vismaad Creations v14.41.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 04-Oct-2026 - v14.40.1: PURCHASES REGISTER DELETE DID NOTHING FOR NEWER ENTRIES. No Code.gs change.
+LAST_CHANGE: 04-Oct-2026 - v14.41.0: DATE RECEIVED BLANK IN THE PRODUCT EDITOR + ALL DATES SHOWN AS DD-MM-YYYY. No Code.gs change.
+(M1) DATE RECEIVED BLANK. Code.gs readSheet returns a date cell as String(Date), e.g. "Sat Oct 03 2026 00:00:00 GMT+0530 (India Standard Time)". The register showed it fine (fmtDate parses it) but the editor put it straight into a date box, which only accepts YYYY-MM-DD, so it showed blank. parseInventoryRow now converts dateAdded / dateReel / dateStory1 / dateStory2 to YYYY-MM-DD with toISODate; the editor fills its date boxes through toISODate; a one-time repair (normaliseInvDatesOnce, guarded by vc_inv_date_norm_v1) fixes values already on the device without touching updatedAt. No date was ever lost: saving with a blank box kept the old value.
+(M2) DD-MM-YYYY DISPLAY. fmtDate now returns dd-mm-yyyy everywhere it is used (register, sales, dashboard, tracking, suppliers and bills, purchases, credit notes, outreach lists, popups, Courier Spend, DS report). Printed invoices / bills, the price list print date and the Sync info time now use the same format. New fmtDateTxt converts dates inside free text (tracking Booked / last-event times, bill reference) and keeps any time. dd-mm-yyyy is read explicitly, never through Date(), which reads 03-10-2026 as 10 Mar.
+UNCHANGED BY REQUEST: WhatsApp texts keep dd-Mon-yyyy (invoice share message and Partner Report via fmtMsgDate; delivery window wording untouched); Excel/CSV exports keep dd-Mon-yyyy (fmtExportDate). The shared catalogue keeps its date as before. Stored data stays YYYY-MM-DD. Date picker boxes are drawn by the browser and follow the device's own date settings.
+PREV_CHANGE: 04-Oct-2026 - v14.40.1: PURCHASES REGISTER DELETE DID NOTHING FOR NEWER ENTRIES. No Code.gs change.
 (L1) The 🗑 button passed the record id as a bare number: onclick="deletePurchase(${p.id})". Since v14.35.0 B11 ids are long digit STRINGS (about 19 digits), so the browser read them as a number past the safe-integer limit, rounded them, and the strict p.id!==id test then matched nothing: the entry stayed on screen and the sheet delete targeted a wrong id. The id is now passed quoted, and the delete compares String(id) on both sides, so old numeric ids and new text ids both work. Only the Purchases Register had this pattern; other unquoted onclick ids in the file are small in-session counters and are unaffected.
 PREV_CHANGE: 04-Oct-2026 - v14.40.0: SUPPLIER BILLS FROM THE BILL IMPORT + "BILL ONLY" + PACKAGING & CONSUMABLES IN THE PURCHASES REGISTER. No Code.gs change.
 (K1) IMPORT NOW CREATES THE SUPPLIER BILL. Add to Inventory used to save only the products, so the amount owed to the supplier never reached Suppliers & Bills. It now also adds one bill there: supplier matched by GSTIN, then by name (a supplier not yet saved is created with the name and GSTIN, after a line in the confirm dialog; a saved supplier with no GSTIN gets the bill's GSTIN). Amount = grand total on the bill, or the sum of the lines when the total is blank. Bill no., bill date, description "N pcs - #first to #last", GST 5% (the bill's GST field is not read anywhere). Supplier is now required on the import form. If that supplier already has a bill with the same invoice no., no second bill is added and the dialog says so. Uploaded in the background with confirmation; unconfirmed rows are retried by the normal sync.
@@ -2091,7 +2095,37 @@ async function resolveUnknownCouriers(trackNos,existing){
 }
 
 function fmtNum(n){return(parseFloat(n)||0).toLocaleString('en-IN');}
+// v14.41.0: every date SHOWN in the app is dd-mm-yyyy. Stored values are untouched (YYYY-MM-DD).
+// Handles the shapes that reach the app: YYYY-MM-DD, ISO datetime, dd-mm-yyyy / dd/mm/yyyy,
+// dd-Mon-yyyy, and the long "Sat Oct 03 2026 00:00:00 GMT+0530 ..." text Code.gs returns for
+// date cells. dd-mm-yyyy is matched explicitly BEFORE any Date() parse, because new Date('03-10-2026')
+// reads it month-first (10 Mar).
 function fmtDate(d){
+  if(!d)return'';
+  try{
+    const str=String(d).trim();
+    const m=str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+    if(m)return m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0')+'-'+m[3];
+    const iso=toISODate(str);
+    if(!iso)return str;
+    const p=iso.split('-');
+    return p[2]+'-'+p[1]+'-'+p[0];
+  }catch(e){return String(d);}
+}
+// v14.41.0: dates inside free text (tracking event times, booked-on, bill dates), time kept as is.
+function fmtDateTxt(v){
+  if(!v)return'';
+  const str=String(v).trim();
+  if(/^[A-Za-z]{3} [A-Za-z]{3} \d{1,2} \d{4} \d{2}:\d{2}/.test(str))return fmtDate(str); // Code.gs long form
+  const MON={jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+  return str
+    .replace(/\b(\d{4})-(\d{2})-(\d{2})(?=$|[T\s,])/g,'$3-$2-$1')
+    .replace(/\b(\d{1,2})[\- ]([A-Za-z]{3})[a-z]*\.?[\- ,]+(\d{4})\b/g,(x,dd,mo,yy)=>{const n=MON[mo.toLowerCase()];return n?dd.padStart(2,'0')+'-'+n+'-'+yy:x;})
+    .replace(/\b(\d{2})\/(\d{2})\/(\d{4})\b/g,'$1-$2-$3')
+    .replace(/(\d{2}-\d{2}-\d{4})T(\d{2}:\d{2})(:\d{2})?(\.\d+)?Z?/,'$1 $2');
+}
+// v14.41.0: the previous fmtDate (dd-Mon-yyyy), kept for WhatsApp message text only.
+function fmtMsgDate(d){
   if(!d)return'';
   try{
     const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -2351,7 +2385,13 @@ function parseInventoryRow(r){
   return{...r,prodNo:parseInt(r.prodNo)||0,qty:parseInt(r.qty)||0,
     qtyOriginal:parseInt(r.qtyOriginal)||0,qtySold:parseInt(r.qtySold)||0,
     cost:parseFloat(r.cost)||0,sellPrice:parseFloat(r.sellPrice)||0,
-    linkedProducts:lp,linkedInvoices:li,variants};
+    linkedProducts:lp,linkedInvoices:li,variants,
+    // v14.41.0: Code.gs returns date cells as long text ("Sat Oct 03 2026 00:00:00 GMT+0530 ...");
+    // a date box only accepts YYYY-MM-DD, so the editor showed Date Received blank.
+    dateAdded:toISODate(r.dateAdded)||r.dateAdded||'',
+    dateReel:toISODate(r.dateReel)||r.dateReel||'',
+    dateStory1:toISODate(r.dateStory1)||r.dateStory1||'',
+    dateStory2:toISODate(r.dateStory2)||r.dateStory2||''};
 }
 
 // v14.35.0 A7 — invoices had no parse step. Inventory went through parseInventoryRow() but an
@@ -3171,6 +3211,7 @@ function initContinue(){
     // v14.35.0 A1: must run BEFORE the first sync, so hasSentMsg() is already reading a
     // numeric-year store by the time the delivery/festival popups fire after that sync.
     normaliseMsgLogOnce();
+    normaliseInvDatesOnce(); // v14.41.0
     setTimeout(()=>syncAll(),1000);
     // Outreach — popups fire inside syncAll() after remote PopupState is merged
     setTimeout(()=>{
@@ -3352,7 +3393,7 @@ async function completeSetup(){
     lsSet('vc_s',S);gsWriteConfirmed(SHEETS.settings,settingsForSheet()).then(ok=>{if(!ok)toast('⚠️ Settings saved locally but sheet sync failed — tap sync to retry');});
   }
   const el=document.getElementById('setup-screen');if(el)el.style.display='none';
-  normaliseMsgLogOnce();
+  normaliseMsgLogOnce();normaliseInvDatesOnce();
   applyGSTMode();loadSettings();setInvNumber();setDates();addItem();renderDashboard();loadAssetThumbs();
   setTimeout(()=>syncAll(),1000);
   toast('✅ Setup complete! Welcome to Vismaad Creations');
@@ -4107,23 +4148,7 @@ function buildInvoiceHTML(data){
   const _isIntra=data.isIntra===true||data.isIntra==='true'||data.custState==='Punjab';
 
   const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
-  const fd=d=>{
-    if(!d)return'';
-    try{
-      const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const str=String(d).trim();
-      if(/^\d{2}-[A-Za-z]{3}-\d{4}$/.test(str))return str;
-      if(/^\d{4}-\d{2}-\d{2}$/.test(str)){
-        const p=str.split('-');
-        return p[2]+'-'+MONTHS[parseInt(p[1])-1]+'-'+p[0];
-      }
-      const dt=new Date(str);
-      if(!isNaN(dt.getTime())){
-        return String(dt.getDate()).padStart(2,'0')+'-'+MONTHS[dt.getMonth()]+'-'+dt.getFullYear();
-      }
-      return str;
-    }catch{return String(d);}
-  };
+  const fd=d=>fmtDate(d); // v14.41.0: dd-mm-yyyy on printed invoices / bills
   const validItems=itemsArr.filter(i=>i.unitPrice>0);
   const hsnSet=[...new Set(validItems.map(i=>i.hsn||'540754'))];
   // v14.33.0 — LINE TAXABLE RECONCILED TO THE GST SUMMARY.
@@ -4906,7 +4931,7 @@ function shareInvoiceWhatsApp(){
     'Dear '+inv.custName+',\n\n'
     +'Thank you for shopping with Vismaad Creations.\n\n'
     +(gst?'Invoice No: ':'Bill No: ')+(inv.invNo||'')+'\n'
-    +'Date: '+fmtDate(inv.invDate)+'\n'
+    +'Date: '+fmtMsgDate(inv.invDate)+'\n'
     +'Items: '+itemList+'\n'
     +'Amount: Rs '+parseFloat(inv.grandTotal||0).toLocaleString('en-IN')+'\n\n'
     +'Vismaad Creations';
@@ -6497,7 +6522,7 @@ function printLabel(){
 }
 // v14.37.0: fixed-format date-time (toLocaleString output differs between browsers)
 function _fmtDT(v){const d=new Date(v);if(isNaN(d))return'';const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const p=n=>String(n).padStart(2,'0');return p(d.getDate())+' '+M[d.getMonth()]+' '+d.getFullYear()+', '+p(d.getHours())+':'+p(d.getMinutes());}
+  const p=n=>String(n).padStart(2,'0');return p(d.getDate())+'-'+p(d.getMonth()+1)+'-'+d.getFullYear()+', '+p(d.getHours())+':'+p(d.getMinutes());} // v14.41.0: dd-mm-yyyy
 function renderSyncInfo(){
   const el=document.getElementById('sync-info-rows');if(!el)return;
   el.innerHTML=`
@@ -8558,6 +8583,24 @@ function backfillUpdatedAtOnce(){
 
 // v14.35.0 A1: one-time repair of entries already in localStorage that carry a string year
 // (pulled from the sheet by any earlier version). Idempotent, guarded by a localStorage flag.
+// v14.41.0: one-time repair of product dates already stored on this device in the long sheet form.
+// updatedAt is NOT touched, so nothing is re-uploaded and no merge outcome changes.
+function normaliseInvDatesOnce(){
+  if(lsGet('vc_inv_date_norm_v1',null)==='1')return;
+  try{
+    let n=0;
+    inventory.forEach(p=>{
+      ['dateAdded','dateReel','dateStory1','dateStory2'].forEach(k=>{
+        const v=p[k];if(!v)return;
+        if(/^\d{4}-\d{2}-\d{2}$/.test(String(v)))return;
+        const iso=toISODate(v);
+        if(iso){p[k]=iso;n++;}
+      });
+    });
+    if(n){lsSet('vc_stk',inventory);console.log('v14.41.0 normaliseInvDatesOnce: fixed',n,'date value(s)');}
+    lsSet('vc_inv_date_norm_v1','1');
+  }catch(e){console.warn('normaliseInvDatesOnce failed',e);}
+}
 function normaliseMsgLogOnce(){
   if(lsGet('vc_msglog_year_norm_v1',null))return;
   let fixed=0;
@@ -9796,7 +9839,7 @@ async function showPartnerReport(){
 
   keys.forEach(k=>{
     L.push('━━━━━━━━━━━━━━━');
-    L.push('📅 *'+(k?fmtDate(k):'No dispatch date')+'*');
+    L.push('📅 *'+(k?fmtMsgDate(k):'No dispatch date')+'*');
     L.push('');
 
     let dCost=0,dSale=0,dShipIn=0,dShipOut=0;
@@ -10432,14 +10475,14 @@ function renderTrackingPage(){
         <div style="font-family:monospace;font-size:12px;color:#555;margin-bottom:4px;">${esc2(trackDisplay)}</div>
         <div style="font-size:12px;color:#888;display:flex;gap:14px;flex-wrap:wrap;">
           <span>Inv: ${fmtDate(inv.invDate)}</span>
-          ${td&&td.bookedOn&&parseBookedOn(td.bookedOn)?'<span>Booked: '+esc2(td.bookedOn)+'</span>':''}
+          ${td&&td.bookedOn&&parseBookedOn(td.bookedOn)?'<span>Booked: '+esc2(fmtDateTxt(td.bookedOn))+'</span>':''}
           ${locLine?'<span>📍 '+esc2(locLine)+'</span>':''}
         </div>
         ${td&&td.source==='track123'&&(td.lastEventDetail||td.lastEvent)?
           '<div style="font-size:12px;color:#555;margin-top:5px;line-height:1.5;">'
           +(td.lastEventDetail?'<span style="font-weight:600;">'+esc2(td.lastEventDetail)+'</span>':'')
           +(td.lastEventLocation?' <span style="color:#888;">📍 '+esc2(td.lastEventLocation)+'</span>':'')
-          +(td.lastEventTime?'<br/><span style="color:#aaa;font-size:11px;">'+esc2(td.lastEventTime)+'</span>':'')
+          +(td.lastEventTime?'<br/><span style="color:#aaa;font-size:11px;">'+esc2(fmtDateTxt(td.lastEventTime))+'</span>':'')
           +'</div>'
           :td&&td.lastEvent&&td.lastEvent.trim().toLowerCase()!=='n/a'?'<div style="font-size:12px;color:#555;margin-top:4px;font-style:italic;">'+esc2(td.lastEvent)+'</div>':''}
       </div>`;
@@ -10494,13 +10537,13 @@ function renderTrackingPage(){
         <td style="font-size:11px;color:#666;">${locCell}</td>
         <td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td>
         <td>${fmtDate(inv.invDate)}</td>
-        <td>${parseBookedOn(td.bookedOn||'')?esc2(td.bookedOn):'—'}</td>
+        <td>${parseBookedOn(td.bookedOn||'')?esc2(fmtDateTxt(td.bookedOn)):'—'}</td>
         <td>${stBadge}</td>
         <td style="font-size:11px;color:#555;max-width:180px;word-break:break-word;">${
           td.source==='track123'&&(td.lastEventDetail||td.lastEvent)
             ?('<span style="font-weight:600;">'+(td.lastEventDetail?esc2(td.lastEventDetail):(td.lastEvent?esc2(td.lastEvent):''))+'</span>'
               +(td.lastEventLocation?'<br/><span style="color:#888;">📍 '+esc2(td.lastEventLocation)+'</span>':'')
-              +(td.lastEventTime?'<br/><span style="color:#aaa;font-size:10px;">'+esc2(td.lastEventTime)+'</span>':''))
+              +(td.lastEventTime?'<br/><span style="color:#aaa;font-size:10px;">'+esc2(fmtDateTxt(td.lastEventTime))+'</span>':''))
             :(td.lastEvent&&td.lastEvent.trim().toLowerCase()!=='n/a'?esc2(td.lastEvent):'')
         }</td>
       </tr>`;
@@ -10658,10 +10701,10 @@ function renderTrackingResults(){
         <div style="font-family:monospace;font-size:12px;color:#555;margin-bottom:4px;">${esc2(trackDisplay)}</div>
         <div style="font-size:12px;color:#888;display:flex;gap:14px;flex-wrap:wrap;">
           <span>Inv: ${fmtDate(inv.invDate)}</span>
-          ${td&&td.bookedOn&&parseBookedOn(td.bookedOn)?'<span>Booked: '+esc2(td.bookedOn)+'</span>':''}
+          ${td&&td.bookedOn&&parseBookedOn(td.bookedOn)?'<span>Booked: '+esc2(fmtDateTxt(td.bookedOn))+'</span>':''}
           ${locLine?'<span>📍 '+esc2(locLine)+'</span>':''}
         </div>
-        ${td&&td.source==='track123'&&(td.lastEventDetail||td.lastEvent)?'<div style="font-size:12px;color:#555;margin-top:5px;line-height:1.5;">'+(td.lastEventDetail?'<span style="font-weight:600;">'+esc2(td.lastEventDetail)+'</span>':'')+(td.lastEventLocation?' <span style="color:#888;">📍 '+esc2(td.lastEventLocation)+'</span>':'')+(td.lastEventTime?'<br/><span style="color:#aaa;font-size:11px;">'+esc2(td.lastEventTime)+'</span>':'')+'</div>':td&&td.lastEvent&&td.lastEvent.trim().toLowerCase()!=='n/a'?'<div style="font-size:12px;color:#555;margin-top:4px;font-style:italic;">'+esc2(td.lastEvent)+'</div>':''}
+        ${td&&td.source==='track123'&&(td.lastEventDetail||td.lastEvent)?'<div style="font-size:12px;color:#555;margin-top:5px;line-height:1.5;">'+(td.lastEventDetail?'<span style="font-weight:600;">'+esc2(td.lastEventDetail)+'</span>':'')+(td.lastEventLocation?' <span style="color:#888;">📍 '+esc2(td.lastEventLocation)+'</span>':'')+(td.lastEventTime?'<br/><span style="color:#aaa;font-size:11px;">'+esc2(fmtDateTxt(td.lastEventTime))+'</span>':'')+'</div>':td&&td.lastEvent&&td.lastEvent.trim().toLowerCase()!=='n/a'?'<div style="font-size:12px;color:#555;margin-top:4px;font-style:italic;">'+esc2(td.lastEvent)+'</div>':''}
       </div>`;
     }).join('');
     ra.innerHTML=statsHtml+cards+'<div style="font-size:11px;color:#aaa;text-align:center;margin-top:8px;padding-bottom:8px;">⚠️ Overdue = &gt;6 days since booked, not yet delivered</div>';
@@ -10683,7 +10726,7 @@ function renderTrackingResults(){
       if(isNoTracking)return`<tr style="${rowBg}"><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${_tkDSBadge2}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;color:#aaa;font-style:italic;">—</td><td>${fmtDate(inv.invDate)}</td><td colspan="3"><span class="badge b-yellow">📭 No Tracking</span></td></tr>`;
       if(!td)return`<tr><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}${_tkDSBadge2}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td><td>${fmtDate(inv.invDate)}</td><td colspan="3"><span class="badge b-yellow">⏳ Awaiting Update</span></td></tr>`;
       const stBadge=isDelivered?'<span class="badge b-green">Delivered</span>':isOD?'<span class="badge b-red">⚠️ Overdue</span>':'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
-      return`<tr style="${rowBg}"><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}${_tkDSBadge2}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td><td>${fmtDate(inv.invDate)}</td><td>${parseBookedOn(td.bookedOn||'')?esc2(td.bookedOn):'—'}</td><td>${stBadge}</td><td style="font-size:11px;color:#555;max-width:180px;word-break:break-word;">${td.source==='track123'&&(td.lastEventDetail||td.lastEvent)?('<span style="font-weight:600;">'+(td.lastEventDetail?esc2(td.lastEventDetail):(td.lastEvent?esc2(td.lastEvent):''))+'</span>'+(td.lastEventLocation?'<br/><span style="color:#888;">📍 '+esc2(td.lastEventLocation)+'</span>':'')+(td.lastEventTime?'<br/><span style="color:#aaa;font-size:10px;">'+esc2(td.lastEventTime)+'</span>':'')):((td.lastEvent&&td.lastEvent.trim().toLowerCase()!=='n/a')?esc2(td.lastEvent):'')}</td></tr>`;
+      return`<tr style="${rowBg}"><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}${_tkDSBadge2}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td><td>${fmtDate(inv.invDate)}</td><td>${parseBookedOn(td.bookedOn||'')?esc2(fmtDateTxt(td.bookedOn)):'—'}</td><td>${stBadge}</td><td style="font-size:11px;color:#555;max-width:180px;word-break:break-word;">${td.source==='track123'&&(td.lastEventDetail||td.lastEvent)?('<span style="font-weight:600;">'+(td.lastEventDetail?esc2(td.lastEventDetail):(td.lastEvent?esc2(td.lastEvent):''))+'</span>'+(td.lastEventLocation?'<br/><span style="color:#888;">📍 '+esc2(td.lastEventLocation)+'</span>':'')+(td.lastEventTime?'<br/><span style="color:#aaa;font-size:10px;">'+esc2(fmtDateTxt(td.lastEventTime))+'</span>':'')):((td.lastEvent&&td.lastEvent.trim().toLowerCase()!=='n/a')?esc2(td.lastEvent):'')}</td></tr>`;
     }).join('');
     ra.innerHTML=statsHtml+`<div class="card" style="padding:0;overflow:hidden;"><div class="tbl-wrap flush"><table style="min-width:700px;"><thead><tr><th>#</th><th>Invoice</th><th>Customer</th><th>Location</th><th>Tracking No.</th><th>Inv. Date</th><th>Booked On</th><th>Status</th><th>Last Event</th></tr></thead><tbody>${rows}</tbody></table></div></div><div style="font-size:11px;color:#aaa;text-align:center;margin-top:8px;padding-bottom:8px;">⚠️ Flagged overdue = &gt;6 days since Booked On date and not yet delivered</div>`;
   }
@@ -10746,7 +10789,7 @@ function openInvEdit(prodNo) {
   _editingProdNo = prodNo;
   document.getElementById('iem-prodno').value = prodNo;
   document.getElementById('iem-num').value = p.prodNo;
-  document.getElementById('iem-date').value = p.dateAdded || '';
+  document.getElementById('iem-date').value = toISODate(p.dateAdded); // v14.41.0
   document.getElementById('iem-name').value = p.name || '';
   document.getElementById('iem-fabric').value = p.fabric || '';
   document.getElementById('iem-qty').value = p.qty !== undefined ? p.qty : '';
@@ -10774,9 +10817,9 @@ function openInvEdit(prodNo) {
   onSellInput('iem', true);
   document.getElementById('iem-notes').value = p.notes || '';
   document.getElementById('iem-reel-url').value = p.reelUrl || '';
-  document.getElementById('iem-date-reel').value = p.dateReel || '';
-  document.getElementById('iem-date-story1').value = p.dateStory1 || '';
-  document.getElementById('iem-date-story2').value = p.dateStory2 || '';
+  document.getElementById('iem-date-reel').value = toISODate(p.dateReel);
+  document.getElementById('iem-date-story1').value = toISODate(p.dateStory1);
+  document.getElementById('iem-date-story2').value = toISODate(p.dateStory2);
   document.getElementById('iem-sold-link').style.display = 'none';
   renderSoldToSection(p);
   renderVariantsList(p);
@@ -11281,7 +11324,7 @@ function printInvPriceList() {
   document.getElementById('inv-print-modal').classList.remove('open');
 
   const f = n => '₹' + parseFloat(n).toLocaleString('en-IN', {minimumFractionDigits: 2});
-  const dateStr = new Date().toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+  const dateStr = fmtDate(today()); // v14.41.0
 
   // Helper: struck-through old value + new value, only when they differ
   const struck = (oldVal, newVal, fmt) => oldVal !== newVal
@@ -14514,7 +14557,7 @@ async function refreshCourierTracking(){
 function isPendingReview(p){return !!p&&p.reviewStatus==='pending';}
 function sbBillRef(p){
   if(!p||!p.billNo)return'';
-  return (p.billSupplier?p.billSupplier+' · ':'')+'Bill '+p.billNo+(p.billDate?' ('+p.billDate+')':'')+(p.billLine?' · Line '+p.billLine:'');
+  return (p.billSupplier?p.billSupplier+' · ':'')+'Bill '+p.billNo+(p.billDate?' ('+fmtDateTxt(p.billDate)+')':'')+(p.billLine?' · Line '+p.billLine:'');
 }
 // Default sale price: cost × 1.30, nearest ₹10, round hundreds drop by 5 (1900→1895, 150 stays).
 // Integer arithmetic (cost×13/100 = cost×1.3/10) so 2895 → 3760 exactly, no float drift.
