@@ -3,10 +3,17 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.41.0
+APP: Vismaad Creations v14.42.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 04-Oct-2026 - v14.41.0: DATE RECEIVED BLANK IN THE PRODUCT EDITOR + ALL DATES SHOWN AS DD-MM-YYYY. No Code.gs change.
+LAST_CHANGE: 04-Oct-2026 - v14.42.0: HSN RE-PICKED WHEN EDITING + FASTER, MORE RELIABLE SYNC. REQUIRES Code.gs v5 (redeploy the Apps Script as a new version, same URL).
+(N1) HSN IN THE PRODUCT EDITOR. Opening Edit Product locked the HSN (_hsnManual.iem=true, v14.32.0), so renaming a product, including a bill-imported one under review, never changed its code. The lock now starts off: editing Name or Fabric re-picks the HSN from the fabric words; a code chosen from the dropdown during that edit still wins; a name and fabric with no fabric word leave the stored code as it is. Typing in Fabric Type now also re-picks the HSN on both Add Product and Edit Product (it had no hook).
+(N2) SYNC: BATCHED UPLOADS. Each upload made Code.gs read the whole sheet twice under a one-at-a-time lock, and the app sent three at once with a 12s limit, so on the large sheets uploads queued, timed out here while still saving there, were retried and ended as "Partial sync". Uploads for the same sheet now go together in one request (new Code.gs action=writeBatch, packed to the same 7500-character size a single write already used), one request at a time. Used by the sync, the DeletedIds tombstones, tracking imports, Track123 refresh, bill import, supplier bill and bulk invoice writes (gsWriteBatch / _pushConfirmedPool). With an older Code.gs the app falls back to one-by-one automatically.
+(N3) Single confirmed writes wait 30s instead of 12s (the sheet itself queues a write for up to 25s). Batches wait 60s and are retried once.
+(N4) Tracking reconcile treats a timestamp gap under one second as the same record, so a sheet that dropped milliseconds no longer causes every tracking row to be re-uploaded on every sync.
+Code.gs v5: writeBatch action; every write reads only the header row and the id/prodNo column instead of the whole sheet; timestamp columns (updatedAt, invUpdatedAt, deletedAt, confirmedAt) are formatted as plain text so they keep full precision. Upsert rule unchanged.
+NOT CHANGED (by request, to be reported item by item): buttons that do not respond to taps on part of their area.
+PREV_CHANGE: 04-Oct-2026 - v14.41.0: DATE RECEIVED BLANK IN THE PRODUCT EDITOR + ALL DATES SHOWN AS DD-MM-YYYY. No Code.gs change.
 (M1) DATE RECEIVED BLANK. Code.gs readSheet returns a date cell as String(Date), e.g. "Sat Oct 03 2026 00:00:00 GMT+0530 (India Standard Time)". The register showed it fine (fmtDate parses it) but the editor put it straight into a date box, which only accepts YYYY-MM-DD, so it showed blank. parseInventoryRow now converts dateAdded / dateReel / dateStory1 / dateStory2 to YYYY-MM-DD with toISODate; the editor fills its date boxes through toISODate; a one-time repair (normaliseInvDatesOnce, guarded by vc_inv_date_norm_v1) fixes values already on the device without touching updatedAt. No date was ever lost: saving with a blank box kept the old value.
 (M2) DD-MM-YYYY DISPLAY. fmtDate now returns dd-mm-yyyy everywhere it is used (register, sales, dashboard, tracking, suppliers and bills, purchases, credit notes, outreach lists, popups, Courier Spend, DS report). Printed invoices / bills, the price list print date and the Sync info time now use the same format. New fmtDateTxt converts dates inside free text (tracking Booked / last-event times, bill reference) and keeps any time. dd-mm-yyyy is read explicitly, never through Date(), which reads 03-10-2026 as 10 Mar.
 UNCHANGED BY REQUEST: WhatsApp texts keep dd-Mon-yyyy (invoice share message and Partner Report via fmtMsgDate; delivery window wording untouched); Excel/CSV exports keep dd-Mon-yyyy (fmtExportDate). The shared catalogue keeps its date as before. Stored data stays YYYY-MM-DD. Date picker boxes are drawn by the browser and follow the device's own date settings.
@@ -854,7 +861,7 @@ body.gst-mode .gst-only{display:block;}
       </div>
     </div>
     <div class="fg"><label>Fabric Type</label>
-      <input id="ip-fabric" placeholder="e.g. Georgette (optional)"/>
+      <input id="ip-fabric" placeholder="e.g. Georgette (optional)" oninput="onProductNameInput('ip')"/>
     </div>
     <div class="fg"><label>HSN Code <span style="font-weight:400;color:#aaa;">(auto-picked from name/fabric — editable)</span></label>
       <select id="ip-hsn" onchange="onHsnSelect('ip')" style="width:100%;padding:11px 12px;border-radius:8px;border:1.5px solid var(--border);background:var(--cream);font-size:13px;"></select>
@@ -1338,7 +1345,7 @@ body.gst-mode .gst-only{display:block;}
       <div class="fg"><label>Date Received</label><input id="iem-date" type="date"/></div>
     </div>
     <div class="fg"><label>Product Name *</label><input id="iem-name" placeholder="Product name" oninput="onProductNameInput('iem')"/></div>
-    <div class="fg"><label>Fabric Type</label><input id="iem-fabric" placeholder="e.g. Georgette, Silk"/></div>
+    <div class="fg"><label>Fabric Type</label><input id="iem-fabric" placeholder="e.g. Georgette, Silk" oninput="onProductNameInput('iem')"/></div>
     <div class="fg"><label>HSN Code <span style="font-weight:400;color:#aaa;">(auto-picked — editable)</span></label>
       <select id="iem-hsn" onchange="onHsnSelect('iem')" style="width:100%;padding:11px 12px;border-radius:8px;border:1.5px solid var(--border);background:var(--cream);font-size:13px;"></select>
       <div id="iem-hsn-note" style="font-size:11px;color:#888;margin-top:3px;"></div>
@@ -2275,7 +2282,7 @@ function gsWriteConfirmed(sheet,data,_retry){
       }else{
         resolve(false); // second attempt also timed out
       }
-    },12000);
+    },30000); // v14.42.0: was 12s, shorter than the sheet's own 25s write queue, so queued writes timed out here while still being saved there
     window[cb]=function(res){
       clearTimeout(timer);delete window[cb];try{document.head.removeChild(s);}catch{}
       // v14.37.0: an {error} reply (e.g. Code.gs v4 lock busy) is NOT a confirmation — it was counted as one
@@ -2293,15 +2300,63 @@ function gsWriteConfirmed(sheet,data,_retry){
 }
 
 // Batch confirmed writes with progress callback
+// v14.42.0: sends many records per request (Code.gs v5 action=writeBatch) instead of one request per
+// record with a 550ms pause. Falls back to one-by-one automatically on an older Code.gs.
 async function gsWriteBatch(sheet,records,onProgress){
   let done=0,failed=0;
-  for(let i=0;i<records.length;i++){
-    const ok=await gsWriteConfirmed(sheet,records[i]);
-    if(ok)done++;else failed++;
+  const chunks=_packBatchChunks(records);
+  for(const ch of chunks){
+    const res=await _gsWriteChunk(sheet,ch);
+    res.forEach(ok=>{if(ok)done++;else failed++;});
     if(onProgress)onProgress(done,failed,records.length);
-    await new Promise(r=>setTimeout(r,550)); // 550ms between writes — safe rate limit
   }
   return{done,failed};
+}
+
+// ── v14.42.0 BATCHED CONFIRMED WRITES ────────────────────────────────────────
+// Every single write made Code.gs read the whole sheet twice under a lock that lets one write run at a
+// time, and the app sent three at once with a 12s limit — so on the big sheets writes queued, timed out
+// here, were retried, and the sync ended "Partial". Now records for the same sheet travel together:
+// one request, one lock, one sheet read, many rows. Packed to the same size cap a single write already
+// uses (makePayload, 7500 chars), so the request URL is no longer than before.
+let _batchUnsupported=false;
+function _packBatchChunks(records){
+  const chunks=[];let cur=[],len=2;
+  records.forEach(rec=>{
+    const js=makePayload(flattenForSheet(rec));
+    if(cur.length&&(len+js.length+1>7500||cur.length>=40)){chunks.push(cur);cur=[];len=2;}
+    cur.push({rec,js});len+=js.length+1;
+  });
+  if(cur.length)chunks.push(cur);
+  return chunks;
+}
+// Sends one packed chunk. Resolves to an array of booleans, one per record.
+function _gsWriteChunk(sheet,chunk){
+  if(_batchUnsupported||chunk.length===1){
+    return Promise.all(chunk.map(c=>gsWriteConfirmed(sheet,c.rec)));
+  }
+  const send=function(attempt){
+    return new Promise(function(resolve){
+      const cb='_wb'+Date.now()+Math.floor(Math.random()*9999);
+      const url=SCRIPT_URL+'?action=writeBatch&sheet='+encodeURIComponent(sheet)+'&data='+encodeURIComponent('['+chunk.map(c=>c.js).join(',')+']')+'&callback='+cb;
+      const sc=document.createElement('script');
+      const done=function(v){clearTimeout(timer);delete window[cb];try{document.head.removeChild(sc);}catch{};resolve(v);};
+      const timer=setTimeout(function(){done(null);},60000);
+      window[cb]=function(res){done(res||{});};
+      sc.onerror=function(){done(null);};
+      sc.src=url;
+      document.head.appendChild(sc);
+    }).then(function(res){
+      if(res&&/unknown action/i.test(String(res.error||''))){
+        _batchUnsupported=true; // older Code.gs still deployed: one by one, as before
+        return Promise.all(chunk.map(c=>gsWriteConfirmed(sheet,c.rec)));
+      }
+      if(res&&res.ok&&Array.isArray(res.results))return chunk.map((c,i)=>!!(res.results[i]&&res.results[i].ok));
+      if(attempt<2)return new Promise(r=>setTimeout(r,2500)).then(()=>send(attempt+1));
+      return chunk.map(()=>false);
+    });
+  };
+  return send(1);
 }
 
 function flattenForSheet(data){
@@ -2462,9 +2517,8 @@ async function syncAll(manual){
       const remDelIds=remDel.map(r=>String(r.id||'').trim()).filter(Boolean);
       const localDel=getDeletedIds().map(String);
       // v14.37.0: confirmed, not fire-and-forget — a lost tombstone meant the delete never reached other devices
-      for(const id of localDel.filter(id=>!remDelIds.includes(id))){
-        if(!(await gsWriteConfirmed('DeletedIds',{id:id,deletedAt:new Date().toISOString()})))_pushFailed++;
-      }
+      const _delNow=new Date().toISOString();
+      _pushFailed+=await _pushConfirmedPool(localDel.filter(id=>!remDelIds.includes(id)).map(id=>['DeletedIds',{id:id,deletedAt:_delNow}])); // v14.42.0: one batch, not one request per id
       const allDel=[...new Set([...localDel,...remDelIds])];
       lsSet('vc_deleted_ids',allDel);
       const _delSet=new Set(allDel);
@@ -2825,7 +2879,7 @@ async function syncAll(manual){
         }
         const lt=td.updatedAt?new Date(td.updatedAt).getTime():0;
         const rt=rem&&rem.updatedAt?new Date(rem.updatedAt).getTime():0;
-        if(lt>rt)_trkReconcile.add(String(k));
+        if(lt-rt>1000)_trkReconcile.add(String(k)); // v14.42.0: the sheet can drop milliseconds; a sub-second gap is the same record, not a newer one
       });
       if(_trkReconcile.size)console.log('v14.39.1 tracking reconcile: uploading',_trkReconcile.size,'record(s) the sheet is missing or behind on');
     }
@@ -10138,8 +10192,8 @@ function _renderTrkUploadNote(){
 async function _uploadTrackingRecords(jobs){
   _trkUploadPending+=jobs.length;_renderTrkUploadNote();
   let failed=0;
-  for(let i=0;i<jobs.length;i+=3){
-    const chunk=jobs.slice(i,i+3);
+  for(let i=0;i<jobs.length;i+=20){ // v14.42.0: was 3 per round; batches make 20 cheap
+    const chunk=jobs.slice(i,i+20);
     failed+=await _pushConfirmedPool(chunk,3);
     _trkUploadPending=Math.max(0,_trkUploadPending-chunk.length);_renderTrkUploadNote();
   }
@@ -10810,7 +10864,10 @@ function openInvEdit(prodNo) {
   document.getElementById('iem-cost').value = p.cost || '';
   document.getElementById('iem-sell').value = p.sellPrice || '';
   // v14.32.0 — HSN dropdown (fall back to legacy default) + margin readout
-  _hsnManual.iem = true; // an existing product already has a chosen HSN; don't auto-overwrite on name edits
+  // v14.42.0: was pre-locked (true), so renaming a product (including a bill-imported one under review)
+  // never re-picked its HSN. Now unlocked on open: editing Name or Fabric re-picks it; a code picked from
+  // the dropdown during this edit still wins; a name with no fabric word leaves the stored code alone.
+  _hsnManual.iem = false;
   initHsnSelect('iem', (p.hsn||DEFAULT_HSN).trim());
   const iemMargin=document.getElementById('iem-margin');
   if(iemMargin){ const mp=marginPct(p.cost,p.sellPrice); iemMargin.value = (mp===null?'':mp); }
@@ -12787,18 +12844,20 @@ function updateVariantQty(variantId, val) {
 // v14.37.0 — run confirmed writes with a small concurrency cap. Returns the number that FAILED.
 // Three at a time keeps well under Apps Script's per-user simultaneous-execution limit, which the old
 // all-at-once fire-and-forget burst could exceed (the excess was silently dropped).
+// v14.42.0: jobs are grouped by sheet and sent as batches, one request at a time (the sheet only ever
+// writes one at a time, so parallel requests just waited in its queue and timed out). `limit` is kept
+// for the existing callers and no longer used.
 async function _pushConfirmedPool(jobs,limit){
-  let i=0,failed=0;
-  async function worker(){
-    while(i<jobs.length){
-      const [sheet,data]=jobs[i++];
-      const ok=await gsWriteConfirmed(sheet,data);
-      if(!ok){failed++;console.warn('Upload not confirmed:',sheet,data&&(data.id||data.prodNo));}
+  if(!jobs.length)return 0;
+  let failed=0;
+  const bySheet=new Map();
+  jobs.forEach(([sheet,data])=>{if(!bySheet.has(sheet))bySheet.set(sheet,[]);bySheet.get(sheet).push(data);});
+  for(const [sheet,recs] of bySheet){
+    for(const ch of _packBatchChunks(recs)){
+      const res=await _gsWriteChunk(sheet,ch);
+      res.forEach((ok,i)=>{if(!ok){failed++;const d=ch[i].rec;console.warn('Upload not confirmed:',sheet,d&&(d.id||d.prodNo));}});
     }
   }
-  const n=Math.max(1,Math.min(limit||3,jobs.length));
-  if(!jobs.length)return 0;
-  await Promise.all(Array.from({length:n},worker));
   return failed;
 }
 // v14.37.0 — a product is covered by a tombstone only if it was last touched BEFORE the delete,
