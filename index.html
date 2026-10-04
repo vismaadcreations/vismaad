@@ -3,10 +3,18 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.39.1
+APP: Vismaad Creations v14.40.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 04-Oct-2026 - v14.39.1: PHONE SHOWED OLD DELIVERY STATUSES + RESET PHONE RE-ASKED FOLLOW-UPS/DELIVERY MESSAGES + SEND DELIVERY MESSAGES FROM THE PHONE. No Code.gs change.
+LAST_CHANGE: 04-Oct-2026 - v14.40.1: PURCHASES REGISTER DELETE DID NOTHING FOR NEWER ENTRIES. No Code.gs change.
+(L1) The 🗑 button passed the record id as a bare number: onclick="deletePurchase(${p.id})". Since v14.35.0 B11 ids are long digit STRINGS (about 19 digits), so the browser read them as a number past the safe-integer limit, rounded them, and the strict p.id!==id test then matched nothing: the entry stayed on screen and the sheet delete targeted a wrong id. The id is now passed quoted, and the delete compares String(id) on both sides, so old numeric ids and new text ids both work. Only the Purchases Register had this pattern; other unquoted onclick ids in the file are small in-session counters and are unaffected.
+PREV_CHANGE: 04-Oct-2026 - v14.40.0: SUPPLIER BILLS FROM THE BILL IMPORT + "BILL ONLY" + PACKAGING & CONSUMABLES IN THE PURCHASES REGISTER. No Code.gs change.
+(K1) IMPORT NOW CREATES THE SUPPLIER BILL. Add to Inventory used to save only the products, so the amount owed to the supplier never reached Suppliers & Bills. It now also adds one bill there: supplier matched by GSTIN, then by name (a supplier not yet saved is created with the name and GSTIN, after a line in the confirm dialog; a saved supplier with no GSTIN gets the bill's GSTIN). Amount = grand total on the bill, or the sum of the lines when the total is blank. Bill no., bill date, description "N pcs - #first to #last", GST 5% (the bill's GST field is not read anywhere). Supplier is now required on the import form. If that supplier already has a bill with the same invoice no., no second bill is added and the dialog says so. Uploaded in the background with confirmation; unconfirmed rows are retried by the normal sync.
+(K2) NEW "BILL ONLY" BUTTON on the Import Supplier Bill card, for bills whose suits are already in inventory (some sold). Same photo / PDF / paste / typing. Needs supplier, invoice no., date and grand total (or lines); lines are optional and only give the piece count in the description. Adds ONLY the supplier bill: no products, no stock change. Always asks first; blocks a bill no. that supplier already has. The bill starts unpaid: record earlier payments with Record Payment on the bill.
+(K3) PURCHASES REGISTER: NEW TYPE "PACKAGING & CONSUMABLES" (courier bags, tape...), the default type. GST rate, GST credit, GSTIN and bill no. are hidden and saved as none; supplier / shop is optional. Rows carry a Packaging badge and the page shows a Packaging total. The existing "with GST" type is unchanged.
+(K4) P&L: packaging entries are excluded from suit cost and from courier cost (both used to be decided by GST rate alone, so a no-GST entry counted as suit cost). They show as their own "Packaging & Consumables" line and reduce Net Operating Profit. Not in the GST position, ITC or any export. Courier Spend's register cross-check already ignores them (it only reads rates above 5%).
+NOTE: no existing data is rewritten. Bills imported before this version are not added automatically; add them with Bill only.
+PREV_CHANGE: 04-Oct-2026 - v14.39.1: PHONE SHOWED OLD DELIVERY STATUSES + RESET PHONE RE-ASKED FOLLOW-UPS/DELIVERY MESSAGES + SEND DELIVERY MESSAGES FROM THE PHONE. No Code.gs change.
 (J1) TRACKING RECONCILE. INV-442/444/445 showed "Awaiting Update" on the phone while the laptop had them Delivered: the sheet had NO row for their four parcels. The import's upload (one row at a time, 550ms apart) could be cut short by the laptop sleeping, the tab closing or the sheet being busy, and nothing ever compared this device's records with the sheet again. Every sync now uploads (confirmed, 3 at a time) any tracking record that is missing from the sheet, newer than the sheet's copy, or Delivered here while the sheet says otherwise (re-stamped so other devices accept it). Runs only after the Tracking sheet was actually read.
 (J2) TRACKING IMPORT GUARDS. India Post's bulk file answers "N/A" for articles it no longer holds data on; those rows overwrote real data (82 parcels became "In Transit" on 3 Oct). Rows with no status / N/A are now ignored, and a Delivered parcel is never downgraded by a later file. Only rows that actually changed are uploaded, through the confirmed pool instead of the slow batch, with a "N tracking updates waiting to upload" note on the Dashboard and the Tracking page until done.
 (J3) DELIVERED IS FINAL IN THE SYNC MERGE, AND THE TEST IS EXACT. The merge's lock used includes('delivered'), which also matched "Not Delivered". New _isDeliveredStatus() (exact). A remote Delivered now also replaces a local non-Delivered record even if the local one is newer.
@@ -815,7 +823,11 @@ body.gst-mode .gst-only{display:block;}
         <button class="btn btn-o btn-sm" style="flex:1;" onclick="sbAddLine(true)">+ Page</button>
       </div>
       <div id="sb-summary" style="background:var(--goldp);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--brown);margin-bottom:12px;line-height:1.6;"></div>
-      <button class="btn btn-p" id="sb-add-btn" onclick="sbCommit()">📥 Add to Inventory</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-p" id="sb-add-btn" onclick="sbCommit()" style="flex:1 1 200px;">📥 Add to Inventory</button>
+        <button class="btn btn-o" id="sb-billonly-btn" onclick="sbCommitBillOnly()" style="flex:1 1 200px;">🧾 Bill only (no stock)</button>
+      </div>
+      <div style="font-size:11px;color:#888;margin-top:6px;line-height:1.5;">Add to Inventory adds the products and the supplier bill. Bill only adds just the bill to Suppliers &amp; Bills, for suits already in inventory.</div>
     </div>
   </details>
 
@@ -6957,21 +6969,29 @@ function saveBulkEdits(){
 
 function buildPurchasesPage(){
   const rows=purchases.map(p=>`<div class="list-row">
-    <div><div class="list-main">${p.supplier}</div><div class="list-sub">${fmtDate(p.date)} · ${p.desc||'Suit Purchase'} · Qty: ${p.qty||0}</div></div>
+    <div><div class="list-main">${isPackagingPurchase(p)?'<span class="badge b-gold" style="margin-right:6px;">📦 Packaging</span>':''}${esc(p.supplier||'')}</div><div class="list-sub">${fmtDate(p.date)} · ${esc(p.desc||(isPackagingPurchase(p)?'Packaging & consumables':'Suit Purchase'))}${(p.qty||!isPackagingPurchase(p))?' · Qty: '+(p.qty||0):''}</div></div>
     <div class="list-right"><div class="list-amt">₹${parseFloat(p.amount||0).toLocaleString('en-IN')}</div>
     ${parseFloat(p.gstAmt||0)>0?`<div style="font-size:11px;color:#27ae60;">ITC ₹${parseFloat(p.gstAmt).toLocaleString('en-IN')}</div>`:''}
-    <button class="btn btn-d btn-sm" style="margin-top:6px;" onclick="deletePurchase(${p.id})">🗑</button></div>
+    <button class="btn btn-d btn-sm" style="margin-top:6px;" onclick="deletePurchase('${esc(String(p.id))}')">🗑</button></div>
     </div>`).join('');
   const tot=purchases.reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
   const itc=purchases.reduce((s,p)=>s+(parseFloat(p.gstAmt)||0),0);
-  return`<div class="stat-grid" style="margin-bottom:14px;">
+  const packTot=purchases.filter(isPackagingPurchase).reduce((s,p)=>s+(parseFloat(p.amount)||0),0); // v14.40.0
+  return`<div class="stat-grid cols3" style="margin-bottom:14px;">
     <div class="stat-card"><div class="stat-val">₹${tot.toLocaleString('en-IN')}</div><div class="stat-lbl">Total Spent</div></div>
+    <div class="stat-card"><div class="stat-val">₹${packTot.toLocaleString('en-IN')}</div><div class="stat-lbl">Packaging</div></div>
     <div class="stat-card"><div class="stat-val" style="color:#27ae60;">₹${itc.toLocaleString('en-IN')}</div><div class="stat-lbl">ITC Available</div></div>
   </div>
   <div class="card"><div class="card-title">➕ Add Purchase / Expense</div>
-    <div style="font-size:12px;color:#888;margin-bottom:12px;">Enter suit purchases (5% GST) and India Post receipts (18% GST) here to track ITC.</div>
+    <div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.5;">Packaging &amp; consumables (courier bags, tape…) count as an expense in the P&amp;L, not in GST. Purchases with GST (suits 5%, India Post 18%) work as before.</div>
+    <div class="fg"><label>Type</label>
+      <select id="pp-cat" onchange="onPurCatChange()">
+        <option value="packaging">📦 Packaging &amp; consumables (no GST)</option>
+        <option value="gst">Purchase with GST (suits / courier receipt)</option>
+      </select>
+    </div>
     <div class="row2"><div class="fg"><label>Date</label><input type="date" id="pp-date" value="${today()}"/></div>
-    <div class="fg"><label>Type / Supplier *</label>
+    <div class="fg"><label id="pp-sup-label">Shop / Supplier (optional)</label>
       <select id="pp-sup-sel" onchange="onPurSupChange()">
         <option value="">— select or type below —</option>
         ${suppliers.map(s=>`<option value="${s.name}">${s.name}</option>`).join('')}
@@ -6979,10 +6999,11 @@ function buildPurchasesPage(){
       </select>
       <input id="pp-sup" placeholder="Supplier name" style="margin-top:6px;${suppliers.length?'display:none;':''}"/>
     </div></div>
-    <div class="row2"><div class="fg"><label>Description</label><input id="pp-desc" placeholder="e.g. Suit Purchase / Parcel Booking"/></div>
-    <div class="fg"><label>Qty (suits / parcels)</label><input type="number" id="pp-qty" placeholder="0" min="0"/></div></div>
-    <div class="row3">
-      <div class="fg"><label>Total Amount Paid (₹ incl. GST)</label><input type="number" id="pp-amt" placeholder="0" oninput="calcPurGST()"/></div>
+    <div class="row2"><div class="fg"><label>Description</label><input id="pp-desc" placeholder="e.g. Courier bags, tape"/></div>
+    <div class="fg"><label>Qty (optional)</label><input type="number" id="pp-qty" placeholder="0" min="0"/></div></div>
+    <div class="fg"><label id="pp-amt-label">Total Amount Paid (₹)</label><input type="number" id="pp-amt" placeholder="0" oninput="calcPurGST()"/></div>
+    <div id="pp-gst-block" style="display:none;">
+    <div class="row2">
       <div class="fg"><label>GST Rate Paid</label>
         <select id="pp-gst" onchange="calcPurGST()">
           <option value="none">No GST</option>
@@ -6997,6 +7018,7 @@ function buildPurchasesPage(){
       <div class="fg"><label>Supplier GSTIN (for ITC claim)</label><input id="pp-gstin" placeholder="e.g. 03AAAGH0058J1ZS" style="text-transform:uppercase"/></div>
       <div class="fg"><label>Bill / Receipt No.</label><input id="pp-billno" placeholder="Bill or receipt number"/></div>
     </div>
+    </div>
     <button class="btn btn-p" onclick="savePurchaseEntry()">💾 Save Entry</button>
   </div>
   <div class="card"><div class="card-title">📋 Register</div>${rows||'<div style="color:#aaa;text-align:center;padding:20px;">No purchases yet</div>'}</div>`;
@@ -7007,6 +7029,17 @@ function calcPurGST(){
   const el=document.getElementById('pp-itc');if(!el)return;
   if(!rate||rate==='none'){el.value='0.00';return;}
   el.value=parseFloat((amt*parseFloat(rate)/100/(1+parseFloat(rate)/100)).toFixed(2));
+}
+// v14.40.0 — Purchases Register type: packaging/consumables (no GST, P&L expense) or purchase with GST
+function isPackagingPurchase(p){return !!p&&String(p.category||'')==='packaging';}
+function onPurCatChange(){
+  const pack=(document.getElementById('pp-cat')?.value||'packaging')==='packaging';
+  const blk=document.getElementById('pp-gst-block');if(blk)blk.style.display=pack?'none':'block';
+  const sl=document.getElementById('pp-sup-label');if(sl)sl.textContent=pack?'Shop / Supplier (optional)':'Type / Supplier *';
+  const al=document.getElementById('pp-amt-label');if(al)al.textContent=pack?'Total Amount Paid (₹)':'Total Amount Paid (₹ incl. GST)';
+  const d=document.getElementById('pp-desc');if(d)d.placeholder=pack?'e.g. Courier bags, tape':'e.g. Suit Purchase / Parcel Booking';
+  const q=document.getElementById('pp-qty');if(q)q.previousElementSibling.textContent=pack?'Qty (optional)':'Qty (suits / parcels)';
+  if(pack){const g=document.getElementById('pp-gst');if(g)g.value='none';calcPurGST();}
 }
 function onPurSupChange(){
   const sel=document.getElementById('pp-sup-sel')?.value;
@@ -7020,8 +7053,20 @@ function savePurchaseEntry(){
   const inpVal=(document.getElementById('pp-sup')?.value||'').trim();
   const sup=(!selVal||selVal==='__other__')?inpVal:selVal;
   const amt=parseFloat(document.getElementById('pp-amt')?.value)||0;
+  // v14.40.0: packaging & consumables — no GST, supplier optional, counted as a P&L expense only
+  if((document.getElementById('pp-cat')?.value||'packaging')==='packaging'){
+    if(!amt){toast('⚠️ Enter the amount');return;}
+    const pe={id:uid(),type:'purchase',category:'packaging',date:document.getElementById('pp-date')?.value||today(),
+      supplier:sup||'',desc:(document.getElementById('pp-desc')?.value||'').trim()||'Packaging & consumables',
+      qty:parseInt(document.getElementById('pp-qty')?.value)||0,amount:amt,gstRate:'none',gstAmt:0,supGstin:'',billNo:'',
+      updatedAt:new Date().toISOString()};
+    purchases.push(pe);savePur();
+    gsWriteConfirmed(SHEETS.purchases,pe).then(ok=>{if(!ok)toast('⚠️ Saved locally but sheet sync failed — tap sync to retry');});
+    toast('✅ Packaging expense saved');showSubPage('purchases');
+    return;
+  }
   if(!sup||!amt){toast('⚠️ Supplier and amount required');return;}
-  const entry={id:uid(),type:'purchase',date:document.getElementById('pp-date')?.value||today(),supplier:sup,
+  const entry={category:'gst',id:uid(),type:'purchase',date:document.getElementById('pp-date')?.value||today(),supplier:sup,
     desc:document.getElementById('pp-desc')?.value||'Suit Purchase',qty:parseInt(document.getElementById('pp-qty')?.value)||0,
     amount:amt,gstRate:document.getElementById('pp-gst')?.value,gstAmt:parseFloat(document.getElementById('pp-itc')?.value)||0,
     supGstin:(document.getElementById('pp-gstin')?.value||'').toUpperCase(),billNo:document.getElementById('pp-billno')?.value||'',
@@ -7033,7 +7078,7 @@ function savePurchaseEntry(){
 function deletePurchase(id){
   showConfirmModal('🗑 Delete Purchase','Delete this purchase record?',function(){_doDeletePurchase(id);},null);return;}
 function _doDeletePurchase(id){
-  purchases=purchases.filter(p=>p.id!==id);savePur();gsDelete(SHEETS.purchases,id);
+  purchases=purchases.filter(p=>String(p.id)!==String(id));savePur();gsDelete(SHEETS.purchases,String(id)); // v14.40.1: compare as text
   toast('🗑 Deleted');showSubPage('purchases');
 }
 
@@ -7132,8 +7177,12 @@ function renderPLContent(filtInv,filtPur){
 
   // ── COST OF GOODS — Suit Purchases ──
   // Split purchases by type: suit purchases (5% GST) vs India Post (18% GST)
-  const suitPurchases = filtPur.filter(p=>parseFloat(p.gstRate||0)<=5);
-  const ipPurchases   = filtPur.filter(p=>parseFloat(p.gstRate||0)>5);
+  // v14.40.0: packaging & consumables are a P&L expense only — kept out of suit cost, courier cost and GST
+  const packPurchases = filtPur.filter(isPackagingPurchase);
+  const _gstPur       = filtPur.filter(p=>!isPackagingPurchase(p));
+  const packCost      = parseFloat(packPurchases.reduce((s,p)=>s+(parseFloat(p.amount)||0),0).toFixed(2));
+  const suitPurchases = _gstPur.filter(p=>parseFloat(p.gstRate||0)<=5);
+  const ipPurchases   = _gstPur.filter(p=>parseFloat(p.gstRate||0)>5);
 
   const suitCostIncl  = parseFloat(suitPurchases.reduce((s,p)=>s+(parseFloat(p.amount)||0),0).toFixed(2));
   const itcOnSuits    = parseFloat(suitPurchases.reduce((s,p)=>s+(parseFloat(p.gstAmt)||0),0).toFixed(2));
@@ -7169,7 +7218,7 @@ function renderPLContent(filtInv,filtPur){
   const shipProfit    = parseFloat((shipChargedExclPL-shipNetCost).toFixed(2));
 
   // ── NET PROFIT ──
-  const netProfit     = parseFloat((grossProfit+shipProfit).toFixed(2));
+  const netProfit     = parseFloat((grossProfit+shipProfit-packCost).toFixed(2)); // v14.40.0: less packaging
 
   // ── GST POSITION ──
   const totalITC      = parseFloat((itcSuits+itcOnIP).toFixed(2));
@@ -7252,6 +7301,8 @@ function renderPLContent(filtInv,filtPur){
         (shipProfit<0?' · You are paying the courier more than you charge on this period as a whole — normal, but watch the gap':' · You are recovering more than you pay on this period as a whole'))}
       ${_voidShipped.length>0?`<div style="background:#fff8ee;border:1px solid var(--goldp);border-radius:8px;padding:9px 11px;font-size:11px;color:#7a5a20;margin-top:8px;line-height:1.5;">
         ℹ️ ${_voidShipped.length} cancelled/returned order(s) in this period had already shipped. Their shipping is counted on BOTH sides above — the courier was paid, and the shipping the customer paid is not refunded. Only the goods are excluded. GST figures are unchanged: output tax on retained shipping is left as your credit notes recorded it — raise this with your CA if they want it split out.</div>`:''}
+
+      ${packCost>0?head('📦 Packaging & Consumables')+row('Packaging & consumables bought (not in GST)',packCost,null,packPurchases.length+' entr'+(packPurchases.length===1?'y':'ies')+' in Purchases Register'):''}
 
       ${profBox('Net Operating Profit',netProfit,
         filtInv.length+' sale(s) · '+filtPur.length+' purchase(s) entered · Consult your CA before filing')}
@@ -14912,6 +14963,94 @@ function sbReset(ask){
   if(ask&&sbFilledLines().length){showConfirmModal('↺ Clear bill','Clear everything entered for this bill?',go,null);return;}
   go();
 }
+// ── v14.40.0: supplier bill (Suppliers & Bills) from the import form ──
+function sbFindSupplier(name,gstin){
+  const g=String(gstin||'').trim().toUpperCase(),n=String(name||'').trim().toLowerCase();
+  return (g&&(suppliers||[]).find(x=>String(x.gstin||'').trim().toUpperCase()===g))
+    ||(n&&(suppliers||[]).find(x=>String(x.name||'').trim().toLowerCase()===n))||null;
+}
+function sbFindBill(sup,invNo){
+  if(!sup)return null;
+  const k=String(invNo||'').trim().toLowerCase();
+  return (bills||[]).find(b=>String(b.supId)===String(sup.id)&&String(b.billNo||'').trim().toLowerCase()===k)||null;
+}
+function sbBillAmount(lines){
+  const gt=sbNum(document.getElementById('sb-total')?.value);
+  if(gt>0)return Math.round(gt*100)/100;
+  return Math.round((lines||[]).reduce((s,l)=>s+(parseInt(l.qty)||0)*sbNum(l.price),0)*100)/100;
+}
+function sbBillWarnings(supplier,invNo){
+  const gstin=(document.getElementById('sb-gstin')?.value||'').trim().toUpperCase();
+  const sup=sbFindSupplier(supplier,gstin);
+  const w=[];
+  if(!sup)w.push('Supplier '+esc(supplier)+' is not saved yet. It will be added to Suppliers &amp; Bills'+(gstin?' (GSTIN '+esc(gstin)+')':'')+'.');
+  else{
+    const b=sbFindBill(sup,invNo);
+    if(b)w.push(esc(sup.name)+' already has bill '+esc(invNo)+' (₹'+(parseFloat(b.amount)||0).toLocaleString('en-IN')+') in Suppliers &amp; Bills. No second bill will be added.');
+  }
+  return w;
+}
+// Creates (or reuses) the supplier and adds one bill. Returns {skipped,bill,sup}.
+function sbCreateSupplierBill(o){
+  const nowIso=new Date().toISOString();
+  const gstin=String(o.gstin||'').trim().toUpperCase();
+  const jobs=[];
+  let sup=sbFindSupplier(o.supplier,gstin);
+  if(!sup){
+    sup={id:uid(),name:String(o.supplier||'').trim(),phone:'',gstin,address:'',notes:'Added from a supplier bill',
+      openingOwed:0,openingTheyOwe:0,updatedAt:nowIso};
+    suppliers.push(sup);saveSup();jobs.push([SHEETS.suppliers,sup]);
+  }else if(gstin&&!String(sup.gstin||'').trim()){
+    sup.gstin=gstin;sup.updatedAt=nowIso;saveSup();jobs.push([SHEETS.suppliers,sup]);
+  }
+  if(sbFindBill(sup,o.invNo)){
+    if(jobs.length)_pushConfirmedPool(jobs,2).catch(()=>{});
+    return{skipped:true,bill:null,sup};
+  }
+  const q=parseInt(o.qty)||0;
+  let desc=q?q+' pcs':'';
+  if(o.firstNo)desc+=(desc?' - ':'')+'#'+o.firstNo+(o.lastNo>o.firstNo?' to #'+o.lastNo:'');
+  const b={id:uid(),supId:String(sup.id),date:o.dateYmd,dueDate:'',billNo:String(o.invNo||'').trim(),
+    amount:parseFloat(o.amount)||0,gstRate:'5',desc,
+    notes:o.source==='billonly'?'Added via Bill only':'Added from supplier bill import',
+    payments:[],source:o.source||'import',updatedAt:nowIso};
+  bills.push(b);saveBills();
+  jobs.push([SHEETS.bills,{...b,payments:JSON.stringify([])}]);
+  _pushConfirmedPool(jobs,2)
+    .then(failed=>{if(failed)toast('⚠️ Supplier bill saved on this device; '+failed+' upload(s) not confirmed, will retry on next sync',5000);})
+    .catch(()=>{});
+  return{skipped:false,bill:b,sup};
+}
+// "Bill only": adds just the supplier bill — no products, no stock change.
+function sbCommitBillOnly(){
+  const supplier=(document.getElementById('sb-supplier')?.value||'').trim();
+  const gstin=(document.getElementById('sb-gstin')?.value||'').trim().toUpperCase();
+  const invNo=(document.getElementById('sb-invno')?.value||'').trim();
+  const dateYmd=document.getElementById('sb-date')?.value||'';
+  if(!supplier){toast('⚠️ Enter the supplier');return;}
+  if(!invNo){toast('⚠️ Enter the invoice number');return;}
+  if(!dateYmd){toast('⚠️ Enter the bill date');return;}
+  const lines=sbFilledLines().filter(l=>(parseInt(l.qty)||0)>0&&sbNum(l.price)>0);
+  const amount=sbBillAmount(lines);
+  if(!(amount>0)){toast('⚠️ Enter the grand total on the bill');return;}
+  const sup=sbFindSupplier(supplier,gstin);
+  const ex=sbFindBill(sup,invNo);
+  if(ex){toast('⚠️ '+(sup.name||supplier)+' already has bill '+invNo+' in Suppliers & Bills',5000);return;}
+  const qty=lines.reduce((s,l)=>s+(parseInt(l.qty)||0),0);
+  const lineVal=Math.round(lines.reduce((s,l)=>s+(parseInt(l.qty)||0)*sbNum(l.price),0)*100)/100;
+  const gt=sbNum(document.getElementById('sb-total')?.value);
+  let body='Add bill <b>'+esc(invNo)+'</b> from <b>'+esc(supplier)+'</b> for <b>₹'+amount.toLocaleString('en-IN')+'</b>'
+    +(qty?' ('+qty+' pcs)':'')+' to Suppliers &amp; Bills?<br/><br/>No products are added to inventory and stock is not changed.';
+  if(!sup)body+='<br/><br/>• Supplier '+esc(supplier)+' is not saved yet. It will be added'+(gstin?' (GSTIN '+esc(gstin)+')':'')+'.';
+  if(gt>0&&lines.length&&Math.abs(lineVal-gt)>1)body+='<br/>• Lines add up to ₹'+lineVal.toLocaleString('en-IN')+'; the bill is saved at the grand total ₹'+gt.toLocaleString('en-IN')+'.';
+  body+='<br/><br/>The bill starts unpaid. Record any payment already made with Record Payment on the bill.';
+  showConfirmModal('🧾 Bill only',body,()=>{
+    const r=sbCreateSupplierBill({supplier,gstin,invNo,dateYmd,amount,qty,source:'billonly'});
+    if(r.skipped){toast('⚠️ That bill is already in Suppliers & Bills',4000);return;}
+    sbReset(false);sbInitForm();
+    toast('✅ Bill '+invNo+' added to Suppliers & Bills (₹'+amount.toLocaleString('en-IN')+')',4500);
+  },null);
+}
 function sbCommit(){
   const lines=sbFilledLines();
   if(!lines.length){toast('⚠️ Add at least one line');return;}
@@ -14922,7 +15061,9 @@ function sbCommit(){
   if(!invNo){toast('⚠️ Enter the invoice number');return;}
   if(!dateYmd){toast('⚠️ Enter the bill date');return;}
   const supplier=(document.getElementById('sb-supplier')?.value||'').trim();
+  if(!supplier){toast('⚠️ Enter the supplier (needed for Suppliers & Bills)');return;}
   const warnings=[];
+  sbBillWarnings(supplier,invNo).forEach(w=>warnings.push(w)); // v14.40.0
   const val=lines.reduce((s,l)=>s+(parseInt(l.qty)||0)*sbNum(l.price),0);
   const gt=sbNum(document.getElementById('sb-total')?.value);
   if(gt>0&&Math.abs(val-gt)>1)warnings.push('Lines add up to ₹'+(Math.round(val*100)/100).toLocaleString('en-IN')+' but the bill total is ₹'+gt.toLocaleString('en-IN')+'.');
@@ -14962,11 +15103,16 @@ function _sbDoCommit(lines,invNo,dateYmd,supplier){
   inventory.push(...added);
   inventory.sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo));
   saveStk();
+  // v14.40.0: the supplier bill (amount owed) goes to Suppliers & Bills as well
+  const _bq=added.reduce((s,p)=>s+(parseInt(p.qty)||0),0);
+  const _br=sbCreateSupplierBill({supplier,gstin,invNo,dateYmd,amount:sbBillAmount(lines),qty:_bq,
+    firstNo:first,lastNo:first+added.length-1,source:'import'});
   renderInventory();renderAgingGrid();updateInventoryStats();renderPostingQueue();
   const ipn=document.getElementById('ip-num');if(ipn)ipn.value=nextProdNo();
-  sbReset(false);
+  sbReset(false);sbInitForm();
   const sf=document.getElementById('inv-status-filter');if(sf){sf.value='pending';renderInventory();}
-  toast('✅ Added #'+first+(added.length>1?' to #'+(first+added.length-1):'')+' — marked ⏳ Review',4500);
+  toast('✅ Added #'+first+(added.length>1?' to #'+(first+added.length-1):'')+' — marked ⏳ Review'
+    +(_br.skipped?' · bill already in Suppliers & Bills':' · bill added to Suppliers & Bills'),5000);
   // Background upload — the device copy is already saved; anything unconfirmed is retried by the normal sync
   _sbUploading++;
   _pushConfirmedPool(added.map(p=>[SHEETS.inventory,flattenProduct(p)]),3)
