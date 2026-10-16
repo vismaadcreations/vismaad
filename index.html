@@ -3,10 +3,32 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.42.0
+APP: Vismaad Creations v14.45.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 04-Oct-2026 - v14.42.0: HSN RE-PICKED WHEN EDITING + FASTER, MORE RELIABLE SYNC. REQUIRES Code.gs v5 (redeploy the Apps Script as a new version, same URL).
+LAST_CHANGE: 14-Oct-2026 - v14.45.0: PAGE-BY-PAGE APPLE-STYLE LAYOUT (SALES, MORE, INVENTORY, INVOICE, DASHBOARD, SUB-PAGES). No Code.gs change. Saving, sync, data, calculations, WhatsApp texts, exports and printed documents untouched. Every moved control calls exactly the function its old button called.
+(S1) SALES FILTERS. Search and status filter share one row; the religion pills and the sort pills each stay on one line and scroll sideways instead of wrapping.
+(S2) SALES BULK ACTIONS. The always-visible nine-button card is replaced by a slim "Select all" row. Ticking any invoice shows a floating glass toolbar above the tab bar ("N selected", Clear) with Shipped, Delivered, Print, Labels and More; More opens a menu with Pending, Dropship, Batch Ship Cost, Partner Report and Delete. Same functions as before (bulkMarkShipped, bulkMarkDelivered, bulkPrint, bulkPrintLabels, bulkMarkDropshipped, showBatchShipping, showPartnerReport, bulkDelete), still reading the ticked boxes. The toolbar lives outside the scrolling area so Safari cannot hide it under the tab bar. renderSales now re-counts the selection after it redraws the list (the old count could stay stale after a sync redraw).
+(S3) SALES INVOICE CARDS. View, Share and Edit stay on the card; Shipped/Pending, Delivered/Undo, Status/Reactivate and Delete move into a "..." menu (bottom sheet on phone, small menu beside the button on laptop), calling toggleShippedByIdx, toggleDeliveredByIdx, openInvStatusModal / _applyInvoiceStatus(...,'Active') and deleteInvoiceByIdx exactly as the old buttons did. Menu labels follow the same state the old buttons showed. Delete keeps its confirm step.
+(M1) MORE. Quick Actions grid replaced by an iPhone Settings-style list in four groups: Reports (P&L, Courier Spend, DS Report, Export to Excel), Shipping (Tracking Status, Shipping Labels), Purchases (Purchases Register, Suppliers & Bills), Tools (Bulk Import, Bulk Invoice Editor, Settings). Same showSubPage / toggleSettings calls.
+(M2) Sync card: Sync Now is a text button.
+(I1) INVENTORY. Register filter and its Price List, Catalogue and Cleanup buttons form one compact toolbar (scrolls sideways on narrow phones); search below. Register rows compact; row tap still opens Edit.
+(I2) Add Product is collapsible and open by default (Import Supplier Bill stays collapsed).
+(V1) INVOICE. Tighter grouped-form spacing. On phone a glass bar above the tab bar shows the current Grand Total (read from the Summary card, which recalc() fills; recalc untouched) and a Generate Invoice button calling generateInvoice(). It hides on other pages and while an invoice preview is open, so a generated invoice cannot be generated twice from it.
+(D1) DASHBOARD. Show/Hide amounts is an eye icon button (eye = tap to show, crossed eye = tap to hide); toggleMoneyVisibility unchanged and wrapped only to redraw the icon.
+(P1) SUB-PAGES and all forms: one consistent style for inline-styled inputs, selects and text areas (border, radius, font); red-bordered warning fields keep their colour.
+CODE: one HTML edit per item above, one edit inside renderSales (the card's action row), and one new script block after the main script (UI layer: wraps updateSelCount, renderSales, showPage, showSubPage, closeSubPage and toggleMoneyVisibility to redraw the new bars; adds uiSheet menus). The main script is otherwise unchanged.
+PREV_CHANGE: 14-Oct-2026 - v14.44.1: POPUP BUTTONS HIDDEN UNDER THE TAB BAR ON IPHONE. No JavaScript, logic or Code.gs change.
+(R1) 15 popups (Add/Edit Supplier, Add Bill, Record Payment, Supplier Payment, Supplier Credit, Supplier Return, Edit Invoice, Credit Note, Edit Product, Mark Posted, Variant Picker, Print Price List, Share, Follow-up Due, New Delivery) were built inside the scrolling page area (#scroll-area). iPhone Safari / WebKit keeps everything in that area beneath the tab bar whatever its z-index, so their bottom buttons sat under the bar. v14.42.0 and earlier masked this with bottom padding the height of the old tab bar; the v14.44.0 bottom sheets dropped that padding and exposed it. The 15 popups are now direct children of <body>, placed straight after the scrolling area in their original order, so they sit above the tab bar on every browser. Ids, classes and contents unchanged; every script finds them by id.
+PREV_CHANGE: 14-Oct-2026 - v14.44.0: APPLE-STYLE REDESIGN (LIQUID GLASS, NEUTRAL PAGES, APPLE BLUE, APPLE BUTTONS) + DEAD-CLICK FIX. Styles and navigation chrome only; no JavaScript logic, data, sync, WhatsApp text or export changed. No Code.gs change. Supersedes the v14.43.0 test build, which was not adopted.
+(Q1) BUG FIX: BUTTONS NOT RESPONDING ON PART OF THEIR AREA. The message bar (#toast) only faded to opacity 0 when hidden; it stayed in place above everything (z-index 9999), stretched across the screen just above the tab bar, and swallowed clicks on whatever sat behind it. Measured by sampling 15 points on every button of every page, sub-page and main popup at laptop and phone sizes: it blocked part or all of the bottom buttons of Edit Invoice, Edit Product (Save Changes, Delete), Share, Generate Catalogue, Print Price List (Price List, Print Tags, Cancel) and the confirm box (OK, Cancel), plus any page button resting just above the tab bar. It holds no buttons (Undo is a separate element), so it now has pointer-events:none. No other element was found blocking clicks, and no handler depends on which part of a button is pressed.
+(Q2) LIQUID GLASS. Translucent blurred header with content scrolling beneath it; floating capsule tab bar on phone and tablet; floating glass sidebar on laptop; frosted glass popups and bottom sheets with a grab handle; same glass header on sub-pages. A faint blue and orange wash behind the grey page lets the glass read as glass.
+(Q3) NEUTRAL PAGES. The brand tokens are remapped for app screens only: brown text becomes the system label colour, pale gold and cream panels become light grey, cards and fields white. Decorative blue, green, purple and peach panels in Settings and notes become plain grey groups. Red, amber and green status panels keep their colour because it carries meaning. #print-area and the invoice preview restore the original palette, so printed invoices, labels, price lists and the catalogue are unchanged.
+(Q4) APPLE BLUE ACCENT (#0071E3; link and tinted-button text #0066CC). Filled buttons, active tab, selected filter pills, switches, focus rings and links. Brown stays only on the "Vismaad Creations" name.
+(Q5) BUTTONS. Filled (main action), tinted (secondary) and red tinted (delete); capsule shape; sized to their text; phone 44px (small 36px), laptop 36px (small 30px); inline paddings and heights normalised; hover, press and disabled states; pointer cursor; keyboard focus ring. From 768px wide no button stretches across the page and button rows sit on the right. Phone keeps full-width main buttons, as iOS does.
+(Q6) TYPE AND LAYOUT. System font (SF Pro on iPhone, Segoe UI on Windows); Playfair Display only for the brand name and printed documents. Large page titles. Dropdowns show an arrow (appearance:none had hidden it). Laptop sidebar from 1024px wide with icon and text label on every item, hover highlight, no Mac-only controls. Page width up to 960px. color-scheme meta keeps the app in light mode.
+NOTE: all new rules are one block at the end of the main stylesheet plus the tab-bar icons and the sub-page Back label; inline-styled elements are restyled through that block, not edited one by one.
+PREV_CHANGE: 04-Oct-2026 - v14.42.0: HSN RE-PICKED WHEN EDITING + FASTER, MORE RELIABLE SYNC. REQUIRES Code.gs v5 (redeploy the Apps Script as a new version, same URL).
 (N1) HSN IN THE PRODUCT EDITOR. Opening Edit Product locked the HSN (_hsnManual.iem=true, v14.32.0), so renaming a product, including a bill-imported one under review, never changed its code. The lock now starts off: editing Name or Fabric re-picks the HSN from the fabric words; a code chosen from the dropdown during that edit still wins; a name and fabric with no fabric word leave the stored code as it is. Typing in Fabric Type now also re-picks the HSN on both Add Product and Edit Product (it had no hook).
 (N2) SYNC: BATCHED UPLOADS. Each upload made Code.gs read the whole sheet twice under a one-at-a-time lock, and the app sent three at once with a 12s limit, so on the large sheets uploads queued, timed out here while still saving there, were retried and ended as "Partial sync". Uploads for the same sheet now go together in one request (new Code.gs action=writeBatch, packed to the same 7500-character size a single write already used), one request at a time. Used by the sync, the DeletedIds tombstones, tracking imports, Track123 refresh, bill import, supplier bill and bulk invoice writes (gsWriteBatch / _pushConfirmedPool). With an older Code.gs the app falls back to one-by-one automatically.
 (N3) Single confirmed writes wait 30s instead of 12s (the sheet itself queues a write for up to 25s). Batches wait 60s and are retried once.
@@ -134,6 +156,7 @@ KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(v
      tables, which are the densest screens in the app. iOS has ignored these since iOS 10 anyway,
      so the only device it actually handicapped was Android. Removed. -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="color-scheme" content="light"/>
 <title>Vismaad Creations</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=Great+Vibes&family=Caveat:wght@400;600&display=swap" rel="stylesheet"/>
 <style>
@@ -399,6 +422,432 @@ body.gst-mode .gst-only{display:block;}
 .cat-sel-check{width:22px;height:22px;border-radius:6px;border:2px solid var(--border);background:var(--warm);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;}
 .cat-sel-check.checked{background:var(--brown);border-color:var(--brown);color:#fff;}
 
+/* ══════════════════════════════════════════════════════════════════════
+   v14.44.0 APPLE-STYLE LAYER: Liquid Glass bars, neutral pages, Apple blue
+   accent, Apple-style buttons. Restyles only; no ids, classes or behaviour
+   change. #print-area and the on-screen invoice preview keep the original
+   brand palette, so every printed document looks exactly as before.
+   ══════════════════════════════════════════════════════════════════════ */
+:root{
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --accent:#0071E3;          /* Apple web blue: 4.6:1 with white text */
+  --accent-hover:#0077ED;
+  --accent-press:#0062C4;
+  --accent-text:#0058B0;     /* links / tinted-button text: 7:1 on white, 5:1+ on tinted glass */
+  --accent-tint:rgba(0,113,227,.10);
+  --accent-tint2:rgba(0,113,227,.16);
+  --bg-grouped:#F2F2F7;
+  --surface:#FFFFFF;
+  --label:#1C1C1E;
+  --label2:#636366;          /* secondary text: 5.9:1 on white */
+  --label3:#8E8E93;
+  --sep:#E5E5EA;
+  --field-border:#C7C7CC;
+  --fill:rgba(118,118,128,.12);
+  --glass:rgba(255,255,255,.62);
+  --glass-strong:rgba(255,255,255,.80);
+  --glass-edge:rgba(255,255,255,.75);
+  --glass-blur:saturate(190%) blur(24px);
+  --sidebar-w:244px;
+  --btn-h:44px;--btn-h-sm:36px;--btn-fs:16px;--btn-fs-sm:14px;
+}
+/* Laptop / mouse: compact, macOS-like control sizes */
+@media(pointer:fine) and (min-width:768px){
+  :root{--btn-h:36px;--btn-h-sm:30px;--btn-fs:14px;--btn-fs-sm:13px;}
+}
+
+/* ── NEUTRAL PALETTE: the old brand tokens are remapped for the app screens.
+      Brown text becomes the system label colour; gold becomes the blue accent;
+      pale gold / cream panels become light grey; cards and fields white. ── */
+body{
+  --brown:#1C1C1E;--ink:#1C1C1E;--gold:#0071E3;--goldl:#64B5FF;
+  --goldp:#F2F2F7;--cream:#F2F2F7;--warm:#FFFFFF;--border:#D1D1D6;
+  font-family:var(--font);color:var(--label);-webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(1100px 650px at 0% 0%,rgba(0,113,227,.08),transparent 60%),
+    radial-gradient(900px 600px at 100% 100%,rgba(255,149,0,.06),transparent 60%),
+    var(--bg-grouped);
+  background-attachment:fixed;
+}
+/* Printed documents and the invoice preview keep the original brand colours */
+#print-area,#inv-preview-html,.inv-preview{
+  --brown:#5c3d1e;--ink:#1a1208;--gold:#c9933a;--goldl:#e8b96a;
+  --goldp:#f5e6c8;--cream:#fdf8f2;--warm:#fffdf9;--border:#e2d4bc;
+}
+#print-area{font-family:'DM Sans',sans-serif;color:#1a1208;}
+@media print{body{background:#fdf8f2!important;}}
+/* Inline filled-brown elements (selected filters, switches, active pills) take the accent */
+[style*="background:var(--brown)"]:not(#print-area *):not(#inv-preview-html *):not(#sub-page-container>div),
+[style*="background: var(--brown)"]:not(#print-area *):not(#inv-preview-html *):not(#sub-page-container>div){background:var(--accent)!important;}
+[style*="solid var(--brown)"]:not(#print-area *):not(#inv-preview-html *){border-color:var(--accent)!important;}
+/* Decorative tinted panels (settings groups, info notes) become plain grey groups.
+   Red, amber and green panels are left alone: their colour carries meaning. */
+[style*="background:#f0f7ff"]:not(#print-area *),[style*="background:#fff8ee"]:not(#print-area *),
+[style*="background:#f0fff4"]:not(#print-area *),[style*="background:#f5f0ff"]:not(#print-area *){
+  background:var(--bg-grouped)!important;border-color:transparent!important;}
+[style*="background:#f0e8d8"]:not(#print-area *),[style*="background: rgb(240, 232, 216)"]:not(#print-area *){background:var(--bg-grouped)!important;}
+#scroll-area [style*="DM Sans"],.modal [style*="DM Sans"],#setup-screen [style*="DM Sans"]{font-family:var(--font)!important;}
+
+
+/* ── LEGIBILITY: hard-coded light greys and bright status colours used for text
+      fail the 4.5:1 reading standard on white. Darkened shades of the SAME hue,
+      so every status keeps its meaning (green = done, orange = attention, red = problem). ── */
+.b-green{color:#1A6E37;}.b-yellow{color:#8F5E00;}.b-blue{color:#1F5F8B;}
+[style^="color:#888"]:not(#print-area *):not(#inv-preview-html *),
+[style*=";color:#888"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color:#888"]:not(#print-area *):not(#inv-preview-html *),
+[style^="color: rgb(136, 136, 136)"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color: rgb(136, 136, 136)"]:not(#print-area *):not(#inv-preview-html *){color:#636366!important;}
+[style^="color:#aaa"]:not(#print-area *):not(#inv-preview-html *),
+[style*=";color:#aaa"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color:#aaa"]:not(#print-area *):not(#inv-preview-html *),
+[style^="color: rgb(170, 170, 170)"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color: rgb(170, 170, 170)"]:not(#print-area *):not(#inv-preview-html *){color:#636366!important;}
+[style^="color:#bbb"]:not(#print-area *):not(#inv-preview-html *),
+[style*=";color:#bbb"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color:#bbb"]:not(#print-area *):not(#inv-preview-html *),
+[style^="color: rgb(187, 187, 187)"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color: rgb(187, 187, 187)"]:not(#print-area *):not(#inv-preview-html *){color:#8E8E93!important;}
+[style^="color:#27ae60"]:not(#print-area *):not(#inv-preview-html *),
+[style*=";color:#27ae60"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color:#27ae60"]:not(#print-area *):not(#inv-preview-html *),
+[style^="color: rgb(39, 174, 96)"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color: rgb(39, 174, 96)"]:not(#print-area *):not(#inv-preview-html *){color:#1A6E37!important;}
+[style^="color:#e67e22"]:not(#print-area *):not(#inv-preview-html *),
+[style*=";color:#e67e22"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color:#e67e22"]:not(#print-area *):not(#inv-preview-html *),
+[style^="color: rgb(230, 126, 34)"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color: rgb(230, 126, 34)"]:not(#print-area *):not(#inv-preview-html *){color:#A65300!important;}
+[style^="color:#f39c12"]:not(#print-area *):not(#inv-preview-html *),
+[style*=";color:#f39c12"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color:#f39c12"]:not(#print-area *):not(#inv-preview-html *),
+[style^="color: rgb(243, 156, 18)"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color: rgb(243, 156, 18)"]:not(#print-area *):not(#inv-preview-html *){color:#8F5E00!important;}
+[style^="color:#e74c3c"]:not(#print-area *):not(#inv-preview-html *),
+[style*=";color:#e74c3c"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color:#e74c3c"]:not(#print-area *):not(#inv-preview-html *),
+[style^="color: rgb(231, 76, 60)"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color: rgb(231, 76, 60)"]:not(#print-area *):not(#inv-preview-html *){color:#C0392B!important;}
+[style^="color:#c47b00"]:not(#print-area *):not(#inv-preview-html *),
+[style*=";color:#c47b00"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color:#c47b00"]:not(#print-area *):not(#inv-preview-html *),
+[style^="color: rgb(196, 123, 0)"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color: rgb(196, 123, 0)"]:not(#print-area *):not(#inv-preview-html *){color:#935C00!important;}
+[style^="color:#999"]:not(#print-area *):not(#inv-preview-html *),
+[style*=";color:#999"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color:#999"]:not(#print-area *):not(#inv-preview-html *),
+[style^="color: rgb(153, 153, 153)"]:not(#print-area *):not(#inv-preview-html *),
+[style*="; color: rgb(153, 153, 153)"]:not(#print-area *):not(#inv-preview-html *){color:#636366!important;}
+[style*="background:#27ae60"]:not(#print-area *):not(#inv-preview-html *),
+[style*="background: rgb(39, 174, 96)"]:not(#print-area *):not(#inv-preview-html *){background:#1E8449!important;}
+[style*="background:#e74c3c"]:not(#print-area *):not(#inv-preview-html *),
+[style*="background: rgb(231, 76, 60)"]:not(#print-area *):not(#inv-preview-html *){background:#C0392B!important;}
+[style*="background:#c47b00"]:not(#print-area *):not(#inv-preview-html *),
+[style*="background: rgb(196, 123, 0)"]:not(#print-area *):not(#inv-preview-html *){background:#935C00!important;}
+[style*="background:#888"]:not(#print-area *):not(#inv-preview-html *),
+[style*="background: rgb(136, 136, 136)"]:not(#print-area *):not(#inv-preview-html *){background:#636366!important;}
+
+/* ── HEADER: Liquid Glass bar, content scrolls underneath ── */
+.hdr{position:absolute;top:0;left:0;right:0;height:calc(var(--header-h) + env(safe-area-inset-top));min-height:0;
+  background:var(--glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+  color:var(--label);border-bottom:.5px solid rgba(0,0,0,.08);box-shadow:inset 0 -1px 0 var(--glass-edge);}
+.hdr-name{color:#5c3d1e;font-size:19px;}
+#hdr-version{color:var(--label2);opacity:1!important;}
+.hdr-sync{opacity:1;color:var(--label2);cursor:pointer;padding:8px 10px;margin-right:-10px;border-radius:999px;min-height:40px;}
+@media(hover:hover){.hdr-sync:hover{background:var(--fill);}}
+.scroll-area{padding-top:calc(var(--header-h) + env(safe-area-inset-top));}
+
+/* ── TITLES ── */
+.sec-title{font-family:var(--font);font-size:30px;font-weight:700;letter-spacing:-.6px;color:var(--label);margin:8px 0 16px;}
+.card-title{font-family:var(--font);font-size:17px;font-weight:600;letter-spacing:-.2px;color:var(--label);border-bottom:.5px solid var(--sep);}
+.modal-title{font-family:var(--font);font-size:20px;font-weight:700;letter-spacing:-.3px;color:var(--label);}
+
+/* ── TAB BAR: floating Liquid Glass capsule (phone and tablet) ── */
+.bnav{left:12px;right:12px;bottom:max(10px,env(safe-area-inset-bottom));height:62px;max-width:520px;margin:0 auto;
+  padding:5px;gap:2px;border-radius:31px;border:.5px solid var(--glass-edge);
+  background:var(--glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+  box-shadow:0 10px 30px rgba(0,0,0,.12),0 1px 3px rgba(0,0,0,.06),inset 0 1px 0 rgba(255,255,255,.7);}
+.bnav-btn{height:100%;padding:4px 2px;border-radius:26px;color:var(--label2);gap:1px;}
+.bnav-btn.active{color:var(--accent);background:var(--accent-tint);}
+.bnav-btn.active::after{display:none;}
+.bnav-icon{display:flex;align-items:center;justify-content:center;height:26px;font-size:0;}
+.bnav-icon svg{display:block;}
+.bnav-icon .tf{fill:none;transition:fill .15s;}
+.bnav-btn.active .bnav-icon .tf{fill:currentColor;fill-opacity:.18;}
+.bnav-label{font-size:10.5px;font-weight:600;letter-spacing:.1px;}
+.bnav-btn:not(.active) .bnav-label{color:inherit;opacity:1;}
+@media(hover:hover){.bnav-btn:not(.active):hover{background:rgba(0,0,0,.05);}}
+
+/* ── CARDS, STATS, LISTS ── */
+.card{background:var(--surface);border:none;border-radius:16px;box-shadow:0 1px 3px rgba(0,0,0,.05);margin-bottom:16px;}
+.collapse-card>.collapse-summary{border-bottom:.5px solid var(--sep);}
+.collapse-summary .collapse-chevron{color:var(--label3);}
+.stat-card{background:var(--surface);border:none;border-radius:16px;box-shadow:0 1px 3px rgba(0,0,0,.05);}
+.stat-val{font-family:var(--font);font-size:24px;font-weight:700;letter-spacing:-.4px;color:var(--label);}
+.stat-lbl{font-size:12px;color:var(--label2);text-transform:none;letter-spacing:0;font-weight:500;}
+.list-row,.settings-row{border-bottom:.5px solid var(--sep);}
+.list-sub,.settings-val{color:var(--label2);}
+.list-amt{color:var(--label);}
+.item-row{background:#FAFAFC;border:.5px solid var(--sep);border-radius:12px;}
+.sync-banner{border-radius:12px;border-color:transparent;}
+
+/* ── FORMS ── */
+.fg label{font-size:13px;font-weight:500;color:var(--label2);text-transform:none;letter-spacing:0;}
+.fg input,.fg select,.fg textarea{font-family:var(--font);background:var(--surface);border:1px solid var(--field-border);border-radius:10px;padding:11px 13px;color:var(--label);}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,113,227,.18);}
+.fg input[readonly]{background:var(--bg-grouped);border-color:transparent;}
+.fg select{
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238E8E93' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")!important;
+  background-repeat:no-repeat!important;background-position:right 12px center!important;padding-right:34px!important;}
+#scroll-area input:focus,#scroll-area select:focus,#scroll-area textarea:focus,.modal input:focus,.modal select:focus,.modal textarea:focus{outline:none;border-color:var(--accent)!important;}
+.sb-line input{font-family:var(--font);background:var(--surface);border:1px solid var(--field-border);}
+.sb-line label{color:var(--label2);}
+#scroll-area input[type=checkbox],.modal input[type=checkbox]{accent-color:var(--accent);}
+
+/* ── BUTTONS: Apple style. Filled (main), tinted (secondary), red tinted (delete).
+      Capsule shape, sized to the text, consistent heights, hover/press feedback. ── */
+.btn{font-family:var(--font);font-weight:600;font-size:var(--btn-fs);line-height:1.2;letter-spacing:-.1px;
+  min-height:var(--btn-h)!important;padding-top:6px!important;padding-bottom:6px!important;padding-left:18px;padding-right:18px;
+  border:none;border-radius:999px;gap:6px;cursor:pointer;-webkit-user-select:none;user-select:none;
+  transition:background-color .15s,opacity .15s,transform .1s;}
+.btn:active{transform:scale(.97);}
+.btn[style*="flex-start"]{border-radius:14px;padding-top:10px!important;padding-bottom:10px!important;}
+.btn-sm{min-height:var(--btn-h-sm)!important;padding-left:14px;padding-right:14px;font-size:var(--btn-fs-sm);width:auto;}
+.btn-p,.btn-g{background:var(--accent);color:#fff;border:none;}
+.btn-p:active,.btn-g:active{background:var(--accent-press);}
+.btn-o{background:var(--accent-tint);color:var(--accent-text);border:none;}
+.btn-o:active{background:var(--accent-tint2);}
+.btn-d{background:rgba(255,59,48,.10);color:#C4001A;border:none;}
+.btn-d:active{background:rgba(255,59,48,.18);}
+.btn:disabled,.btn[disabled]{opacity:.4;cursor:default;transform:none;}
+.btn:focus-visible,.bnav-btn:focus-visible,.chip:focus-visible,.modal-close:focus-visible,.hdr-sync:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+@media(hover:hover){
+  .btn-p:hover,.btn-g:hover{background:var(--accent-hover);}
+  .btn-o:hover{background:var(--accent-tint2);}
+  .btn-d:hover{background:rgba(255,59,48,.16);}
+}
+.btn-row{gap:10px;}
+/* Laptop and tablet: no button stretches across the page; button rows sit on the right */
+@media(min-width:768px){
+  .btn-p,.btn-g{width:auto;}
+  .btn[style*="width:100%"]{width:auto!important;}
+  .btn[style*="flex:1"]{flex:0 0 auto!important;}
+  .btn-row{justify-content:flex-end;flex-wrap:wrap;}
+  .btn-row>.btn{flex:0 0 auto!important;width:auto!important;}
+}
+/* Pill filters (sort, age, religion) and chips */
+.sort-btn,.age-tab,[id^="rfbtn-"]{cursor:pointer;min-height:32px;border-radius:999px!important;font-family:var(--font)!important;}
+.chip{background:var(--surface);border:1px solid var(--field-border);border-radius:999px;color:var(--label);cursor:pointer;}
+.chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+@media(hover:hover){.chip:not(.active):hover{background:var(--bg-grouped);}}
+.badge{border-radius:6px;font-weight:600;padding:3px 8px;}
+#cat-price-knob,#cat-so-knob{box-shadow:0 1px 3px rgba(0,0,0,.25);}
+
+/* ── DATA TABLES (only tables in .tbl-wrap) ── */
+.tbl-wrap thead th{background:var(--bg-grouped);color:var(--label2);font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.3px;border-bottom:.5px solid var(--sep);}
+.tbl-wrap tbody td{border-bottom:.5px solid var(--sep);}
+
+/* ── POPUPS: frosted glass panels ── */
+.modal-bg{background:rgba(0,0,0,.28);}
+.modal{background:var(--glass-strong);-webkit-backdrop-filter:saturate(180%) blur(30px);backdrop-filter:saturate(180%) blur(30px);
+  border:.5px solid var(--glass-edge);box-shadow:0 20px 60px rgba(0,0,0,.22);}
+.modal-close{background:var(--fill);color:var(--label2);font-size:14px;width:30px;height:30px;cursor:pointer;}
+@media(hover:hover){.modal-close:hover{background:rgba(118,118,128,.2);}}
+@media(max-width:767px){
+  .modal{border-radius:28px 28px 0 0;padding-top:10px;padding-bottom:calc(env(safe-area-inset-bottom) + 24px);}
+  .modal::before{content:'';display:block;width:36px;height:5px;border-radius:3px;background:rgba(60,60,67,.3);margin:0 auto 12px;}
+}
+@media(min-width:768px){.modal{border-radius:22px;}}
+
+/* ── MESSAGE BAR (toast). BUG FIX: when faded out it stayed on top of
+      everything as an invisible strip and swallowed clicks on whatever sat
+      behind it (popup bottom buttons, page buttons above the tab bar). It
+      holds no buttons, so it now never takes clicks. ── */
+.toast{pointer-events:none;background:rgba(30,30,32,.82);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);
+  border-radius:16px;bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) + 12px);max-width:520px;margin:0 auto;}
+
+/* ── SETUP SCREEN & SUB-PAGES ── */
+#setup-screen{background:var(--bg-grouped)!important;}
+#sub-page-container{background:
+    radial-gradient(1100px 650px at 0% 0%,rgba(0,113,227,.08),transparent 60%),
+    var(--bg-grouped)!important;}
+#sub-page-container>div:first-child{position:absolute!important;top:0;left:0;right:0;
+  background:var(--glass)!important;-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+  color:var(--label)!important;border-bottom:.5px solid rgba(0,0,0,.08);}
+#sub-page-scroll{padding-top:calc(var(--header-h) + env(safe-area-inset-top));}
+#sub-page-container>div:first-child>button{background:transparent!important;color:var(--accent-text)!important;font-size:17px!important;font-weight:500;padding:10px 10px!important;margin-left:-10px;border-radius:999px!important;cursor:pointer;}
+@media(hover:hover){#sub-page-container>div:first-child>button:hover{background:var(--fill)!important;}}
+#sub-page-title{font-family:var(--font)!important;font-size:17px!important;font-weight:600!important;color:var(--label);}
+#sub-sync-label{color:var(--label2);opacity:1!important;}
+
+/* ── LAPTOP (1024px+): floating glass sidebar with text labels.
+      No Mac-only controls: Windows keeps its own window buttons. ── */
+@media(min-width:1024px){
+  .hdr{left:var(--sidebar-w);}
+  .scroll-area{margin-left:var(--sidebar-w);padding-bottom:40px;}
+  #sub-page-container{left:var(--sidebar-w)!important;}
+  #sub-page-scroll{padding-bottom:40px!important;}
+  .bnav{top:12px;bottom:12px;left:12px;right:auto;width:calc(var(--sidebar-w) - 24px);height:auto;max-width:none;margin:0;
+    flex-direction:column;align-items:stretch;gap:2px;padding:12px 10px;border-radius:22px;}
+  .bnav-btn{flex:0 0 auto;flex-direction:row;justify-content:flex-start;gap:12px;height:40px;padding:0 12px;border-radius:12px;}
+  .bnav-btn .bnav-label{font-size:14px;font-weight:500;color:var(--label);}
+  .bnav-btn.active .bnav-label{color:var(--accent);font-weight:600;}
+  .toast{left:calc(var(--sidebar-w) + 24px);right:24px;bottom:24px;}
+  .page{padding:20px 32px 32px;max-width:960px;}
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════
+   v14.45.0 PAGE LAYOUT LAYER (Sales, More, Inventory, Invoice, Dashboard,
+   sub-pages). Builds on the v14.44 Apple-style layer above.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── P1: one style for every inline-styled field in the app shell ── */
+#scroll-area input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]):not([type=range]):not([style*="e74c3c"]):not([style*="c0392b"]),
+#scroll-area select:not([style*="e74c3c"]),#scroll-area textarea:not([style*="e74c3c"]),
+#sub-page-container input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]):not([type=range]):not([style*="e74c3c"]),
+#sub-page-container select,#sub-page-container textarea,
+.modal input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]):not([type=range]):not([style*="e74c3c"]),
+.modal select,.modal textarea{
+  font-family:var(--font)!important;border:1px solid var(--field-border)!important;border-radius:10px!important;}
+.sb-line.sb-bad input{border-color:#e74c3c!important;}
+#scroll-area select,#sub-page-container select,.modal select{
+  -webkit-appearance:none;appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238E8E93' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")!important;
+  background-repeat:no-repeat!important;background-position:right 10px center!important;padding-right:30px!important;}
+
+/* ── Shared small pieces ── */
+.btn-plain{background:transparent;color:var(--accent-text);border:none;padding-left:4px;padding-right:4px;}
+@media(hover:hover){.btn-plain:hover{background:var(--accent-tint);}}
+.ui-iconbtn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:999px;border:none;
+  background:var(--accent-tint);color:var(--accent-text);cursor:pointer;font-size:13px;font-weight:600;flex-shrink:0;}
+@media(hover:hover){.ui-iconbtn:hover{background:var(--accent-tint2);}}
+.ui-iconbtn:focus-visible,.ui-morebtn:focus-visible,.ui-row:focus-visible,.ui-tbtn:focus-visible,.ui-linkbtn:focus-visible,.ui-sheet-item:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.ui-linkbtn{background:none;border:none;color:var(--accent-text);font-family:var(--font);font-size:15px;font-weight:500;cursor:pointer;padding:8px 6px;border-radius:8px;}
+@media(hover:hover){.ui-linkbtn:hover{background:var(--accent-tint);}}
+.ui-scrollrow{flex-wrap:nowrap!important;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px;}
+.ui-scrollrow::-webkit-scrollbar{display:none;}
+.ui-scrollrow>*{flex-shrink:0;}
+
+/* ── S1: search row ── */
+.ui-searchrow #sales-search{flex:1 1 auto!important;min-width:0;}
+.ui-searchrow #sales-filter{flex:0 0 auto;width:auto;max-width:44%;}
+
+/* ── S2: selection row + floating bulk toolbar ── */
+.ui-selrow{display:flex;align-items:center;justify-content:space-between;margin:2px 2px 10px;}
+.ui-selall{display:inline-flex;align-items:center;gap:10px;cursor:pointer;min-height:36px;font-size:14px;color:var(--label2);}
+.ui-selall input{width:20px;height:20px;cursor:pointer;}
+.sale-cb{width:20px!important;height:20px!important;cursor:pointer;}
+.ui-bulkbar{position:fixed;z-index:120;left:12px;right:12px;max-width:520px;margin:0 auto;
+  bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) + 10px);
+  padding:8px 10px 6px;border-radius:22px;border:.5px solid var(--glass-edge);
+  background:var(--glass-strong);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+  box-shadow:0 10px 30px rgba(0,0,0,.16),inset 0 1px 0 rgba(255,255,255,.7);
+  opacity:0;transform:translateY(12px);pointer-events:none;visibility:hidden;transition:opacity .18s,transform .18s,visibility 0s .18s;}
+.ui-bulkbar.show{opacity:1;transform:none;pointer-events:auto;visibility:visible;transition:opacity .18s,transform .18s;}
+.ui-bulk-top{display:flex;align-items:center;justify-content:space-between;padding:0 4px 2px 6px;}
+.ui-bulk-count{font-size:14px;font-weight:600;color:var(--label);}
+.ui-bulk-btns{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;}
+.ui-tbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:50px;padding:4px 2px;
+  background:none;border:none;border-radius:14px;color:var(--accent-text);cursor:pointer;font-family:var(--font);font-size:11px;font-weight:600;}
+.ui-tbtn:active{background:var(--accent-tint2);}
+@media(hover:hover){.ui-tbtn:hover{background:var(--accent-tint);}}
+body.ui-bulk-on #scroll-area{padding-bottom:calc(62px + 110px + env(safe-area-inset-bottom) + 24px)!important;}
+body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) + 120px)!important;}
+
+/* ── S3: invoice card action row ── */
+.ui-cardactions{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:nowrap;}
+.ui-cardactions .btn-sm{padding-left:12px;padding-right:12px;flex-shrink:1;min-width:0;white-space:nowrap;}
+.ui-morebtn{display:inline-flex;align-items:center;justify-content:center;width:var(--btn-h-sm);height:var(--btn-h-sm);margin-left:auto;
+  border-radius:999px;border:none;background:var(--accent-tint);color:var(--accent-text);cursor:pointer;flex-shrink:0;}
+.ui-morebtn:active{background:var(--accent-tint2);}
+@media(hover:hover){.ui-morebtn:hover{background:var(--accent-tint2);}}
+
+/* ── Menus (action sheet on phone, small menu on laptop) ── */
+.ui-sheet-bg{position:fixed;inset:0;z-index:260;background:rgba(0,0,0,.28);display:flex;flex-direction:column;justify-content:flex-end;
+  padding:10px 10px calc(env(safe-area-inset-bottom) + 10px);gap:8px;animation:uiFade .15s ease;}
+.ui-sheet{background:var(--glass-strong);-webkit-backdrop-filter:saturate(180%) blur(30px);backdrop-filter:saturate(180%) blur(30px);
+  border-radius:16px;overflow:hidden;border:.5px solid var(--glass-edge);box-shadow:0 10px 40px rgba(0,0,0,.2);animation:uiUp .2s ease;}
+.ui-sheet-title{font-size:13px;color:var(--label2);text-align:center;padding:12px 16px 10px;border-bottom:.5px solid rgba(60,60,67,.18);}
+.ui-sheet-item{display:block;width:100%;min-height:52px;padding:0 16px;background:none;border:none;font-family:var(--font);font-size:17px;
+  color:var(--accent-text);cursor:pointer;text-align:center;}
+.ui-sheet-item+.ui-sheet-item{border-top:.5px solid rgba(60,60,67,.18);}
+.ui-sheet-item.danger{color:#C4001A;}
+.ui-sheet-item:active{background:rgba(0,0,0,.06);}
+@media(hover:hover){.ui-sheet-item:hover{background:rgba(0,0,0,.05);}}
+.ui-sheet-cancel{min-height:54px;border-radius:16px;border:none;background:#fff;font-family:var(--font);font-size:17px;font-weight:600;color:var(--accent-text);cursor:pointer;
+  box-shadow:0 10px 40px rgba(0,0,0,.2);animation:uiUp .2s ease;}
+.ui-sheet-bg.pop{background:transparent;display:block;padding:0;animation:none;}
+.ui-sheet-bg.pop .ui-sheet{position:fixed;background:rgba(255,255,255,.96);min-width:240px;max-width:320px;border-radius:12px;animation:uiFade .12s ease;}
+.ui-sheet-bg.pop .ui-sheet-title{text-align:left;font-size:12px;padding:8px 12px;}
+.ui-sheet-bg.pop .ui-sheet-item{min-height:36px;font-size:14px;text-align:left;padding:0 12px;color:var(--label);}
+.ui-sheet-bg.pop .ui-sheet-item.danger{color:#C4001A;}
+.ui-sheet-bg.pop .ui-sheet-item+.ui-sheet-item{border-top:none;}
+@keyframes uiFade{from{opacity:0}to{opacity:1}}
+@keyframes uiUp{from{transform:translateY(16px);opacity:.6}to{transform:none;opacity:1}}
+
+/* ── M1: grouped list (More) ── */
+.ui-group-h{font-size:13px;font-weight:500;color:var(--label2);text-transform:uppercase;letter-spacing:.3px;margin:4px 16px 6px;}
+.ui-group{background:var(--surface);border-radius:14px;overflow:hidden;margin-bottom:22px;box-shadow:0 1px 3px rgba(0,0,0,.05);}
+.ui-row{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:50px;padding:6px 14px;
+  background:none;border:none;font-family:var(--font);font-size:16px;color:var(--label);text-align:left;cursor:pointer;}
+.ui-row:not(:last-child)::after{content:'';position:absolute;left:56px;right:0;bottom:0;height:.5px;background:var(--sep);}
+.ui-row:active{background:#E5E5EA;}
+@media(hover:hover){.ui-row:hover{background:#F2F2F7;}}
+.ui-ico{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;color:#fff;flex-shrink:0;}
+.ui-lbl{flex:1;}
+.ui-chev{color:#C4C4C7;font-size:22px;line-height:1;font-weight:400;}
+@media(pointer:fine) and (min-width:768px){.ui-row{min-height:42px;font-size:14px;}.ui-ico{width:26px;height:26px;border-radius:7px;}.ui-row:not(:last-child)::after{left:50px;}}
+
+/* ── I1: inventory register toolbar and rows ── */
+.ui-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;}
+.ui-toolbar::-webkit-scrollbar{display:none;}
+.ui-toolbar>*{flex-shrink:0;}
+.ui-toolbar #inv-status-filter{min-height:var(--btn-h-sm);font-size:14px!important;padding-top:4px!important;padding-bottom:4px!important;}
+#inv-list .list-row{padding:10px 0;align-items:center;cursor:pointer;}
+#inv-list .btn-sm{min-height:32px!important;padding-left:12px;padding-right:12px;font-size:13px;}
+@media(pointer:fine) and (min-width:768px){#inv-list .btn-sm{min-height:28px!important;}}
+@media(hover:hover){#inv-list .list-row:hover{background:#FAFAFC;}}
+
+/* ── V1: invoice form spacing + total bar (phone) ── */
+#page-invoice .card{padding:14px 16px;}
+#page-invoice .fg{margin-bottom:12px;}
+#page-invoice .row2,#page-invoice .row3{gap:10px;}
+.ui-invbar{display:none;}
+@media(max-width:767px){
+  .ui-invbar{display:flex;position:fixed;z-index:110;left:12px;right:12px;max-width:520px;margin:0 auto;
+    bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) + 10px);
+    align-items:center;justify-content:space-between;gap:10px;padding:8px 8px 8px 16px;border-radius:999px;
+    border:.5px solid var(--glass-edge);background:var(--glass-strong);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+    box-shadow:0 10px 30px rgba(0,0,0,.14),inset 0 1px 0 rgba(255,255,255,.7);
+    opacity:0;transform:translateY(12px);pointer-events:none;visibility:hidden;transition:opacity .18s,transform .18s,visibility 0s .18s;}
+  .ui-invbar.show{opacity:1;transform:none;pointer-events:auto;visibility:visible;transition:opacity .18s,transform .18s;}
+  .ui-invbar-txt{display:flex;flex-direction:column;line-height:1.15;min-width:0;}
+  .ui-invbar-txt span{font-size:11px;color:var(--label2);font-weight:500;}
+  .ui-invbar-txt strong{font-size:18px;color:var(--label);letter-spacing:-.3px;}
+  .ui-invbar .btn{width:auto!important;flex:0 0 auto;}
+  body.ui-invbar-on #scroll-area{padding-bottom:calc(62px + 80px + env(safe-area-inset-bottom) + 24px)!important;}
+  body.ui-invbar-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) + 84px)!important;}
+}
+
+/* ── D1: dashboard ── */
+#money-toggle-btn{width:40px;height:40px;}
+#dash-orders .list-row,#dash-aging .list-row{padding:11px 0;}
+
+/* ── Laptop: bulk toolbar sits in the content column as one row ── */
+@media(min-width:768px){
+  .ui-bulkbar{display:flex;align-items:center;gap:10px;max-width:640px;padding:6px 8px 6px 16px;border-radius:999px;}
+  .ui-bulk-top{order:0;padding:0;gap:10px;flex-shrink:0;}
+  .ui-bulk-btns{display:flex;gap:2px;margin-left:auto;}
+  .ui-tbtn{flex-direction:row;gap:6px;min-height:var(--btn-h);padding:0 12px;border-radius:999px;font-size:13px;}
+  .ui-tbtn svg{width:18px;height:18px;}
+}
+@media(min-width:1024px){
+  .ui-bulkbar{left:calc(var(--sidebar-w) + 24px);right:24px;bottom:24px;}
+  body.ui-bulk-on #scroll-area{padding-bottom:110px!important;}
+  body.ui-bulk-on .toast{bottom:88px!important;}
+}
+
 </style>
 </head>
 <body>
@@ -575,10 +1024,7 @@ body.gst-mode .gst-only{display:block;}
 <div class="page active" id="page-dash">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
     <div class="sec-title" style="margin-bottom:0;">Dashboard</div>
-    <button id="money-toggle-btn" onclick="toggleMoneyVisibility()"
-      style="background:var(--goldp);border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;color:var(--brown);cursor:pointer;">
-      👁 Show
-    </button>
+    <button id="money-toggle-btn" class="ui-iconbtn" onclick="toggleMoneyVisibility()" aria-label="Show amounts" title="Show amounts">👁 Show</button>
   </div>
   <div class="trk-upload-note" style="display:none;background:#fff8e1;border:1px solid #f5c26b;border-radius:10px;padding:10px 12px;font-size:13px;color:#7a5200;margin-bottom:14px;"></div>
   <div id="dash-sync-banner" class="sync-banner" style="display:none;">
@@ -628,29 +1074,10 @@ body.gst-mode .gst-only{display:block;}
 </div>
 
 <!-- ════ FOLLOW-UP POPUP ════ -->
-<div class="modal-bg" id="followup-popup" style="z-index:99990;">
-  <div class="modal">
-    <div class="modal-title">📬 Follow-up Due</div>
-    <div id="followup-popup-content" style="margin-bottom:16px;"></div>
-    <div style="display:flex;flex-direction:column;gap:10px;">
-      <button class="btn btn-g" style="min-height:48px;" onclick="sendFollowup()">💬 Send Message on WhatsApp</button>
-      <button class="btn btn-o" style="min-height:44px;" onclick="skipFollowup()">Skip for Now</button>
-      <button class="btn btn-o" style="min-height:44px;color:#c0392b;" onclick="optOutFollowup()">Opted Out — Do Not Send Again</button>
-    </div>
-    <div id="followup-popup-counter" style="text-align:center;font-size:12px;color:#aaa;margin-top:10px;"></div>
-  </div>
-</div>
+
 
 <!-- ════ DELIVERY REVIEW POPUP ════ -->
-<div class="modal-bg" id="review-popup" style="z-index:99991;">
-  <div class="modal">
-    <div class="modal-title">📦 New Delivery — Request Review?</div>
-    <div style="font-size:12px;color:#888;margin-bottom:14px;">These parcels were just marked Delivered. You can send them a delivery notification.</div>
-    <div id="review-popup-content" style="margin-bottom:4px;"></div>
-    <div id="review-popup-counter" style="text-align:center;font-size:12px;color:#aaa;margin-top:10px;"></div>
-    <button class="btn btn-o" style="min-height:40px;width:100%;margin-top:12px;font-size:13px;" onclick="closeReviewPopup()">Later — Remind Next Time</button>
-  </div>
-</div>
+
 
 <!-- ════ INVOICE PAGE ════ -->
 <div class="page" id="page-invoice">
@@ -842,9 +1269,13 @@ body.gst-mode .gst-only{display:block;}
     </div>
   </details>
 
-  <!-- Add product -->
-  <div class="card">
-    <div class="card-title">➕ Add Product</div>
+  <!-- Add product (v14.45.0: collapsible, open by default) -->
+  <details class="card collapse-card" id="ip-card" open>
+    <summary class="collapse-summary">
+      <span class="card-title" style="margin:0;display:inline;">➕ Add Product</span>
+      <span class="collapse-chevron">▾</span>
+    </summary>
+    <div style="margin-top:12px;">
     <div class="row2">
       <div class="fg"><label>Product No. *</label><input type="number" id="ip-num" placeholder="Auto" min="1"/></div>
       <div class="fg"><label>Date Received</label><input type="date" id="ip-date"/></div>
@@ -878,7 +1309,8 @@ body.gst-mode .gst-only{display:block;}
     </div>
     <div class="fg"><label>Notes</label><input id="ip-notes" placeholder="Colour, design details…"/></div>
     <button class="btn btn-p" onclick="saveProduct()">💾 Add to Inventory</button>
-  </div>
+    </div>
+  </details>
 
   <!-- Register (v14.33.0 — moved directly below Add Product; collapsible, open by default) -->
   <details class="card collapse-card" id="inv-register-card" open>
@@ -887,7 +1319,7 @@ body.gst-mode .gst-only{display:block;}
       <span class="collapse-chevron">▾</span>
     </summary>
     <div style="margin-top:12px;">
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+      <div class="ui-toolbar" style="margin-bottom:10px;">
         <select id="inv-status-filter" onchange="renderInventory()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--cream);font-size:12px;">
           <option value="">All</option><option value="instock">In Stock</option><option value="sold">Sold Out</option><option value="pending">⏳ Pending review</option>
         </select>
@@ -953,7 +1385,7 @@ body.gst-mode .gst-only{display:block;}
   <div class="sec-title">Sales</div>
 
   <!-- Search + filter + sort -->
-  <div style="display:flex;gap:8px;margin-bottom:8px;">
+  <div class="ui-searchrow" style="display:flex;gap:8px;margin-bottom:8px;">
     <input type="text" id="sales-search" placeholder="🔍 Search name, invoice…" oninput="debouncedRenderSales()" style="flex:1;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:14px;"/>
     <select id="sales-filter" onchange="renderSales()" style="padding:12px 10px;border-radius:10px;border:1.5px solid var(--border);background:var(--warm);font-size:13px;">
       <option value="">All</option>
@@ -967,7 +1399,7 @@ body.gst-mode .gst-only{display:block;}
     </select>
   </div>
   <!-- Religion filter -->
-  <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">
+  <div class="ui-scrollrow" style="display:flex;gap:6px;margin-bottom:8px;align-items:center;">
     <span style="font-size:11px;color:#888;">Religion:</span>
     <button onclick="toggleSalesReligionFilter('All')" id="rfbtn-All" style="padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;cursor:pointer;border:2px solid var(--brown);background:var(--brown);color:#fff;">All</button>
     <button onclick="toggleSalesReligionFilter('Hindu')" id="rfbtn-Hindu" style="padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;cursor:pointer;border:2px solid #c0392b;background:transparent;color:#c0392b;">Hindu</button>
@@ -977,7 +1409,7 @@ body.gst-mode .gst-only{display:block;}
   </div>
 
   <!-- Sort bar -->
-  <div style="display:flex;gap:6px;margin-bottom:10px;overflow-x:auto;padding-bottom:2px;" id="sort-bar">
+  <div class="ui-scrollrow" style="display:flex;gap:6px;margin-bottom:10px;overflow-x:auto;padding-bottom:2px;" id="sort-bar">
     <button class="sort-btn active" data-sort="date-desc" onclick="setSort(this,'date-desc')" style="padding:7px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--brown);color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">📅 Newest first</button>
     <button class="sort-btn" data-sort="date-asc" onclick="setSort(this,'date-asc')" style="padding:7px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--cream);color:var(--brown);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">📅 Oldest first</button>
     <button class="sort-btn" data-sort="invno-asc" onclick="setSort(this,'invno-asc')" style="padding:7px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--cream);color:var(--brown);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">🔢 INV ↑</button>
@@ -986,25 +1418,9 @@ body.gst-mode .gst-only{display:block;}
     <button class="sort-btn" data-sort="amount-asc" onclick="setSort(this,'amount-asc')" style="padding:7px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--cream);color:var(--brown);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">₹ Low–High</button>
   </div>
 
-  <!-- Bulk actions bar -->
-  <div class="card" style="padding:12px 14px;margin-bottom:10px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-      <div style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="sel-all-cb" onchange="toggleSelectAll(this)" style="width:18px;height:18px;cursor:pointer;"/>
-        <span style="font-size:13px;color:#888;" id="sel-count">Select all</span>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-g btn-sm" onclick="bulkMarkShipped(true)">🚚 Shipped</button>
-        <button class="btn btn-o btn-sm" onclick="bulkMarkShipped(false)">↩ Pending</button>
-        <button class="btn btn-g btn-sm" onclick="bulkMarkDelivered(true)">✅ Delivered</button>
-        <button class="btn btn-o btn-sm" onclick="bulkMarkDropshipped()">📦 Dropship</button>
-        <button class="btn btn-o btn-sm" onclick="bulkPrint()">🖨️ Print</button>
-        <button class="btn btn-o btn-sm" onclick="bulkPrintLabels()">📦 Labels</button>
-        <button class="btn btn-o btn-sm" onclick="showBatchShipping()">💰 Batch Ship Cost</button>
-        <button class="btn btn-o btn-sm" onclick="showPartnerReport()">📤 Partner Report</button>
-        <button class="btn btn-d btn-sm" onclick="bulkDelete()">🗑 Delete</button>
-      </div>
-    </div>
+  <!-- Selection row (v14.45.0: bulk actions appear in a floating toolbar once an invoice is ticked) -->
+  <div class="ui-selrow">
+    <label class="ui-selall"><input type="checkbox" id="sel-all-cb" onchange="toggleSelectAll(this)"/><span id="sel-count">Select all</span></label>
   </div>
 
   <!-- Danger zone -->
@@ -1037,22 +1453,29 @@ body.gst-mode .gst-only{display:block;}
 <div class="page" id="page-more">
   <div class="sec-title">More</div>
 
-  <!-- Quick actions -->
-  <div class="card">
-    <div class="card-title">⚡ Quick Actions</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-      <button class="btn btn-o btn-sm" onclick="showSubPage('purchases')">🛒 Purchases Register</button>
-      <button class="btn btn-o btn-sm" onclick="showSubPage('suppliers')">🏭 Suppliers & Bills</button>
-      <button class="btn btn-o btn-sm" onclick="showSubPage('pl')">📈 P&L Report</button>
-      <button class="btn btn-o btn-sm" onclick="showSubPage('labels')">📦 Shipping Labels</button>
-      <button class="btn btn-o btn-sm" onclick="showSubPage('bulk')">📊 Bulk Import</button>
-      <button class="btn btn-o btn-sm" onclick="showSubPage('export')">⬇️ Export to Excel</button>
-      <button class="btn btn-o btn-sm" onclick="showSubPage('bulkedit')">✏️ Bulk Invoice Editor</button>
-      <button class="btn btn-o btn-sm" onclick="showSubPage('tracking')">📡 Tracking Status</button>
-      <button class="btn btn-o btn-sm" onclick="showSubPage('dsreport')">📦 DS Report</button>
-      <button class="btn btn-o btn-sm" onclick="showSubPage('courierspend')">🚚 Courier Spend</button>
-      <button class="btn btn-o btn-sm" onclick="toggleSettings()">⚙️ Settings</button>
-    </div>
+  <!-- Quick actions (v14.45.0: grouped list) -->
+  <div class="ui-group-h">Reports</div>
+  <div class="ui-group">
+      <button type="button" class="ui-row" onclick="showSubPage('pl')"><span class="ui-ico" style="background:#34C759;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5h16M7 16v-5M12 16V7M17 16v-8"/></svg></span><span class="ui-lbl">P&amp;L Report</span><span class="ui-chev" aria-hidden="true">›</span></button>
+      <button type="button" class="ui-row" onclick="showSubPage('courierspend')"><span class="ui-ico" style="background:#FF9500;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 7h11v9h-11zM13.5 10h4l3 3v3h-7"/><circle cx="6.5" cy="17.5" r="1.6"/><circle cx="17" cy="17.5" r="1.6"/></svg></span><span class="ui-lbl">Courier Spend</span><span class="ui-chev" aria-hidden="true">›</span></button>
+      <button type="button" class="ui-row" onclick="showSubPage('dsreport')"><span class="ui-ico" style="background:#AF52DE;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5 12 3.5l8.5 4v9L12 20.5l-8.5-4z"/><path d="M3.5 7.5 12 11.5l8.5-4M12 11.5v9"/></svg></span><span class="ui-lbl">DS Report</span><span class="ui-chev" aria-hidden="true">›</span></button>
+      <button type="button" class="ui-row" onclick="showSubPage('export')"><span class="ui-ico" style="background:#30B0C7;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></svg></span><span class="ui-lbl">Export to Excel</span><span class="ui-chev" aria-hidden="true">›</span></button>
+  </div>
+  <div class="ui-group-h">Shipping</div>
+  <div class="ui-group">
+      <button type="button" class="ui-row" onclick="showSubPage('tracking')"><span class="ui-ico" style="background:#0A84FF;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.6-6-10.5a6 6 0 0 1 12 0C18 15.4 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.2"/></svg></span><span class="ui-lbl">Tracking Status</span><span class="ui-chev" aria-hidden="true">›</span></button>
+      <button type="button" class="ui-row" onclick="showSubPage('labels')"><span class="ui-ico" style="background:#FF9500;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 12.5v-8h8l9 9-8 8z"/><circle cx="8" cy="9" r="1.4"/></svg></span><span class="ui-lbl">Shipping Labels</span><span class="ui-chev" aria-hidden="true">›</span></button>
+  </div>
+  <div class="ui-group-h">Purchases</div>
+  <div class="ui-group">
+      <button type="button" class="ui-row" onclick="showSubPage('purchases')"><span class="ui-ico" style="background:#5856D6;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h2.6l2 11h10.6l2-8H6.3"/><circle cx="9.5" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/></svg></span><span class="ui-lbl">Purchases Register</span><span class="ui-chev" aria-hidden="true">›</span></button>
+      <button type="button" class="ui-row" onclick="showSubPage('suppliers')"><span class="ui-ico" style="background:#8E5A2B;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V9l5 3V9l5 3V5h6v15M2.5 20h19"/></svg></span><span class="ui-lbl">Suppliers &amp; Bills</span><span class="ui-chev" aria-hidden="true">›</span></button>
+  </div>
+  <div class="ui-group-h">Tools</div>
+  <div class="ui-group">
+      <button type="button" class="ui-row" onclick="showSubPage('bulk')"><span class="ui-ico" style="background:#0A84FF;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 19.5h14"/></svg></span><span class="ui-lbl">Bulk Import</span><span class="ui-chev" aria-hidden="true">›</span></button>
+      <button type="button" class="ui-row" onclick="showSubPage('bulkedit')"><span class="ui-ico" style="background:#5856D6;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span><span class="ui-lbl">Bulk Invoice Editor</span><span class="ui-chev" aria-hidden="true">›</span></button>
+      <button type="button" class="ui-row" onclick="toggleSettings()"><span class="ui-ico" style="background:#8E8E93;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8"/></svg></span><span class="ui-lbl">Settings</span><span class="ui-chev" aria-hidden="true">›</span></button>
   </div>
 
   <!-- Settings -->
@@ -1172,11 +1595,88 @@ body.gst-mode .gst-only{display:block;}
   <div class="card">
     <div class="card-title">☁️ Google Sheets Sync</div>
     <div id="sync-info-rows"></div>
-    <button class="btn btn-o" style="margin-top:12px;" onclick="syncAll(true)">🔄 Sync Now</button>
+    <button class="btn btn-plain" style="margin-top:8px;" onclick="syncAll(true)">🔄 Sync Now</button>
   </div>
 </div>
 
 <!-- ════ EDIT INVOICE MODAL ════ -->
+
+
+<!-- ════ CREDIT NOTE MODAL ════ -->
+
+
+<!-- ════ MARK POSTED DATE PICKER MODAL ════ -->
+
+
+<!-- ════ INVENTORY EDIT MODAL ════ -->
+
+
+<!-- ════ VARIANT PICKER MODAL ════ -->
+
+
+<!-- ════ INVENTORY PRICE LIST PRINT DIALOG ════ -->
+
+
+<!-- ════ SUPPLIER ADD/EDIT MODAL ════ -->
+
+
+<!-- ════ BILL ADD/EDIT MODAL ════ -->
+
+
+<!-- ════ PAYMENT MODAL ════ -->
+
+
+
+<!-- ════ SUPPLIER STANDALONE PAYMENT MODAL ════ -->
+
+
+<!-- ════ SUPPLIER CREDIT MODAL ════ -->
+
+
+<!-- ════ SUPPLIER RETURN MODAL ════ -->
+
+
+
+<!-- ════ SUB-PAGES (slide in from right) ════ -->
+<div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;flex-direction:column;">
+  <div style="background:var(--brown);color:#fff;display:flex;align-items:center;padding:0 16px;padding-top:env(safe-area-inset-top);min-height:calc(var(--header-h) + env(safe-area-inset-top));gap:12px;flex-shrink:0;position:relative;z-index:10;">
+    <button onclick="closeSubPage()" style="background:rgba(255,255,255,.15);border:none;border-radius:8px;color:#fff;padding:10px 14px;font-size:15px;cursor:pointer;min-height:44px;flex-shrink:0;">‹ Back</button>
+    <span id="sub-page-title" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;flex:1;"></span>
+    <div class="hdr-sync" onclick="syncAll(true)" style="flex-shrink:0;">
+      <div class="sync-dot sub-sync-dot" id="sub-sync-dot"></div>
+      <span id="sub-sync-label" style="font-size:12px;opacity:.8;">Tap to sync</span>
+    </div>
+  </div>
+  <div id="sub-page-scroll" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px);">
+    <div class="ptr" id="ptr-sub-indicator">↓ Syncing…</div>
+    <div id="sub-page-content" style="padding:16px;padding-bottom:32px;"></div>
+  </div>
+</div>
+
+</div><!-- end scroll-area -->
+
+<!-- v14.44.1: popups moved out of the scrolling area so they always sit above the tab bar -->
+<div class="modal-bg" id="followup-popup" style="z-index:99990;">
+  <div class="modal">
+    <div class="modal-title">📬 Follow-up Due</div>
+    <div id="followup-popup-content" style="margin-bottom:16px;"></div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <button class="btn btn-g" style="min-height:48px;" onclick="sendFollowup()">💬 Send Message on WhatsApp</button>
+      <button class="btn btn-o" style="min-height:44px;" onclick="skipFollowup()">Skip for Now</button>
+      <button class="btn btn-o" style="min-height:44px;color:#c0392b;" onclick="optOutFollowup()">Opted Out — Do Not Send Again</button>
+    </div>
+    <div id="followup-popup-counter" style="text-align:center;font-size:12px;color:#aaa;margin-top:10px;"></div>
+  </div>
+</div>
+<div class="modal-bg" id="review-popup" style="z-index:99991;">
+  <div class="modal">
+    <div class="modal-title">📦 New Delivery — Request Review?</div>
+    <div style="font-size:12px;color:#888;margin-bottom:14px;">These parcels were just marked Delivered. You can send them a delivery notification.</div>
+    <div id="review-popup-content" style="margin-bottom:4px;"></div>
+    <div id="review-popup-counter" style="text-align:center;font-size:12px;color:#aaa;margin-top:10px;"></div>
+    <button class="btn btn-o" style="min-height:40px;width:100%;margin-top:12px;font-size:13px;" onclick="closeReviewPopup()">Later — Remind Next Time</button>
+  </div>
+</div>
 <div class="modal-bg" id="edit-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeEditModal()">✕</button>
@@ -1275,8 +1775,6 @@ body.gst-mode .gst-only{display:block;}
     </div>
   </div>
 </div>
-
-<!-- ════ CREDIT NOTE MODAL ════ -->
 <div class="modal-bg" id="cn-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeCNModal()">✕</button>
@@ -1315,8 +1813,6 @@ body.gst-mode .gst-only{display:block;}
     </div>
   </div>
 </div>
-
-<!-- ════ MARK POSTED DATE PICKER MODAL ════ -->
 <div class="modal-bg" id="mark-posted-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeMarkPostedModal()">✕</button>
@@ -1333,8 +1829,6 @@ body.gst-mode .gst-only{display:block;}
     </div>
   </div>
 </div>
-
-<!-- ════ INVENTORY EDIT MODAL ════ -->
 <div class="modal-bg" id="inv-edit-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeInvEditModal()">✕</button>
@@ -1406,8 +1900,6 @@ body.gst-mode .gst-only{display:block;}
     </div>
   </div>
 </div>
-
-<!-- ════ VARIANT PICKER MODAL ════ -->
 <div class="modal-bg" id="variant-picker-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeVariantPickerModal()">✕</button>
@@ -1417,8 +1909,6 @@ body.gst-mode .gst-only{display:block;}
     <button class="btn btn-o" onclick="closeVariantPickerModal()" style="width:auto;padding:13px 16px;">Cancel</button>
   </div>
 </div>
-
-<!-- ════ INVENTORY PRICE LIST PRINT DIALOG ════ -->
 <div class="modal-bg" id="inv-print-modal">
   <div class="modal">
     <button class="modal-close" onclick="document.getElementById('inv-print-modal').classList.remove('open')">X</button>
@@ -1456,8 +1946,6 @@ body.gst-mode .gst-only{display:block;}
     </div>
   </div>
 </div>
-
-<!-- ════ SUPPLIER ADD/EDIT MODAL ════ -->
 <div class="modal-bg" id="sup-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeSupModal()">X</button>
@@ -1484,8 +1972,6 @@ body.gst-mode .gst-only{display:block;}
     </div>
   </div>
 </div>
-
-<!-- ════ BILL ADD/EDIT MODAL ════ -->
 <div class="modal-bg" id="bill-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeBillModal()">X</button>
@@ -1518,8 +2004,6 @@ body.gst-mode .gst-only{display:block;}
     </div>
   </div>
 </div>
-
-<!-- ════ PAYMENT MODAL ════ -->
 <div class="modal-bg" id="pay-modal">
   <div class="modal">
     <button class="modal-close" onclick="closePayModal()">X</button>
@@ -1547,9 +2031,6 @@ body.gst-mode .gst-only{display:block;}
     </div>
   </div>
 </div>
-
-
-<!-- ════ SUPPLIER STANDALONE PAYMENT MODAL ════ -->
 <div class="modal-bg" id="stxn-pay-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeStxnModal('stxn-pay-modal')">✕</button>
@@ -1576,8 +2057,6 @@ body.gst-mode .gst-only{display:block;}
     </div>
   </div>
 </div>
-
-<!-- ════ SUPPLIER CREDIT MODAL ════ -->
 <div class="modal-bg" id="stxn-credit-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeStxnModal('stxn-credit-modal')">✕</button>
@@ -1603,8 +2082,6 @@ body.gst-mode .gst-only{display:block;}
     </div>
   </div>
 </div>
-
-<!-- ════ SUPPLIER RETURN MODAL ════ -->
 <div class="modal-bg" id="stxn-return-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeStxnModal('stxn-return-modal')">✕</button>
@@ -1670,23 +2147,6 @@ body.gst-mode .gst-only{display:block;}
   </div>
 </div>
 
-<!-- ════ SUB-PAGES (slide in from right) ════ -->
-<div id="sub-page-container" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:150;flex-direction:column;">
-  <div style="background:var(--brown);color:#fff;display:flex;align-items:center;padding:0 16px;padding-top:env(safe-area-inset-top);min-height:calc(var(--header-h) + env(safe-area-inset-top));gap:12px;flex-shrink:0;position:relative;z-index:10;">
-    <button onclick="closeSubPage()" style="background:rgba(255,255,255,.15);border:none;border-radius:8px;color:#fff;padding:10px 14px;font-size:15px;cursor:pointer;min-height:44px;flex-shrink:0;">← Back</button>
-    <span id="sub-page-title" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;flex:1;"></span>
-    <div class="hdr-sync" onclick="syncAll(true)" style="flex-shrink:0;">
-      <div class="sync-dot sub-sync-dot" id="sub-sync-dot"></div>
-      <span id="sub-sync-label" style="font-size:12px;opacity:.8;">Tap to sync</span>
-    </div>
-  </div>
-  <div id="sub-page-scroll" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px);">
-    <div class="ptr" id="ptr-sub-indicator">↓ Syncing…</div>
-    <div id="sub-page-content" style="padding:16px;padding-bottom:32px;"></div>
-  </div>
-</div>
-
-</div><!-- end scroll-area -->
 
 <!-- ════ CATALOGUE GENERATE DIALOG ════ -->
 <div class="modal-bg" id="cat-gen-modal">
@@ -1802,22 +2262,39 @@ body.gst-mode .gst-only{display:block;}
   </div>
 </div>
 
+
+<!-- v14.45.0: floating bars, outside the scrolling area so Safari keeps them above the tab bar -->
+<div id="ui-bulkbar" class="ui-bulkbar" role="toolbar" aria-label="Selected invoices">
+  <div class="ui-bulk-top"><span id="ui-bulk-count" class="ui-bulk-count">0 selected</span><button type="button" class="ui-linkbtn" onclick="uiClearSelection()">Clear</button></div>
+  <div class="ui-bulk-btns">
+    <button type="button" class="ui-tbtn" onclick="bulkMarkShipped(true)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 7h11v9h-11zM13.5 10h4l3 3v3h-7"/><circle cx="6.5" cy="17.5" r="1.6"/><circle cx="17" cy="17.5" r="1.6"/></svg><span>Shipped</span></button>
+    <button type="button" class="ui-tbtn" onclick="bulkMarkDelivered(true)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M8 12.3l2.7 2.7L16.2 9.5"/></svg><span>Delivered</span></button>
+    <button type="button" class="ui-tbtn" onclick="bulkPrint()"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 9V3.5h10V9M7 17H4.5V9h15v8H17"/><path d="M7 14h10v6.5H7z"/></svg><span>Print</span></button>
+    <button type="button" class="ui-tbtn" onclick="bulkPrintLabels()"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 12.5v-8h8l9 9-8 8z"/><circle cx="8" cy="9" r="1.4"/></svg><span>Labels</span></button>
+    <button type="button" class="ui-tbtn" onclick="uiBulkMore(this)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18" cy="12" r="1.3" fill="currentColor"/></svg><span>More</span></button>
+  </div>
+</div>
+<div id="ui-invbar" class="ui-invbar">
+  <div class="ui-invbar-txt"><span id="ui-invbar-lbl">Grand Total</span><strong id="ui-invbar-total">₹0.00</strong></div>
+  <button type="button" class="btn btn-p" onclick="generateInvoice()">🧾 Generate Invoice</button>
+</div>
+
 <!-- BOTTOM NAV -->
 <div class="bnav">
   <button class="bnav-btn active" id="bnav-dash" onclick="showPage('dash',this)">
-    <span class="bnav-icon">🏠</span><span class="bnav-label">Home</span>
+    <span class="bnav-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 10.5 12 3.8l8.5 6.7"/><path class="tf" d="M5.5 9.2V20h4.8v-5.6h3.4V20h4.8V9.2"/></svg></span><span class="bnav-label">Home</span>
   </button>
   <button class="bnav-btn" id="bnav-invoice" onclick="showPage('invoice',this)">
-    <span class="bnav-icon">🧾</span><span class="bnav-label">Invoice</span>
+    <span class="bnav-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="tf" d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 15.5h7M9 8.5h3"/></svg></span><span class="bnav-label">Invoice</span>
   </button>
   <button class="bnav-btn" id="bnav-inventory" onclick="showPage('inventory',this)">
-    <span class="bnav-icon">📦</span><span class="bnav-label">Inventory</span>
+    <span class="bnav-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="tf" d="M3.5 7.5 12 3.5l8.5 4v9L12 20.5l-8.5-4z"/><path d="M3.5 7.5 12 11.5l8.5-4M12 11.5v9"/></svg></span><span class="bnav-label">Inventory</span>
   </button>
   <button class="bnav-btn" id="bnav-sales" onclick="showPage('sales',this)">
-    <span class="bnav-icon">📋</span><span class="bnav-label">Sales</span>
+    <span class="bnav-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect class="tf" x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span><span class="bnav-label">Sales</span>
   </button>
   <button class="bnav-btn" id="bnav-more" onclick="showPage('more',this)">
-    <span class="bnav-icon">⋯</span><span class="bnav-label">More</span>
+    <span class="bnav-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle class="tf" cx="12" cy="12" r="9"/><circle cx="7.8" cy="12" r=".9" fill="currentColor"/><circle cx="12" cy="12" r=".9" fill="currentColor"/><circle cx="16.2" cy="12" r=".9" fill="currentColor"/></svg></span><span class="bnav-label">More</span>
   </button>
 </div>
 
@@ -4476,15 +4953,11 @@ function renderSales(){
           </div>
           <div style="font-size:12px;color:#888;margin-top:2px;">${esc(inv.itemsSummary)||''}</div>
           ${inv.channel?`<div style="font-size:12px;color:#888;margin-top:2px;">${chIcon[inv.channel]||''} ${esc(inv.channel)}</div>`:''}
-          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;padding-bottom:4px;">
-            <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="viewInvoiceByIdx(${idx})">👁 View</button>
-            <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="openShareModal(salesFiltered[${idx}])">📤 Share</button>
-            <button class="btn btn-o btn-sm" style="min-height:44px;" onclick="editInvoiceByIdx(${idx})">✏️ Edit</button>
-            <button class="btn btn-sm ${shipped?'btn-o':'btn-g'}" style="min-height:44px;" onclick="toggleShippedByIdx(${idx})">${shipped?'↩':'🚚'}</button>
-            <button class="btn btn-sm ${manualDelivered?'btn-o':'btn-g'}" style="min-height:44px;" onclick="toggleDeliveredByIdx(${idx})" title="${manualDelivered?'Undo manual Delivered mark':'Mark Delivered manually'}">${manualDelivered?'↩ Delivered':'✅ Delivered'}</button>
-            <button class="btn btn-d btn-sm" style="min-height:44px;" onclick="deleteInvoiceByIdx(${idx})">🗑</button>
-            ${_invSt==='Active'?`<button class="btn btn-o btn-sm" style="min-height:44px;font-size:11px;" onclick="openInvStatusModal(salesFiltered[${idx}])">📋 Status</button>`:''}
-            ${_invSt!=='Active'?`<button class="btn btn-o btn-sm" style="min-height:44px;font-size:11px;" onclick="_applyInvoiceStatus(salesFiltered[${idx}],'Active')">↺ Reactivate</button>`:''}
+          <div class="ui-cardactions">
+            <button class="btn btn-o btn-sm" onclick="viewInvoiceByIdx(${idx})">👁 View</button>
+            <button class="btn btn-o btn-sm" onclick="openShareModal(salesFiltered[${idx}])">📤 Share</button>
+            <button class="btn btn-o btn-sm" onclick="editInvoiceByIdx(${idx})">✏️ Edit</button>
+            <button type="button" class="ui-morebtn" aria-label="More actions" title="More actions" data-shipped="${shipped?1:0}" data-mdel="${manualDelivered?1:0}" data-st="${esc(_invSt)}" onclick="uiInvMenu(${idx},this)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18" cy="12" r="1.3" fill="currentColor"/></svg></button>
           </div>
           ${(()=>{const invCNs=creditNotes.filter(cn=>String(cn.refInvId)===String(inv.id));if(!invCNs.length)return'';return'<div style="margin-top:8px;border-top:1px solid #e8dcc8;padding-top:8px;">'+invCNs.map(cn=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;"><div><span style="font-size:11px;font-weight:700;color:#c0392b;">'+cn.cnNo+'</span> <span style="font-size:11px;color:#888;">'+fmtDate(cn.cnDate)+' · '+cn.reason+'</span></div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:12px;font-weight:700;color:#c0392b;">−₹'+parseFloat(cn.creditAmount||0).toLocaleString('en-IN')+'</span><button class="btn btn-o btn-sm" style="padding:4px 8px;font-size:10px;min-height:0;" onclick="printCreditNote('+JSON.stringify(cn).replace(/"/g,'&quot;')+')">🖨️</button></div></div>').join('')+'</div>'})()}
         </div>
@@ -15313,4 +15786,148 @@ function _sbDoDeletePending(delNo){
 }
 
 init();
+</script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+// v14.45.0 UI LAYER
+// Shows, hides and arranges controls that already exist. Every action here
+// calls the same function the old buttons called. No data, sync, calculation
+// or print code is touched. Wrapped functions keep their behaviour and only
+// gain a redraw of the new bars afterwards.
+// ═══════════════════════════════════════════════════════════════════════
+const _ui$=id=>document.getElementById(id);
+function _uiSubOpen(){const s=_ui$('sub-page-container');return !!s&&s.style.display==='flex';}
+
+// ── Floating bars: bulk toolbar on Sales, total bar on Invoice ──
+function uiSyncTotal(){
+  const sb=_ui$('summary-box'),tot=_ui$('ui-invbar-total'),lbl=_ui$('ui-invbar-lbl');
+  if(!sb||!tot)return;
+  const rows=sb.querySelectorAll('.list-row');
+  let t='₹0.00',l='Grand Total';
+  if(rows.length){
+    const st=rows[rows.length-1].querySelectorAll('strong');
+    if(st.length>=2){l=st[0].textContent.trim();t=st[st.length-1].textContent.trim();}
+  }
+  tot.textContent=t;if(lbl)lbl.textContent=l;
+}
+function uiSyncBars(){
+  try{
+    const page=(typeof curPage==='string')?curPage:'';
+    const sub=_uiSubOpen();
+    const n=document.querySelectorAll('.sale-cb:checked').length;
+    const bulkOn=page==='sales'&&!sub&&n>0;
+    const bb=_ui$('ui-bulkbar');
+    if(bb){bb.classList.toggle('show',bulkOn);const c=_ui$('ui-bulk-count');if(c)c.textContent=n+' selected';}
+    document.body.classList.toggle('ui-bulk-on',bulkOn);
+    const prev=_ui$('inv-preview-section');
+    const invOn=page==='invoice'&&!sub&&!(prev&&prev.style.display==='block');
+    const ib=_ui$('ui-invbar');if(ib)ib.classList.toggle('show',invOn);
+    document.body.classList.toggle('ui-invbar-on',invOn);
+    uiSyncTotal();
+  }catch(e){console.warn('uiSyncBars:',e);}
+}
+function uiClearSelection(){
+  document.querySelectorAll('.sale-cb').forEach(c=>{c.checked=false;});
+  const a=_ui$('sel-all-cb');if(a)a.checked=false;
+  updateSelCount();
+}
+
+// ── Menus: bottom action sheet on phone, small menu beside the button on laptop ──
+function uiCloseSheet(){
+  const bg=_ui$('ui-sheet-bg');if(bg)bg.remove();
+  document.removeEventListener('keydown',_uiSheetKey);
+}
+function _uiSheetKey(e){if(e.key==='Escape')uiCloseSheet();}
+function uiSheet(title,items,anchor){
+  uiCloseSheet();
+  const wide=window.matchMedia('(min-width:768px)').matches&&anchor;
+  const bg=document.createElement('div');
+  bg.id='ui-sheet-bg';bg.className='ui-sheet-bg'+(wide?' pop':'');
+  bg.addEventListener('click',e=>{if(e.target===bg)uiCloseSheet();});
+  const box=document.createElement('div');box.className='ui-sheet';box.setAttribute('role','menu');
+  if(title){const h=document.createElement('div');h.className='ui-sheet-title';h.textContent=title;box.appendChild(h);}
+  items.forEach(it=>{
+    const b=document.createElement('button');b.type='button';b.setAttribute('role','menuitem');
+    b.className='ui-sheet-item'+(it.danger?' danger':'');b.textContent=it.label;
+    b.addEventListener('click',()=>{uiCloseSheet();it.fn();});
+    box.appendChild(b);
+  });
+  bg.appendChild(box);
+  if(!wide){
+    const c=document.createElement('button');c.type='button';c.className='ui-sheet-cancel';c.textContent='Cancel';
+    c.addEventListener('click',uiCloseSheet);bg.appendChild(c);
+  }
+  document.body.appendChild(bg);
+  if(wide){
+    const r=anchor.getBoundingClientRect(),w=box.offsetWidth,h=box.offsetHeight;
+    let top=r.bottom+6;if(top+h>window.innerHeight-12)top=Math.max(12,r.top-h-6);
+    let left=r.right-w;if(left<12)left=12;if(left+w>window.innerWidth-12)left=window.innerWidth-12-w;
+    box.style.top=top+'px';box.style.left=left+'px';
+  }
+  document.addEventListener('keydown',_uiSheetKey);
+  const first=box.querySelector('.ui-sheet-item');if(first&&wide)first.focus();
+}
+window.addEventListener('resize',uiCloseSheet);
+
+// Invoice card "..." menu. The labels follow the same state the old buttons showed.
+function uiInvMenu(idx,btn){
+  const inv=salesFiltered[idx];if(!inv)return;
+  const shipped=btn.dataset.shipped==='1',mdel=btn.dataset.mdel==='1',st=btn.dataset.st||'Active';
+  const items=[
+    {label:shipped?'↩ Mark as Pending':'🚚 Mark as Shipped',fn:()=>toggleShippedByIdx(idx)},
+    {label:mdel?'↩ Undo Delivered':'✅ Mark Delivered',fn:()=>toggleDeliveredByIdx(idx)},
+    st==='Active'
+      ?{label:'📋 Status (Cancel / Return)',fn:()=>openInvStatusModal(salesFiltered[idx])}
+      :{label:'↺ Reactivate',fn:()=>_applyInvoiceStatus(salesFiltered[idx],'Active')},
+    {label:'🗑 Delete',danger:true,fn:()=>deleteInvoiceByIdx(idx)}
+  ];
+  uiSheet((inv.invNo||'Invoice')+(inv.custName?' · '+inv.custName:''),items,btn);
+}
+// Bulk toolbar "More" menu
+function uiBulkMore(btn){
+  const n=document.querySelectorAll('.sale-cb:checked').length;
+  uiSheet(n+' selected',[
+    {label:'↩ Mark as Pending',fn:()=>bulkMarkShipped(false)},
+    {label:'📦 Dropship',fn:()=>bulkMarkDropshipped()},
+    {label:'💰 Batch Ship Cost',fn:()=>showBatchShipping()},
+    {label:'📤 Partner Report',fn:()=>showPartnerReport()},
+    {label:'🗑 Delete',danger:true,fn:()=>bulkDelete()}
+  ],btn);
+}
+
+// ── Dashboard eye icon ──
+const _UI_EYE='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>';
+function uiMoneyIcon(){
+  const b=_ui$('money-toggle-btn');if(!b)return;
+  const vis=(typeof _moneyVisible!=='undefined')&&_moneyVisible;
+  b.innerHTML=_UI_EYE+(vis?'<path d="M4 4l16 16"/>':'')+'</svg>';
+  const t=vis?'Hide amounts':'Show amounts';
+  b.setAttribute('aria-label',t);b.title=t;
+}
+
+// ── Wrap existing functions so the bars redraw after them ──
+(function uiInit(){
+  function wrap(name,after){
+    const f=window[name];if(typeof f!=='function')return;
+    window[name]=function(){
+      const r=f.apply(this,arguments);
+      try{after();}catch(e){console.warn('ui after '+name+':',e);}
+      return r;
+    };
+  }
+  wrap('updateSelCount',uiSyncBars);
+  wrap('renderSales',()=>window.updateSelCount()); // re-count after the list is redrawn
+  wrap('showPage',uiSyncBars);
+  wrap('showSubPage',uiSyncBars);
+  wrap('closeSubPage',uiSyncBars);
+  wrap('toggleMoneyVisibility',uiMoneyIcon);
+  const sb=_ui$('summary-box');
+  if(sb&&window.MutationObserver)new MutationObserver(uiSyncTotal).observe(sb,{childList:true,subtree:true,characterData:true});
+  const pv=_ui$('inv-preview-section');
+  if(pv&&window.MutationObserver)new MutationObserver(uiSyncBars).observe(pv,{attributes:true,attributeFilter:['style']});
+  uiMoneyIcon();
+  uiSyncBars();
+})();
+
 </script>
