@@ -3,10 +3,29 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.45.0
+APP: Vismaad Creations v14.46.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 14-Oct-2026 - v14.45.0: PAGE-BY-PAGE APPLE-STYLE LAYOUT (SALES, MORE, INVENTORY, INVOICE, DASHBOARD, SUB-PAGES). No Code.gs change. Saving, sync, data, calculations, WhatsApp texts, exports and printed documents untouched. Every moved control calls exactly the function its old button called.
+LAST_CHANGE: 17-Oct-2026 - v14.46.0: STOCK RECONCILIATION (PHYSICAL COUNT IS FINAL). No Code.gs change (the StockLog sheet is created by the existing getOrCreateSheet on first write).
+(R1) NEW PAGE More → Tools → Stock Reconciliation. Type the product number of every piece on the shelf, separated by spaces, commas or new lines; a number repeated N times = N pieces ("#" optional). The list is a draft kept on this device (vc_stockcount_draft) until applied or cleared. Live tally chips, with numbers not in the register marked "new". Anything that is not a number blocks Apply.
+(R2) PREVIEW. Raised / Lowered / Set to 0 / New counts, units now → after, and expandable lists (old → new) for Raised, Lowered, Set to 0, Colour split changed and Unchanged. Blocking problems are listed in red and keep Apply disabled.
+(R3) THE COUNT IS FINAL. On Apply every listed product (pending-review ones included) gets exactly its count and every product not listed goes to 0, sold-out ones included. Lowered pieces count as sold (qtySold = received - counted, received unchanged); raised pieces raise the received quantity (qtyOriginal = counted + sold), sales history unchanged. Invoices, P&L, GST export and the live catalogue sheet are not touched.
+(R4) COLOUR / DESIGN PRODUCTS. A listed product with variants shows a per-colour split, prefilled from the current colour quantities and topped up or trimmed starting at the first colour; editable; Apply stays disabled until every split adds up to the count. Unlisted variant products have every colour set to 0.
+(R5) NUMBERS NOT IN THE REGISTER become new products with the exact number typed, qty = count, marked ⏳ Review (importName "Stock count #N", so Save & Confirm asks for a real name unless one was given). Per number: optional name, HSN (auto-picked from the name, editable), cost incl. GST, sale price (auto = cost × 1.30 with the bill-import rounding rule, editable). One Date Received for all of them, default today. Remove button drops a number from the list. A new number more than 20 above the current highest needs a tick, so a typo like 1200 for 120 cannot silently push every future product number up. A number that belonged to a deleted product is safe: the old delete record only removes products saved before it.
+(R6) APPLY ORDER. Confirm → full sync (waits for any running sync; if the sync does not fully confirm, nothing changes) → if the sync changed the plan, the updated preview is shown and Apply must be tapped again → a stock backup file downloads (vismaad-stock-backup-<date>-<time>.json: qty, sold, received and colour quantities of every product) → changes saved on the device → uploaded in batches with progress (anything unconfirmed is retried by the normal sync) → one StockLog row per change (date, product, old, new, change, type, colour split), queued on the device and re-sent until confirmed.
+(R7) RESTORE STOCK FROM BACKUP on the same page: reads that backup file and puts back qty, sold, received, colour quantities and count markers for products that still exist; products added later and products not in the file are left alone; logged to StockLog as "restore".
+(R8) OLD INVOICES AFTER A COUNT. Deleting an invoice, or marking it Cancelled / Returned (status button or credit-note flow), when it is dated on or before the latest stock count and has own-stock lines, now asks "Did the pieces physically come back to your shelf?" with No as the main button. Yes puts stock back exactly as before. No leaves stock as counted (a deleted invoice is only unlinked from its products); a voided invoice remembers it (stockKeptOnVoid) so a later Reactivate does not take the pieces out a second time. stockKeptOnVoid travels in the invoice sync merge. Invoices dated after the count behave exactly as before. The count date is the newest stockCountDate on any product, so every device knows it through the normal inventory sync.
+(R10) BUG FIX: BULK DELETE NEVER PUT STOCK BACK. _doBulkDelete only removed the invoices; it never restored their pieces and never removed the invoices from their products' linked-invoice lists, while single delete always did. Both now share _invDeleteStock (linked-stock spill reversed, colours handled, dropship lines skipped, links removed). Ticked invoices dated on or before the stock count get ONE "Put stock back?" question for the batch; the others always put stock back. Touched products upload together with confirmation.
+(R11) BUG FIX: DELETING A CANCELLED / RETURNED INVOICE PUT ITS STOCK BACK A SECOND TIME. Voiding already restores the pieces, and delete never checked the status. Delete (single and bulk) now only unlinks such an invoice from its products. One voided with "No, keep count" (stockKeptOnVoid, stock never put back) is deleted like an active invoice.
+(R12) SAME QUESTION FOR THE OTHER STOCK MOVES ON PRE-COUNT INVOICES (dated on or before the latest count; No is the main button; later invoices unchanged):
+  Reactivate (Cancelled/Returned → Active) of an invoice whose stock was put back: "Did the pieces physically leave your shelf?" Yes deducts as before; No leaves stock as counted.
+  Mark as Dropship (Edit Invoice toggle, and bulk Dropship with ONE question for the batch): "Did the pieces physically come back to your shelf?" Yes puts stock back as before; No tags the line without moving stock.
+  Un-mark Dropship (Edit Invoice toggle): "Did the pieces physically leave your shelf?" Yes deducts as before; No un-tags without moving stock.
+  A No marks the invoice LINE countKept (kept through expandItems and the sheet): its piece is settled by the count, so no later delete, cancel, return, reactivate or dropship toggle moves stock for that line again, and none of them asks about it.
+(R13) Reactivate kept the fresh linked-stock spill on a copy of the lines and dropped it; the invoice now stores it, so a later cancel or delete reverses exactly what reactivation took.
+(R9) PENDING-REVIEW RENUMBERING. A product included in a count (stockCounted) now blocks the delete-and-renumber move, since its number is on a physical tag; the gap is left instead.
+NEW PRODUCT FIELDS: stockCountDate, stockCounted (ride the existing {...p} spread; Apps Script adds the columns on first write).
+PREV_CHANGE: 14-Oct-2026 - v14.45.0: PAGE-BY-PAGE APPLE-STYLE LAYOUT (SALES, MORE, INVENTORY, INVOICE, DASHBOARD, SUB-PAGES). No Code.gs change. Saving, sync, data, calculations, WhatsApp texts, exports and printed documents untouched. Every moved control calls exactly the function its old button called.
 (S1) SALES FILTERS. Search and status filter share one row; the religion pills and the sort pills each stay on one line and scroll sideways instead of wrapping.
 (S2) SALES BULK ACTIONS. The always-visible nine-button card is replaced by a slim "Select all" row. Ticking any invoice shows a floating glass toolbar above the tab bar ("N selected", Clear) with Shipped, Delivered, Print, Labels and More; More opens a menu with Pending, Dropship, Batch Ship Cost, Partner Report and Delete. Same functions as before (bulkMarkShipped, bulkMarkDelivered, bulkPrint, bulkPrintLabels, bulkMarkDropshipped, showBatchShipping, showPartnerReport, bulkDelete), still reading the ticked boxes. The toolbar lives outside the scrolling area so Safari cannot hide it under the tab bar. renderSales now re-counts the selection after it redraws the list (the old count could stay stale after a sync redraw).
 (S3) SALES INVOICE CARDS. View, Share and Edit stay on the card; Shipped/Pending, Delivered/Undo, Status/Reactivate and Delete move into a "..." menu (bottom sheet on phone, small menu beside the button on laptop), calling toggleShippedByIdx, toggleDeliveredByIdx, openInvStatusModal / _applyInvoiceStatus(...,'Active') and deleteInvoiceByIdx exactly as the old buttons did. Menu labels follow the same state the old buttons showed. Delete keeps its confirm step.
@@ -1475,6 +1494,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
   <div class="ui-group">
       <button type="button" class="ui-row" onclick="showSubPage('bulk')"><span class="ui-ico" style="background:#0A84FF;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 19.5h14"/></svg></span><span class="ui-lbl">Bulk Import</span><span class="ui-chev" aria-hidden="true">›</span></button>
       <button type="button" class="ui-row" onclick="showSubPage('bulkedit')"><span class="ui-ico" style="background:#5856D6;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span><span class="ui-lbl">Bulk Invoice Editor</span><span class="ui-chev" aria-hidden="true">›</span></button>
+      <button type="button" class="ui-row" onclick="showSubPage('stockcount')"><span class="ui-ico" style="background:#34C759;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4.5h6M9 3h6v3H9z"/><path d="M7 4.5H5.5v16h13v-16H17"/><path d="M8.5 13l2.5 2.5 4.5-5"/></svg></span><span class="ui-lbl">Stock Reconciliation</span><span class="ui-chev" aria-hidden="true">›</span></button>
       <button type="button" class="ui-row" onclick="toggleSettings()"><span class="ui-ico" style="background:#8E8E93;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8"/></svg></span><span class="ui-lbl">Settings</span><span class="ui-chev" aria-hidden="true">›</span></button>
   </div>
 
@@ -2660,6 +2680,7 @@ function expandItems(arr){
     dsUpfront:i.dsUpfront||false,
     variantId:i.variantId||'', // v14.26.0: was stripped here — sync merge lost variant links, breaking variant stock restores cross-device
     spill:Array.isArray(i.spill)?i.spill:[], // v14.27.0: units taken from LINKED products — must survive the sheet round-trip or restores can't reverse the pool
+    countKept:i.countKept===true||i.countKept==='true', // v14.46.0: this line's piece is settled by a stock count; its stock is never moved again
   }));
 }
 function numberToWords(n){
@@ -3089,6 +3110,7 @@ async function syncAll(manual){
             if(r.custPin)local.custPin=r.custPin;
             if(r.custState)local.custState=r.custState;
             if(r.dispatchDate)local.dispatchDate=r.dispatchDate;
+            local.stockKeptOnVoid=_pBool(r.stockKeptOnVoid); // v14.46.0
           } else if(!locTime&&!remTime){
             // No timestamps on either side — remote wins only if not locally shipped
             // Backfill timestamp so future syncs can resolve correctly
@@ -3584,7 +3606,8 @@ function showSubPage(id){
     tracking:'📡 Tracking Status',
     suppliers:'🏭 Suppliers & Bills',
     dsreport:'📦 Dropship Report',
-    courierspend:'🚚 Courier Spend'
+    courierspend:'🚚 Courier Spend',
+    stockcount:'📦 Stock Reconciliation'
   };
   if(titleEl)titleEl.textContent=titles[id]||id;
   content.innerHTML=buildSubPage(id);
@@ -3596,6 +3619,7 @@ function showSubPage(id){
   if(id==='tracking'){renderTrackingPage();_renderTrkUploadNote();}
   if(id==='dsreport')renderDSReport();
   if(id==='courierspend')setCourierSpendPeriod('thismonth');
+  if(id==='stockcount')scInitPage(); // v14.46.0
 }
 function closeSubPage(){
   const c=document.getElementById('sub-page-container');
@@ -5029,6 +5053,18 @@ function bulkMarkDropshipped(){
     const rawName=(document.getElementById('bds-sup-input')||{}).value||'';
     const supName=rawName.trim();
     if(!supName){toast('⚠️ Enter a supplier name');return;}
+    // v14.46.0: lines on invoices dated on or before the stock count get one question for the batch
+    const _pre=sel.filter(inv=>invStatusOf(inv)==='Active'&&_invPreCount(inv)&&expandItems(inv.itemsArr).some(_lineMovable));
+    if(_pre.length){
+      setTimeout(()=>_askStockBack(_pre.length===1?(_pre[0].invNo||'1 invoice'):(_pre.length+' of the selected invoices'),function(back){_bulkDSRun(sel,supName,back);},_pre.length>1),50);
+      return;
+    }
+    _bulkDSRun(sel,supName,true);
+  },null);
+  setTimeout(()=>{const el=document.getElementById('bds-sup-input');if(el){el.focus();el.select();}},100);
+}
+function _bulkDSRun(sel,supName,preBack){
+  {
     lsSet('vc_last_ds_sup_name',supName);
     let sup=suppliers.find(s=>s.name&&s.name.trim().toLowerCase()===supName.toLowerCase());
     let supId=sup?String(sup.id):('ds_'+Date.now());
@@ -5041,9 +5077,12 @@ function bulkMarkDropshipped(){
     const _dsTouched=new Set(); // v14.30.0: products whose stock we hand back
     sel.forEach(inv=>{
       const arr=expandItems(inv.itemsArr);
+      const _keepHere=!preBack&&invStatusOf(inv)==='Active'&&_invPreCount(inv); // v14.46.0
       arr.forEach(it=>{
         if(it.dsSupId)return;
-        _flipItemDS(inv,it,true).forEach(n=>_dsTouched.add(n)); // non-DS → DS: restore stock BEFORE tagging
+        if(it.countKept===true||it.countKept==='true'){}            // v14.46.0: settled by a count, stock stays
+        else if(_keepHere&&parseInt(it.prodNo))it.countKept=true;    // v14.46.0: answered No, stock stays as counted
+        else _flipItemDS(inv,it,true).forEach(n=>_dsTouched.add(n)); // non-DS → DS: restore stock BEFORE tagging
         it.dsSupId=supId;
         it.dsSupName=supName;
         it.dsDate=inv.invDate||today(); // v14.35.0 B9: was UTC
@@ -5068,8 +5107,7 @@ function bulkMarkDropshipped(){
       }
       toast(ok+'/'+sel.length+' DS updates confirmed in Google Sheets');
     })();
-  },null);
-  setTimeout(()=>{const el=document.getElementById('bds-sup-input');if(el){el.focus();el.select();}},100);
+  }
 }
 function bulkPrint(){
   const sel=getSelectedInvoices();
@@ -5111,6 +5149,24 @@ function _doBulkDelete(){
   const cbs=document.querySelectorAll('.sale-cb:checked');
   const sel=Array.from(cbs).map(cb=>salesFiltered[parseInt(cb.dataset.idx)]).filter(Boolean);
   if(!sel.length)return;
+  // v14.46.0 BUG FIX: bulk delete never put stock back or unlinked the invoices from their products
+  // (single delete always did). Invoices dated on or before the stock count ask once for the batch.
+  const _pre=sel.filter(_invNeedsStockAsk);
+  if(_pre.length){
+    setTimeout(()=>_askStockBack(_pre.length===1?(_pre[0].invNo||'1 invoice'):(_pre.length+' of the selected invoices'),function(back){_doBulkDeleteRun(sel,back);},_pre.length>1),50);
+    return;
+  }
+  _doBulkDeleteRun(sel,true);
+}
+function _doBulkDeleteRun(sel,preBack){
+  const _touched=new Set();
+  sel.forEach(inv=>_invDeleteStock(inv,_invNeedsStockAsk(inv)&&!preBack,_touched));
+  if(_touched.size){
+    saveStk();
+    _pushConfirmedPool(inventory.filter(p=>_touched.has(parseInt(p.prodNo))).map(p=>[SHEETS.inventory,flattenProduct(p)]),3)
+      .then(f=>{if(f)toast('⚠️ '+f+' product(s) not uploaded yet — the next sync will retry',5000);}).catch(()=>{});
+    try{renderInventory();renderAgingGrid();updateInventoryStats();}catch(e){}
+  }
   const ids=new Set(sel.map(i=>String(i.id)));
   ids.forEach(id=>{addDeletedId(id);gsDelete(SHEETS.invoices,id);gsWrite('DeletedIds',{id:String(id),deletedAt:new Date().toISOString()});}); // v14.25.0 H1
   invoices=invoices.filter(i=>!ids.has(String(i.id)));
@@ -5203,17 +5259,30 @@ function addDeletedId(id){
 
 function deleteInvoiceByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
-  showConfirmModal('🗑 Delete Invoice','Delete '+(inv.invNo||'this record')+'?<br/><br/>This removes it from your device and Google Sheet. Issue a Credit Note for legal record of cancellation.',function(){_doDeleteInvoice(inv);},null);return;}
-function _doDeleteInvoice(inv){
-  addDeletedId(inv.id);
-  gsWrite('DeletedIds',{id:String(inv.id),deletedAt:new Date().toISOString()}); // v14.25.0 H1
-  // Restore inventory for all items on this invoice
+  showConfirmModal('🗑 Delete Invoice','Delete '+(inv.invNo||'this record')+'?<br/><br/>This removes it from your device and Google Sheet. Issue a Credit Note for legal record of cancellation.',function(){
+    // v14.46.0: an invoice dated on or before the stock count asks whether its pieces really came back
+    if(_invNeedsStockAsk(inv)){setTimeout(()=>_askStockBack(inv.invNo||'This invoice',function(back){_doDeleteInvoice(inv,{noRestore:!back});}),50);return;}
+    _doDeleteInvoice(inv);
+  },null);return;}
+// v14.46.0: stock side of deleting one invoice, shared by single and bulk delete.
+// noRestore=true keeps stock as counted and only unlinks the invoice from its products.
+// v14.46.0: a Cancelled/Returned invoice whose pieces were already put back when it was voided
+function _invStockAlreadyBack(inv){
+  const st=invStatusOf(inv);
+  return (st==='Cancelled'||st==='Returned')&&!_pBool(inv.stockKeptOnVoid);
+}
+function _invDeleteStock(inv,noRestore,_touched){
+  // v14.46.0 BUG FIX: deleting a voided invoice put its stock back a second time
+  const _noRestore=!!noRestore||_invStockAlreadyBack(inv);
   const items = Array.isArray(inv.itemsArr) ? inv.itemsArr : [];
-  const _touched=new Set(); // v14.27.0: includes LINKED siblings the spill drained
   items.forEach(it=>{
     if(isDS(it))return; // v14.30.0: never deducted (dropshipped) — restoring would invent phantom stock
     const num=parseInt(it.prodNo);if(!num)return;
     const prod=inventory.find(p=>parseInt(p.prodNo)===num);if(!prod)return;
+    if(_noRestore||it.countKept===true||it.countKept==='true'){ // v14.46.0: stock stays as counted; only the link to the deleted invoice goes
+      if(Array.isArray(prod.linkedInvoices))prod.linkedInvoices=prod.linkedInvoices.filter(id=>String(id)!==String(inv.id));
+      prod.updatedAt=new Date().toISOString();_touched.add(num);return;
+    }
     const soldQty=parseInt(it.qty)||1;
     const sp=Array.isArray(it.spill)?it.spill:[];
     const spilled=sp.reduce((s,x)=>s+(parseInt(x.qty)||0),0);
@@ -5227,6 +5296,15 @@ function _doDeleteInvoice(inv){
     restoreStock(prod,it.variantId,soldQty,sp).forEach(n=>_touched.add(n)); // v14.26.0 variant-safe · v14.27.0 pool-safe
     prod.updatedAt=new Date().toISOString();
   });
+}
+function _doDeleteInvoice(inv,opts){
+  const _noRestore=!!(opts&&opts.noRestore); // v14.46.0: keep stock as counted
+  addDeletedId(inv.id);
+  gsWrite('DeletedIds',{id:String(inv.id),deletedAt:new Date().toISOString()}); // v14.25.0 H1
+  // Restore inventory for all items on this invoice
+  const items = Array.isArray(inv.itemsArr) ? inv.itemsArr : [];
+  const _touched=new Set(); // v14.27.0: includes LINKED siblings the spill drained
+  _invDeleteStock(inv,_noRestore,_touched);
   if(items.length){
     saveStk();
     // v14.25.0 C5: push only restored products (was: entire inventory)
@@ -5330,16 +5408,25 @@ function renderEditDSItems(inv){
   }
 }
 
-function toggleEditDSItem(invId,itemIdx,checked){
+function toggleEditDSItem(invId,itemIdx,checked,_ans){
   const inv=invoices.find(i=>String(i.id)===String(invId));if(!inv)return;
   const arr=expandItems(inv.itemsArr);
   if(!arr[itemIdx])return;
   const it=arr[itemIdx];
   const wasDS=isDS(it);
+  const _kept=it.countKept===true||it.countKept==='true';
+  // v14.46.0: on an invoice dated on or before the stock count, ask before moving any stock
+  if(_ans===undefined&&!_kept&&parseInt(it.prodNo)&&_invPreCount(inv)&&invStatusOf(inv)==='Active'&&checked!==wasDS){
+    renderEditDSItems(inv); // keep the tick as it was until answered
+    setTimeout(()=>_askStockBack(inv.invNo||'This invoice',function(a){toggleEditDSItem(invId,itemIdx,checked,a);},false,checked?'':'out'),50);
+    return;
+  }
+  const _noMove=_kept||_ans===false; // settled by the count: tag only, stock stays as counted
+  if(_ans===false)it.countKept=true;
   // v14.30.0: move stock to match the flip on this already-saved invoice
   let _touched=new Set();
   if(checked&&!wasDS){
-    _touched=_flipItemDS(inv,it,true);   // non-DS → DS: restore our stock (uses current spill)
+    if(!_noMove)_touched=_flipItemDS(inv,it,true);   // non-DS → DS: restore our stock (uses current spill)
     it.dsSupId='__pending__';
     it.dsSupName='';
     it.dsDate=inv.invDate||today();
@@ -5352,7 +5439,7 @@ function toggleEditDSItem(invId,itemIdx,checked){
     it.dsPaid=false;
     it.dsPaidDate='';
     it.dsUpfront=false;
-    _touched=_flipItemDS(inv,it,false);  // DS → non-DS: deduct from our stock, record fresh spill
+    if(!_noMove)_touched=_flipItemDS(inv,it,false);  // DS → non-DS: deduct from our stock, record fresh spill
   }else{
     // no genuine state change — keep the fields consistent, move no stock
     if(checked){it.dsSupId=it.dsSupId||'__pending__';it.dsDate=it.dsDate||inv.invDate||today();}
@@ -6268,7 +6355,7 @@ function saveCreditNote(){
 }
 
 // Apply Cancelled/Returned status to an invoice; optionally restore stock for Returns
-function _applyInvoiceStatus(inv,newStatus){
+function _applyInvoiceStatus(inv,newStatus,_opts){
   // v14.31.0: stock must move on the TRANSITION, not on the destination state.
   // Previously Returned→Returned restored a second time, and Cancelled/Returned→Active
   // (the ↺ Reactivate button) never re-deducted, so stock was invented on every round trip.
@@ -6276,18 +6363,50 @@ function _applyInvoiceStatus(inv,newStatus){
   if(_prevStatus===newStatus){toast('Already marked as '+newStatus);return;}
   const _wasVoid=_prevStatus==='Cancelled'||_prevStatus==='Returned';
   const _nowVoid=newStatus==='Cancelled'||newStatus==='Returned';
+  // v14.46.0: voiding an invoice dated on or before the stock count asks whether the pieces came back
+  if(_nowVoid&&!_wasVoid&&!_opts&&_invNeedsStockAsk(inv)){
+    setTimeout(()=>_askStockBack(inv.invNo||'This invoice',function(back){_applyInvoiceStatus(inv,newStatus,{restore:back});}),50);
+    return;
+  }
+  const _keepStock=!!(_opts&&_opts.restore===false);
   inv.invoiceStatus=newStatus;
   inv.invUpdatedAt=new Date().toISOString();
   save();
   renderSales();
+  // v14.46.0: stock was NOT handed back when this invoice was voided (kept as counted), so
+  // reactivating it must not take the pieces out a second time.
+  if(_wasVoid&&!_nowVoid&&_pBool(inv.stockKeptOnVoid)){
+    inv.stockKeptOnVoid=false;save();
+    gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{if(!ok)toast('⚠️ Invoice status saved locally — sheet sync pending');});
+    renderTrackingPage&&renderTrackingPage();
+    renderDashboard&&renderDashboard();
+    toast('✅ Invoice reactivated · stock unchanged (it was kept as counted when voided)');
+    return;
+  }
   // Re-deduct when an invoice comes back to life (Active) after stock was handed back.
   if(_wasVoid&&!_nowVoid){
     const _items=expandItems(inv.itemsArr||[]);
+    // v14.46.0: a pre-count invoice asks whether the pieces really left the shelf (No keeps the count)
+    if(!(_opts&&_opts.out!==undefined)&&_invPreCount(inv)&&_items.some(_lineMovable)){
+      inv.invoiceStatus=_prevStatus;save();renderSales(); // nothing changes until answered
+      setTimeout(()=>_askStockBack(inv.invNo||'This invoice',function(outAns){_applyInvoiceStatus(inv,newStatus,{out:outAns});},false,'out'),50);
+      return;
+    }
+    if(_opts&&_opts.out===false){
+      _items.forEach(it=>{if(_lineMovable(it)){it.countKept=true;it.spill=[];}});
+      inv.itemsArr=_items;save();
+      gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{if(!ok)toast('⚠️ Invoice status saved locally — sheet sync pending');});
+      renderTrackingPage&&renderTrackingPage();
+      renderDashboard&&renderDashboard();
+      toast('✅ Invoice reactivated · stock unchanged (kept as counted)');
+      return;
+    }
     const _touched2=new Set();
     let _short=0;
     _items.forEach(it=>{
       if(isDS(it))return;
       if(!it.prodNo)return;
+      if(it.countKept)return; // v14.46.0: settled by a stock count
       const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(it.prodNo));
       if(!p)return;
       const qty=parseInt(it.qty)||1;
@@ -6299,6 +6418,7 @@ function _applyInvoiceStatus(inv,newStatus){
       p.qtyOriginal=Math.max(parseInt(p.qtyOriginal)||0,(parseInt(p.qty)||0)+(parseInt(p.qtySold)||0));
       p.updatedAt=new Date().toISOString();
     });
+    inv.itemsArr=_items; // v14.46.0: keep the fresh spill (it was computed on a copy and dropped)
     if(_touched2.size){
       saveStk();
       inventory.filter(p=>_touched2.has(parseInt(p.prodNo))).forEach(p=>{
@@ -6316,12 +6436,14 @@ function _applyInvoiceStatus(inv,newStatus){
   // v14.31.0: Cancelled previously restored nothing, so goods that never shipped stayed
   // deducted and qtySold stayed inflated — inventory and COGS both drifted.
   let restored=0;
-  if(_nowVoid&&!_wasVoid){
+  if(_nowVoid&&!_wasVoid&&_keepStock){inv.stockKeptOnVoid=true;save();} // v14.46.0: remembered for a later Reactivate
+  if(_nowVoid&&!_wasVoid&&!_keepStock){
     const items=expandItems(inv.itemsArr||[]);
     const _touched=new Set(); // v14.27.0: includes LINKED siblings the spill drained
     items.forEach(it=>{
       if(isDS(it))return; // v14.30.0: dropshipped — never deducted, so nothing to restore
       if(!it.prodNo)return;
+      if(it.countKept)return; // v14.46.0: settled by a stock count, no stock out to restore
       const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(it.prodNo));
       if(!p)return;
       const qty=parseInt(it.qty)||1;
@@ -7308,6 +7430,7 @@ function buildSubPage(id){
   if(id==='suppliers')return buildSuppliersPage();
   if(id==='dsreport')return buildDSReportPage();
   if(id==='courierspend')return buildCourierSpendPage();
+  if(id==='stockcount')return buildStockCountPage(); // v14.46.0
   return '<p>Coming soon</p>';
 }
 // ═══════════════════════════════════════════
@@ -15721,6 +15844,7 @@ function _sbMovableReason(x,refs){
   if((x.variants||[]).length)return 'has photos / variants';
   if((x.linkedProducts||[]).length)return 'is linked to other products';
   if(x.dateReel||x.dateStory1||x.dateStory2)return 'already posted';
+  if(x.stockCounted===true||x.stockCounted==='true')return 'was counted in a stock count (its number is on the tag)'; // v14.46.0
   return '';
 }
 function _sbRenumberPlan(delNo){
@@ -15783,6 +15907,458 @@ function _sbDoDeletePending(delNo){
   renderInventory();renderAgingGrid();updateInventoryStats();renderPostingQueue();
   const ipn=document.getElementById('ip-num');if(ipn)ipn.value=nextProdNo();
   toast(plan.moves.length?'🗑 #'+delNo+' deleted · '+plan.moves.length+' product'+(plan.moves.length>1?'s':'')+' renumbered':'🗑 #'+delNo+' deleted',4000);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// v14.46.0 STOCK RECONCILIATION
+// The physical count is final. The user types the product numbers on the shelf
+// (a number repeated = that many pieces). On Apply every listed product is set to
+// exactly its count and every product not listed is set to 0. Numbers not in the
+// register become new products marked ⏳ Review. Invoices are never touched.
+// ═══════════════════════════════════════════════════════════════════════
+const SC_DRAFT_KEY='vc_stockcount_draft';
+const SC_LOGQ_KEY='vc_stocklog_pending';
+const SC_GAP=20; // a new number more than this above the highest existing one needs a tick
+let _scBusy=false;
+let _scRenderT=null;
+
+function scDraft(){
+  const d=lsGet(SC_DRAFT_KEY,null);
+  const o=(d&&typeof d==='object')?d:{};
+  return{text:o.text||'',newInfo:o.newInfo||{},splits:o.splits||{},okBig:o.okBig||{},newDate:o.newDate||today()};
+}
+function scSaveDraft(d){lsSet(SC_DRAFT_KEY,d);}
+function _scInt(v){return parseInt(v)||0;}
+function _scHasVars(p){return Array.isArray(p.variants)&&p.variants.length>0;}
+
+// Read the typed list. Returns {counts:Map(prodNo->pieces), bad:[tokens], pieces}
+function scParse(text){
+  const counts=new Map();const bad=[];let pieces=0;
+  String(text||'').split(/[\s,;]+/).forEach(tok=>{
+    let t=tok.trim();if(!t)return;
+    t=t.replace(/^#/,'');
+    if(!/^\d+$/.test(t)||parseInt(t,10)<=0){bad.push(tok.trim());return;}
+    const n=parseInt(t,10);
+    counts.set(n,(counts.get(n)||0)+1);pieces++;
+  });
+  return{counts,bad,pieces};
+}
+// Default variant split: start from current variant quantities, then top up or trim
+// on the first variant (trimming moves on to the next variant once one reaches 0).
+function scDefaultSplit(p,count){
+  const q=p.variants.map(v=>Math.max(0,_scInt(v.qty)));
+  let total=q.reduce((s,x)=>s+x,0);
+  if(total<count)q[0]+=count-total;
+  else{let over=total-count;for(let i=0;i<q.length&&over>0;i++){const t=Math.min(q[i],over);q[i]-=t;over-=t;}}
+  const o={};p.variants.forEach((v,i)=>{o[v.id]=q[i];});return o;
+}
+function scHighestNo(){return inventory.reduce((m,p)=>Math.max(m,_scInt(p.prodNo)),0);}
+
+// Build the full plan from the draft and the current inventory.
+function scPlan(d){
+  const{counts,bad,pieces}=scParse(d.text);
+  const byNo=new Map(inventory.map(p=>[_scInt(p.prodNo),p]));
+  const hi=scHighestNo();
+  const rows=[];const newOnes=[];const splits=[];const blockers=[];
+  counts.forEach((c,n)=>{if(!byNo.has(n))newOnes.push({no:n,count:c,big:n>hi+SC_GAP});});
+  newOnes.sort((a,b)=>a.no-b.no);
+  inventory.slice().sort((a,b)=>_scInt(a.prodNo)-_scInt(b.prodNo)).forEach(p=>{
+    const n=_scInt(p.prodNo);const listed=counts.has(n);const newQty=listed?counts.get(n):0;
+    const oldQty=_scInt(p.qty);
+    let vsplit=null;
+    if(_scHasVars(p)){
+      if(listed){
+        const saved=d.splits[n];
+        const ok=saved&&p.variants.every(v=>saved[v.id]!==undefined);
+        vsplit=ok?{...saved}:scDefaultSplit(p,newQty);
+        const sum=p.variants.reduce((s,v)=>s+Math.max(0,_scInt(vsplit[v.id])),0);
+        splits.push({p,count:newQty,split:vsplit,sum});
+        if(sum!==newQty)blockers.push('#'+n+' colour split adds up to '+sum+', count is '+newQty);
+      }else{
+        vsplit={};p.variants.forEach(v=>{vsplit[v.id]=0;});
+      }
+    }
+    const varChanged=vsplit?p.variants.some(v=>_scInt(v.qty)!==Math.max(0,_scInt(vsplit[v.id]))):false;
+    let kind='same';
+    if(newQty>oldQty)kind='raised';else if(newQty<oldQty)kind=newQty===0?'zeroed':'lowered';
+    else if(varChanged)kind='colour'; // same total, colours moved
+    rows.push({p,no:n,listed,oldQty,newQty,kind,vsplit});
+  });
+  if(bad.length)blockers.push('Not a product number: '+bad.slice(0,6).map(esc).join(', ')+(bad.length>6?' …':''));
+  newOnes.forEach(x=>{if(x.big&&!d.okBig[x.no])blockers.push('#'+x.no+' is much higher than the current highest (#'+hi+'). Tick it to confirm.');});
+  if(newOnes.length&&!/^\d{4}-\d{2}-\d{2}$/.test(d.newDate||''))blockers.push('Pick the Date Received for the new products');
+  return{counts,bad,pieces,rows,newOnes,splits,blockers,hi};
+}
+function _scSig(plan){
+  return plan.rows.filter(r=>r.kind!=='same').map(r=>r.no+':'+r.oldQty+'>'+r.newQty).join('|')+'#'+plan.newOnes.map(x=>x.no+'x'+x.count).join(',');
+}
+
+// ── Page ──
+function buildStockCountPage(){
+  return `<div style="max-width:760px;margin:0 auto;">
+  <div class="card">
+    <div class="card-title">📦 Physical stock count</div>
+    <div style="font-size:13px;color:#636366;line-height:1.55;margin-bottom:12px;">Type the product number of every piece on the shelf. Repeat a number once for each piece (for example <b>12 12 45</b> means #12 ×2 and #45 ×1). Separate with spaces, commas or new lines. Your list is final: on Apply, every product you list gets exactly that count and every product you don't list is set to 0. Leave out pieces on invoices that are not shipped yet. Your list is kept on this device until you apply or clear it.</div>
+    <div class="fg" style="margin-bottom:8px;"><label>Product numbers on the shelf</label>
+      <textarea id="sc-input" rows="7" inputmode="numeric" placeholder="e.g. 12 12 45 45 45 101" oninput="scOnInput()" style="font-family:ui-monospace,Menlo,Consolas,monospace;line-height:1.6;"></textarea></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+      <button class="btn btn-d btn-sm" onclick="scClearDraft()">Clear list</button>
+    </div>
+    <div id="sc-tally" style="margin-top:12px;"></div>
+  </div>
+  <div id="sc-new-card" class="card" style="display:none;"></div>
+  <div id="sc-split-card" class="card" style="display:none;"></div>
+  <div class="card">
+    <div class="card-title">🔍 Preview</div>
+    <div id="sc-preview"></div>
+    <div id="sc-blockers" style="display:none;background:#fdecea;border:1px solid #e6b0aa;border-radius:10px;padding:10px 12px;font-size:13px;color:#922b21;margin:10px 0;line-height:1.55;"></div>
+    <div style="font-size:12px;color:#636366;line-height:1.55;margin:10px 0;">Apply first syncs all devices' changes, then downloads a backup of the current stock, then saves. Please don't make invoices on other devices until it finishes.</div>
+    <div class="btn-row"><button class="btn btn-p" id="sc-apply-btn" onclick="scApply()">✅ Apply count</button></div>
+  </div>
+  <div class="card">
+    <div class="card-title">↩ Restore stock from backup</div>
+    <div style="font-size:13px;color:#636366;line-height:1.55;margin-bottom:10px;">Choose a stock backup file downloaded by Apply. Only stock quantities (including colours) are put back. Products added by a count are left as they are.</div>
+    <input type="file" id="sc-restore-input" accept=".json,application/json" style="display:none;" onchange="scRestoreFile(event)"/>
+    <div class="btn-row"><button class="btn btn-o" onclick="document.getElementById('sc-restore-input').click()">📂 Choose backup file</button></div>
+  </div>
+  <div id="sc-last" style="font-size:12px;color:#636366;text-align:center;margin:4px 0 20px;"></div>
+</div>`;
+}
+function scInitPage(){
+  const d=scDraft();
+  const ta=document.getElementById('sc-input');if(ta)ta.value=d.text;
+  scRender();
+  scFlushLogQueue();
+}
+function scOnInput(){
+  const d=scDraft();d.text=document.getElementById('sc-input')?.value||'';scSaveDraft(d);
+  clearTimeout(_scRenderT);_scRenderT=setTimeout(scRender,250);
+}
+function scClearDraft(){
+  showConfirmModal('Clear list','Clear the whole list of product numbers on this device? Nothing in the inventory changes.',function(){
+    try{localStorage.removeItem(SC_DRAFT_KEY);}catch(e){}
+    const ta=document.getElementById('sc-input');if(ta)ta.value='';
+    scRender();
+  },null);
+}
+// Remove every occurrence of a number from the typed list
+function scRemoveNo(no){
+  const d=scDraft();
+  d.text=String(d.text||'').split(/([\s,;]+)/).map(t=>{const x=t.trim().replace(/^#/,'');return(/^\d+$/.test(x)&&parseInt(x,10)===no)?'':t;}).join('').replace(/[ \t]{2,}/g,' ').replace(/^[\s,;]+/,'');
+  delete d.newInfo[no];delete d.okBig[no];
+  scSaveDraft(d);
+  const ta=document.getElementById('sc-input');if(ta)ta.value=d.text;
+  scRender();
+}
+
+function scRender(){
+  if(!document.getElementById('sc-preview'))return;
+  const d=scDraft();
+  const plan=scPlan(d);
+  // Tally
+  const tl=document.getElementById('sc-tally');
+  if(tl){
+    if(!plan.counts.size&&!plan.bad.length){tl.innerHTML='<div style="font-size:13px;color:#8E8E93;">No numbers yet.</div>';}
+    else{
+      const chips=[...plan.counts.entries()].sort((a,b)=>a[0]-b[0]).map(([n,c])=>{
+        const isNew=!inventory.some(p=>_scInt(p.prodNo)===n);
+        return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;font-size:13px;font-weight:600;margin:0 6px 6px 0;background:'+(isNew?'#fff3cd':'var(--bg-grouped)')+';color:'+(isNew?'#7a5200':'var(--label)')+';">#'+n+' ×'+c+(isNew?' · new':'')+'</span>';
+      }).join('');
+      const badHtml=plan.bad.length?'<div style="font-size:12px;color:#C0392B;margin-top:4px;">Not understood: '+plan.bad.slice(0,10).map(esc).join(', ')+'</div>':'';
+      tl.innerHTML='<div style="font-size:13px;font-weight:600;margin-bottom:8px;">'+plan.pieces+' piece'+(plan.pieces!==1?'s':'')+' · '+plan.counts.size+' product number'+(plan.counts.size!==1?'s':'')+'</div><div>'+chips+'</div>'+badHtml;
+    }
+  }
+  scRenderNew(plan,d);
+  scRenderSplits(plan);
+  // Preview groups
+  const g={raised:[],lowered:[],zeroed:[],colour:[],same:[]};
+  plan.rows.forEach(r=>g[r.kind].push(r));
+  const line=r=>'<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:.5px solid var(--sep);font-size:13px;"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">#'+r.no+' '+esc(r.p.name||'')+(isPendingReview(r.p)?' <span class="badge badge-review">⏳</span>':'')+'</span><span style="flex-shrink:0;font-weight:600;">'+r.oldQty+' → '+r.newQty+'</span></div>';
+  const grp=(title,arr,color,open)=>arr.length?'<details'+(open?' open':'')+' style="margin-bottom:8px;"><summary style="cursor:pointer;font-size:14px;font-weight:600;padding:6px 0;color:'+color+';">'+title+' · '+arr.length+'</summary>'+arr.slice(0,400).map(line).join('')+(arr.length>400?'<div style="font-size:12px;color:#8E8E93;padding:6px 0;">…and '+(arr.length-400)+' more</div>':'')+'</details>':'';
+  const newGrp=plan.newOnes.length?'<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-size:14px;font-weight:600;padding:6px 0;color:#7a5200;">New products · '+plan.newOnes.length+'</summary>'+plan.newOnes.map(x=>'<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:.5px solid var(--sep);font-size:13px;"><span>#'+x.no+' (new, ⏳ Review)</span><span style="font-weight:600;">0 → '+x.count+'</span></div>').join('')+'</details>':'';
+  const pv=document.getElementById('sc-preview');
+  if(!plan.counts.size){
+    pv.innerHTML='<div style="font-size:13px;color:#8E8E93;">Add the product numbers above to see what will change.</div>';
+  }else{
+    const pieces=(arr,f)=>arr.reduce((s,r)=>s+f(r),0);
+    pv.innerHTML='<div class="stat-grid" style="margin-bottom:12px;">'
+      +'<div class="stat-card"><div class="stat-val" style="color:#1A6E37;">'+g.raised.length+'</div><div class="stat-lbl">Raised</div></div>'
+      +'<div class="stat-card"><div class="stat-val" style="color:#A65300;">'+g.lowered.length+'</div><div class="stat-lbl">Lowered</div></div>'
+      +'<div class="stat-card"><div class="stat-val" style="color:#C0392B;">'+g.zeroed.length+'</div><div class="stat-lbl">Set to 0</div></div>'
+      +'<div class="stat-card"><div class="stat-val">'+plan.newOnes.length+'</div><div class="stat-lbl">New</div></div>'
+      +'</div>'
+      +'<div style="font-size:12px;color:#636366;margin-bottom:10px;">Units in stock: '+pieces(plan.rows,r=>r.oldQty)+' now → '+plan.pieces+' after the count. Unchanged: '+g.same.length+'. Lowered pieces count as sold.</div>'
+      +newGrp+grp('Raised',g.raised,'#1A6E37',false)+grp('Lowered',g.lowered,'#A65300',false)+grp('Set to 0',g.zeroed,'#C0392B',false)+grp('Colour split changed',g.colour,'#0058B0',false)+grp('Unchanged',g.same,'#636366',false);
+  }
+  const bl=document.getElementById('sc-blockers');
+  if(bl){bl.style.display=plan.blockers.length?'block':'none';bl.innerHTML=plan.blockers.map(b=>'• '+b).join('<br/>');}
+  const ab=document.getElementById('sc-apply-btn');
+  if(ab)ab.disabled=_scBusy||!plan.counts.size||plan.blockers.length>0;
+  const last=document.getElementById('sc-last');
+  if(last){const cd=getStockCountDate();last.textContent=cd?'Last stock count applied: '+fmtDate(cd):'';}
+}
+
+// New products panel
+function scRenderNew(plan,d){
+  const card=document.getElementById('sc-new-card');if(!card)return;
+  if(!plan.newOnes.length){card.style.display='none';card.innerHTML='';return;}
+  card.style.display='block';
+  const focusId=document.activeElement&&document.activeElement.id;
+  const rows=plan.newOnes.map(x=>{
+    const i=d.newInfo[x.no]||{};
+    const cost=i.cost||'';const sale=i.sale!==undefined&&i.sale!==''?i.sale:(cost?sbSalePrice(cost):'');
+    const hsn=i.hsn||guessHsnFromName(i.name||'')||DEFAULT_HSN;
+    return '<div style="border-bottom:.5px solid var(--sep);padding:10px 0;">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-weight:700;">#'+x.no+' ×'+x.count+'</span>'
+      +'<button class="btn btn-d btn-sm" onclick="scRemoveNo('+x.no+')">Remove</button></div>'
+      +(x.big?'<label style="display:flex;align-items:center;gap:8px;background:#fff3cd;border:1px solid #f5c26b;border-radius:8px;padding:8px 10px;font-size:13px;color:#7a5200;margin-bottom:8px;cursor:pointer;"><input type="checkbox" '+(d.okBig[x.no]?'checked':'')+' onchange="scSetBig('+x.no+',this.checked)" style="width:20px;height:20px;"/>#'+x.no+' is more than '+SC_GAP+' above the highest number (#'+plan.hi+'). Tick if it is correct.</label>':'')
+      +'<div class="row2"><div class="fg" style="margin-bottom:8px;"><label>Name (optional)</label><input id="sc-n-name-'+x.no+'" value="'+esc(i.name||'')+'" placeholder="Stock count #'+x.no+'" oninput="scSetNew('+x.no+',\'name\',this.value)"/></div>'
+      +'<div class="fg" style="margin-bottom:8px;"><label>HSN</label><input id="sc-n-hsn-'+x.no+'" value="'+esc(hsn)+'" inputmode="numeric" maxlength="8" oninput="scSetNew('+x.no+',\'hsn\',this.value)"/></div></div>'
+      +'<div class="row2"><div class="fg" style="margin-bottom:0;"><label>Cost incl. GST (₹)</label><input id="sc-n-cost-'+x.no+'" type="number" inputmode="decimal" value="'+esc(cost)+'" placeholder="0" oninput="scSetNew('+x.no+',\'cost\',this.value)"/></div>'
+      +'<div class="fg" style="margin-bottom:0;"><label>Sale price (₹)</label><input id="sc-n-sale-'+x.no+'" type="number" inputmode="decimal" value="'+esc(sale)+'" placeholder="auto" oninput="scSetNew('+x.no+',\'sale\',this.value)"/></div></div>'
+      +'</div>';
+  }).join('');
+  card.innerHTML='<div class="card-title">🆕 Not in the register · '+plan.newOnes.length+'</div>'
+    +'<div style="font-size:13px;color:#636366;line-height:1.55;margin-bottom:8px;">These numbers will be added as new products with the number you typed, marked ⏳ Review so you can finish them later. Sale price fills in as cost × 1.30, rounded, and can be changed.</div>'
+    +'<div class="fg" style="margin-bottom:4px;"><label>Date Received for the new products</label><input type="date" id="sc-new-date" value="'+esc(d.newDate)+'" onchange="scSetNewDate(this.value)"/></div>'
+    +rows;
+  if(focusId){const el=document.getElementById(focusId);if(el){el.focus();try{const v=el.value;if(el.type!=='number'&&el.type!=='date')el.setSelectionRange(v.length,v.length);}catch(e){}}}
+}
+function scSetNew(no,field,val){
+  const d=scDraft();const i=d.newInfo[no]||{};
+  i[field]=val;
+  if(field==='cost'&&!i.saleManual){i.sale='';const s=document.getElementById('sc-n-sale-'+no);if(s)s.value=val?sbSalePrice(val):'';}
+  if(field==='sale')i.saleManual=String(val).trim()!=='';
+  if(field==='name'&&!i.hsnManual){const g=guessHsnFromName(val)||DEFAULT_HSN;i.hsn=g;const h=document.getElementById('sc-n-hsn-'+no);if(h)h.value=g;}
+  if(field==='hsn')i.hsnManual=true;
+  d.newInfo[no]=i;scSaveDraft(d);
+}
+function scSetBig(no,on){const d=scDraft();if(on)d.okBig[no]=true;else delete d.okBig[no];scSaveDraft(d);scRender();}
+function scSetNewDate(v){const d=scDraft();d.newDate=v;scSaveDraft(d);scRender();}
+
+// Colour / design split panel
+function scRenderSplits(plan){
+  const card=document.getElementById('sc-split-card');if(!card)return;
+  if(!plan.splits.length){card.style.display='none';card.innerHTML='';return;}
+  card.style.display='block';
+  const focusId=document.activeElement&&document.activeElement.id;
+  card.innerHTML='<div class="card-title">🎨 Colour / design split</div>'
+    +'<div style="font-size:13px;color:#636366;line-height:1.55;margin-bottom:8px;">These products keep stock per colour. Each split must add up to your count.</div>'
+    +plan.splits.map(s=>{
+      const ok=s.sum===s.count;
+      return '<div style="border-bottom:.5px solid var(--sep);padding:10px 0;">'
+        +'<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:6px;"><span style="font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">#'+s.p.prodNo+' '+esc(s.p.name||'')+'</span><span style="flex-shrink:0;font-size:13px;font-weight:600;color:'+(ok?'#1A6E37':'#C0392B')+';">'+s.sum+' of '+s.count+(ok?' ✓':'')+'</span></div>'
+        +s.p.variants.map((v,i)=>'<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 0;"><span style="font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(v.label||('Colour '+(i+1)))+' <span style="color:#8E8E93;">(now '+_scInt(v.qty)+')</span></span>'
+          +'<input id="sc-v-'+s.p.prodNo+'-'+i+'" type="number" min="0" inputmode="numeric" value="'+Math.max(0,_scInt(s.split[v.id]))+'" oninput="scSetSplit('+_scInt(s.p.prodNo)+','+i+',this.value)" style="width:80px;flex-shrink:0;padding:8px;"/></div>').join('')
+        +'</div>';
+    }).join('');
+  if(focusId){const el=document.getElementById(focusId);if(el)el.focus();}
+}
+function scSetSplit(no,idx,val){
+  const d=scDraft();
+  const p=inventory.find(x=>_scInt(x.prodNo)===no);if(!p||!_scHasVars(p)||!p.variants[idx])return;
+  const vid=p.variants[idx].id;
+  const plan=scPlan(d);const s=plan.splits.find(x=>_scInt(x.p.prodNo)===no);
+  const cur=s?{...s.split}:{};
+  cur[vid]=Math.max(0,_scInt(val));
+  d.splits[no]=cur;scSaveDraft(d);
+  clearTimeout(_scRenderT);_scRenderT=setTimeout(scRender,350);
+}
+
+// ── Count date (newest stockCountDate on any product; products sync, so every device sees it) ──
+function getStockCountDate(){
+  let best='';
+  inventory.forEach(p=>{const d=toISODate(p.stockCountDate||'');if(d&&d>best)best=d;});
+  return best;
+}
+// True when putting this invoice's stock back needs the "did it come back?" question
+function _invPreCount(inv){
+  const cd=getStockCountDate();if(!cd||!inv)return false;
+  const d=toISODate(inv.invDate||'');return !!d&&d<=cd;
+}
+function _lineMovable(it){return !isDS(it)&&!!parseInt(it.prodNo)&&!(it.countKept===true||it.countKept==='true');}
+function _invNeedsStockAsk(inv){
+  if(!_invPreCount(inv))return false;
+  if(_invStockAlreadyBack(inv))return false; // nothing would go back, so nothing to ask
+  return expandItems(inv.itemsArr||[]).some(_lineMovable);
+}
+// Ask whether the pieces physically came back. Default (filled) answer is No.
+function _askStockBack(invLabel,cb,plural,mode){
+  const out=mode==='out'; // 'out' = the pieces would be taken OUT of stock (reactivate / un-mark dropship)
+  const cd=getStockCountDate();
+  const ok=document.getElementById('confirm-modal-ok');
+  const cancel=document.getElementById('confirm-modal-cancel');
+  const keep={okTxt:ok?ok.textContent:'',okCls:ok?ok.className:'',okSt:ok?ok.getAttribute('style'):'',caTxt:cancel?cancel.textContent:'',caCls:cancel?cancel.className:'',caSt:cancel?cancel.getAttribute('style'):''};
+  const reset=function(){if(ok){ok.textContent=keep.okTxt;ok.className=keep.okCls;ok.setAttribute('style',keep.okSt||'');}if(cancel){cancel.textContent=keep.caTxt;cancel.className=keep.caCls;cancel.setAttribute('style',keep.caSt||'');}};
+  // showConfirmModal's OK path runs closeConfirmModal (which fires the cancel callback) BEFORE the OK
+  // callback, so the No answer is deferred one tick and only used if Yes did not arrive first.
+  let answered=false;
+  showConfirmModal(out?'📦 Take stock out?':'📦 Put stock back?',
+    esc(invLabel)+(plural?' are':' is')+' dated on or before your stock count of '+fmtDate(cd)+', so the count already decided how many of '+(plural?'their':'its')+' pieces are on your shelf.'+(out?'<br/><br/><b>Did the pieces physically leave your shelf?</b><br/><span style="font-size:12px;color:#636366;">Yes takes them out of stock. No leaves stock exactly as counted.</span>'
+      :'<br/><br/><b>Did the pieces physically come back to your shelf?</b><br/><span style="font-size:12px;color:#636366;">Yes adds them to stock. No leaves stock exactly as counted.</span>'),
+    function(){if(answered)return;answered=true;reset();cb(true);},
+    function(){setTimeout(function(){if(answered)return;answered=true;reset();cb(false);},0);});
+  if(ok){ok.textContent=out?'Yes, take out':'Yes, put back';ok.className='btn btn-o';ok.setAttribute('style','flex:1;');}
+  if(cancel){cancel.textContent='No, keep count';cancel.className='btn btn-p';cancel.setAttribute('style','flex:1;');}
+}
+
+// ── Wait for any running sync, then run one and report whether it fully succeeded ──
+async function scSyncFirst(){
+  let guard=0;
+  while(syncing&&guard<600){await new Promise(r=>setTimeout(r,250));guard++;}
+  if(syncing)return false;
+  const t0=Date.now();
+  await syncAll();
+  const err=lsGet('vc_last_sync_error',null);
+  const last=lsGet('vc_last_sync_time',0);
+  return !err&&last>=t0;
+}
+
+function scApply(){
+  if(_scBusy)return;
+  const d=scDraft();const plan=scPlan(d);
+  if(!plan.counts.size||plan.blockers.length){scRender();return;}
+  if(navigator.onLine===false){toast('⚠️ You are offline. Apply needs the internet to sync first.',5000);return;}
+  if(typeof _sbUploading!=='undefined'&&_sbUploading>0){toast('⏳ A bill import is still uploading. Try again in a few seconds.',4000);return;}
+  const ch=plan.rows.filter(r=>r.kind!=='same').length;
+  showConfirmModal('✅ Apply stock count',
+    'This will change stock on <b>'+ch+'</b> product'+(ch!==1?'s':'')+(plan.newOnes.length?' and add <b>'+plan.newOnes.length+'</b> new product'+(plan.newOnes.length!==1?'s':''):'')+'. Every product not in your list will be set to 0.<br/><br/>The app will sync first, then download a stock backup, then save. Continue?',
+    function(){scDoApply(_scSig(plan));},null);
+}
+async function scDoApply(sigBefore){
+  _scBusy=true;scRender();
+  try{
+    showLoading('Syncing all devices first…');
+    const ok=await scSyncFirst();
+    if(!ok){hideLoading();toast('⚠️ Sync did not complete, so nothing was changed. Check the connection and try Apply again.',6000);return;}
+    const d=scDraft();const plan=scPlan(d);
+    if(plan.blockers.length||!plan.counts.size){hideLoading();scRender();toast('⚠️ Something needs fixing after the sync. Check the preview.',5000);return;}
+    if(_scSig(plan)!==sigBefore){hideLoading();scRender();toast('ℹ️ The sync brought in changes. Check the updated preview and tap Apply again.',6000);return;}
+    // Backup of the stock as it is right now (after the sync)
+    const backup={type:'vismaad-stock-backup',version:1,at:new Date().toISOString(),
+      products:inventory.map(p=>({prodNo:_scInt(p.prodNo),name:p.name||'',qty:_scInt(p.qty),qtySold:_scInt(p.qtySold),qtyOriginal:_scInt(p.qtyOriginal),
+        stockCountDate:p.stockCountDate||'',stockCounted:p.stockCounted||'',
+        variants:_scHasVars(p)?p.variants.map(v=>({id:v.id,qty:_scInt(v.qty)})):[]}))};
+    try{
+      const blob=new Blob([JSON.stringify(backup,null,1)],{type:'application/json'});
+      const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+      a.download='vismaad-stock-backup-'+today()+'-'+String(new Date().getHours()).padStart(2,'0')+String(new Date().getMinutes()).padStart(2,'0')+'.json';
+      document.body.appendChild(a);a.click();setTimeout(()=>{try{document.body.removeChild(a);URL.revokeObjectURL(a.href);}catch(e){}},2000);
+    }catch(e){hideLoading();toast('⚠️ Could not create the backup file, so nothing was changed.',6000);return;}
+    showLoading('Saving the count…');
+    const nowIso=new Date().toISOString();const cd=today();
+    const changed=[];const logs=[];
+    plan.rows.forEach(r=>{
+      const p=r.p;
+      const wasCounted=p.stockCounted===true||p.stockCounted==='true';
+      if(r.kind==='same'&&r.listed===wasCounted)return; // nothing to write
+      if(r.kind!=='same'){
+        const oldQty=r.oldQty,newQty=r.newQty;
+        const sold=_scInt(p.qtySold);let orig=Math.max(_scInt(p.qtyOriginal),oldQty+sold);
+        if(r.vsplit&&_scHasVars(p))p.variants.forEach(v=>{v.qty=Math.max(0,_scInt(r.vsplit[v.id]));});
+        p.qty=newQty;
+        if(newQty<oldQty){p.qtyOriginal=orig;p.qtySold=orig-newQty;} // fewer pieces than recorded: counted as sold
+        else{p.qtyOriginal=newQty+sold;p.qtySold=sold;}          // more pieces: received quantity goes up
+        p.stockCountDate=cd;
+        logs.push({id:uid(),date:cd,prodNo:r.no,name:p.name||'',oldQty,newQty,change:newQty-oldQty,
+          type:r.kind,variants:r.vsplit&&_scHasVars(p)?p.variants.map(v=>(v.label||v.id)+': '+v.qty).join(', '):'',at:nowIso});
+      }
+      p.stockCounted=r.listed?true:'';
+      if(r.listed)p.stockCountDate=cd;
+      p.updatedAt=nowIso;
+      changed.push(p);
+    });
+    const added=plan.newOnes.map(x=>{
+      const i=d.newInfo[x.no]||{};
+      const ph='Stock count #'+x.no;
+      const name=String(i.name||'').trim()||ph;
+      const cost=parseFloat(i.cost)||0;
+      const sell=String(i.sale||'').trim()!==''?(parseFloat(i.sale)||0):sbSalePrice(cost);
+      const hsn=String(i.hsn||'').replace(/\D/g,'')||guessHsnFromName(name)||DEFAULT_HSN;
+      logs.push({id:uid(),date:cd,prodNo:x.no,name,oldQty:0,newQty:x.count,change:x.count,type:'new',variants:'',at:nowIso});
+      return{prodNo:x.no,name,qty:x.count,qtyOriginal:x.count,qtySold:0,fabric:'',hsn,
+        cost,sellPrice:sell,dateAdded:d.newDate||cd,dateReel:'',dateStory1:'',dateStory2:'',
+        linkedProducts:[],linkedInvoices:[],variants:[],notes:'Added by stock count '+fmtDate(cd),
+        reviewStatus:'pending',importName:ph,stockCountDate:cd,stockCounted:true,updatedAt:nowIso};
+    });
+    inventory.push(...added);
+    inventory.sort((a,b)=>_scInt(a.prodNo)-_scInt(b.prodNo));
+    saveStk();
+    try{localStorage.removeItem(SC_DRAFT_KEY);}catch(e){}
+    try{_invPrintSelected.clear();_catSelected.clear();}catch(e){}
+    try{renderInventory();renderAgingGrid();updateInventoryStats();renderPostingQueue();renderDashboard();}catch(e){}
+    const ipn=document.getElementById('ip-num');if(ipn)ipn.value=nextProdNo();
+    const recs=[...changed,...added].map(p=>flattenProduct(p));
+    let res={done:0,failed:0};
+    if(recs.length)res=await gsWriteBatch(SHEETS.inventory,recs,(dn,fl,tot)=>showLoading('Uploading '+(dn+fl)+' of '+tot+'…'));
+    // Log to the StockLog sheet (kept on the device and retried if it does not confirm)
+    const q=lsGet(SC_LOGQ_KEY,[]);lsSet(SC_LOGQ_KEY,q.concat(logs));
+    await scFlushLogQueue();
+    hideLoading();
+    const ta=document.getElementById('sc-input');if(ta)ta.value='';
+    scRender();
+    toast(res.failed?'⚠️ Count saved on this device. '+res.failed+' product(s) not uploaded yet, the next sync will retry.':'✅ Stock count applied · '+logs.length+' change'+(logs.length!==1?'s':'')+' saved',6000);
+  }catch(e){
+    hideLoading();console.error('Stock count apply failed',e);
+    toast('⚠️ Apply stopped: '+(e.message||e),6000);
+  }finally{_scBusy=false;scRender();}
+}
+async function scFlushLogQueue(){
+  const q=lsGet(SC_LOGQ_KEY,[]);
+  if(!Array.isArray(q)||!q.length||navigator.onLine===false)return;
+  const r=await gsWriteBatch('StockLog',q);
+  // StockLog rows are keyed by id, so re-sending the whole queue after a partial failure never duplicates a row
+  if(!r.failed)lsSet(SC_LOGQ_KEY,[]);
+}
+
+// ── Restore stock from a backup file ──
+function scRestoreFile(ev){
+  const f=ev&&ev.target&&ev.target.files&&ev.target.files[0];
+  if(ev&&ev.target)ev.target.value='';
+  if(!f)return;
+  const rd=new FileReader();
+  rd.onload=function(){
+    let b=null;try{b=JSON.parse(rd.result);}catch(e){}
+    if(!b||b.type!=='vismaad-stock-backup'||!Array.isArray(b.products)){toast('⚠️ This is not a stock backup file from the app.',5000);return;}
+    const byNo=new Map(inventory.map(p=>[_scInt(p.prodNo),p]));
+    const hits=b.products.filter(x=>byNo.has(_scInt(x.prodNo)));
+    const diff=hits.filter(x=>{const p=byNo.get(_scInt(x.prodNo));return _scInt(p.qty)!==_scInt(x.qty)||(x.variants||[]).some(v=>{const pv=(p.variants||[]).find(y=>String(y.id)===String(v.id));return pv&&_scInt(pv.qty)!==_scInt(v.qty);});});
+    const extra=inventory.filter(p=>!b.products.some(x=>_scInt(x.prodNo)===_scInt(p.prodNo))).length;
+    showConfirmModal('↩ Restore stock',
+      'Backup from '+fmtDate(String(b.at||'').slice(0,10))+'.<br/><br/><b>'+diff.length+'</b> product'+(diff.length!==1?'s':'')+' will get back the stock they had then.'
+      +(extra?'<br/>'+extra+' product'+(extra!==1?'s are':' is')+' not in the backup and will not change.':'')
+      +(b.products.length-hits.length?'<br/>'+(b.products.length-hits.length)+' product(s) in the backup no longer exist and are skipped.':'')
+      +'<br/><br/>Continue?',
+      function(){scDoRestore(b,hits);},null);
+  };
+  rd.readAsText(f);
+}
+async function scDoRestore(b,hits){
+  if(_scBusy)return;_scBusy=true;
+  try{
+    const nowIso=new Date().toISOString();
+    const byNo=new Map(inventory.map(p=>[_scInt(p.prodNo),p]));
+    const changed=[];const logs=[];
+    hits.forEach(x=>{
+      const p=byNo.get(_scInt(x.prodNo));if(!p)return;
+      const oldQty=_scInt(p.qty);
+      (x.variants||[]).forEach(v=>{const pv=(p.variants||[]).find(y=>String(y.id)===String(v.id));if(pv)pv.qty=_scInt(v.qty);});
+      p.qty=_scInt(x.qty);p.qtySold=_scInt(x.qtySold);p.qtyOriginal=Math.max(_scInt(x.qtyOriginal),p.qty+p.qtySold);
+      p.stockCountDate=x.stockCountDate||'';p.stockCounted=x.stockCounted||'';
+      p.updatedAt=nowIso;changed.push(p);
+      if(oldQty!==p.qty)logs.push({id:uid(),date:today(),prodNo:_scInt(p.prodNo),name:p.name||'',oldQty,newQty:p.qty,change:p.qty-oldQty,type:'restore',variants:'',at:nowIso});
+    });
+    saveStk();
+    try{renderInventory();renderAgingGrid();updateInventoryStats();renderPostingQueue();renderDashboard();}catch(e){}
+    showLoading('Uploading restored stock…');
+    const res=changed.length?await gsWriteBatch(SHEETS.inventory,changed.map(p=>flattenProduct(p)),(dn,fl,tot)=>showLoading('Uploading '+(dn+fl)+' of '+tot+'…')):{failed:0};
+    const q=lsGet(SC_LOGQ_KEY,[]);lsSet(SC_LOGQ_KEY,q.concat(logs));
+    await scFlushLogQueue();
+    hideLoading();scRender();
+    toast(res.failed?'⚠️ Restored on this device. '+res.failed+' product(s) not uploaded yet, the next sync will retry.':'✅ Stock restored from backup',6000);
+  }catch(e){hideLoading();toast('⚠️ Restore stopped: '+(e.message||e),6000);}
+  finally{_scBusy=false;}
 }
 
 init();
