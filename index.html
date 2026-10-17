@@ -3,10 +3,13 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.46.0
+APP: Vismaad Creations v14.46.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 17-Oct-2026 - v14.46.0: STOCK RECONCILIATION (PHYSICAL COUNT IS FINAL). No Code.gs change (the StockLog sheet is created by the existing getOrCreateSheet on first write).
+LAST_CHANGE: 17-Oct-2026 - v14.46.1: STOCK RECONCILIATION QUICK ADD (PHONE). No Code.gs change.
+(Q1) BUG FIX: on iPhone the "Product numbers on the shelf" box opened the number pad (inputmode="numeric"), which has no space, comma or Return key, so numbers could not be separated. The box now opens the normal keyboard (for pasting and editing).
+(Q2) NEW "Quick add" field above it: opens the number pad; type a tag number and tap + Add (or Enter / the keyboard's Done) to append it to the list. The field clears and keeps the keyboard open for the next tag (the button does not take focus). A line under it confirms "Added #45 · now ×3", and flags a number not in the register. A non-number is refused with a message. Same draft, tally and preview as before.
+PREV_CHANGE: 17-Oct-2026 - v14.46.0: STOCK RECONCILIATION (PHYSICAL COUNT IS FINAL). No Code.gs change (the StockLog sheet is created by the existing getOrCreateSheet on first write).
 (R1) NEW PAGE More → Tools → Stock Reconciliation. Type the product number of every piece on the shelf, separated by spaces, commas or new lines; a number repeated N times = N pieces ("#" optional). The list is a draft kept on this device (vc_stockcount_draft) until applied or cleared. Live tally chips, with numbers not in the register marked "new". Anything that is not a number blocks Apply.
 (R2) PREVIEW. Raised / Lowered / Set to 0 / New counts, units now → after, and expandable lists (old → new) for Raised, Lowered, Set to 0, Colour split changed and Unchanged. Blocking problems are listed in red and keep Apply disabled.
 (R3) THE COUNT IS FINAL. On Apply every listed product (pending-review ones included) gets exactly its count and every product not listed goes to 0, sold-out ones included. Lowered pieces count as sold (qtySold = received - counted, received unchanged); raised pieces raise the received quantity (qtyOriginal = counted + sold), sales history unchanged. Invoices, P&L, GST export and the live catalogue sheet are not touched.
@@ -16000,8 +16003,16 @@ function buildStockCountPage(){
   <div class="card">
     <div class="card-title">📦 Physical stock count</div>
     <div style="font-size:13px;color:#636366;line-height:1.55;margin-bottom:12px;">Type the product number of every piece on the shelf. Repeat a number once for each piece (for example <b>12 12 45</b> means #12 ×2 and #45 ×1). Separate with spaces, commas or new lines. Your list is final: on Apply, every product you list gets exactly that count and every product you don't list is set to 0. Leave out pieces on invoices that are not shipped yet. Your list is kept on this device until you apply or clear it.</div>
+    <div class="fg" style="margin-bottom:6px;"><label>Quick add, one tag at a time</label>
+      <div style="display:flex;gap:8px;align-items:stretch;">
+        <input id="sc-quick" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="done" placeholder="Product no." style="flex:1;min-width:0;font-size:18px;"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();scQuickAdd();}" onchange="scQuickAdd()"/>
+        <button type="button" class="btn btn-p" style="flex:0 0 auto;width:auto!important;min-width:96px;" onpointerdown="event.preventDefault()" onclick="scQuickAdd()">+ Add</button>
+      </div>
+      <div id="sc-quick-msg" style="font-size:12px;color:#636366;min-height:16px;margin-top:4px;"></div>
+    </div>
     <div class="fg" style="margin-bottom:8px;"><label>Product numbers on the shelf</label>
-      <textarea id="sc-input" rows="7" inputmode="numeric" placeholder="e.g. 12 12 45 45 45 101" oninput="scOnInput()" style="font-family:ui-monospace,Menlo,Consolas,monospace;line-height:1.6;"></textarea></div>
+      <textarea id="sc-input" rows="7" placeholder="e.g. 12 12 45 45 45 101" oninput="scOnInput()" style="font-family:ui-monospace,Menlo,Consolas,monospace;line-height:1.6;"></textarea></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
       <button class="btn btn-d btn-sm" onclick="scClearDraft()">Clear list</button>
     </div>
@@ -16030,6 +16041,24 @@ function scInitPage(){
   const ta=document.getElementById('sc-input');if(ta)ta.value=d.text;
   scRender();
   scFlushLogQueue();
+}
+// v14.46.1: number-pad field that appends one product number to the list per tap
+function scQuickAdd(){
+  const el=document.getElementById('sc-quick');if(!el)return;
+  const raw=String(el.value||'').trim().replace(/^#/,'');
+  if(!raw)return;
+  const msg=document.getElementById('sc-quick-msg');
+  if(!/^\d+$/.test(raw)||parseInt(raw,10)<=0){if(msg){msg.style.color='#C0392B';msg.textContent='Only a product number, like 45';}el.select();return;}
+  const n=parseInt(raw,10);
+  const d=scDraft();
+  d.text=(String(d.text||'').trim()?String(d.text).replace(/[\s,;]+$/,'')+' ':'')+n;
+  scSaveDraft(d);
+  const ta=document.getElementById('sc-input');if(ta)ta.value=d.text;
+  el.value='';
+  const c=scParse(d.text).counts.get(n)||1;
+  const known=inventory.some(p=>_scInt(p.prodNo)===n);
+  if(msg){msg.style.color=known?'#1A6E37':'#7a5200';msg.textContent='Added #'+n+' · now ×'+c+(known?'':' · not in the register (new)');}
+  clearTimeout(_scRenderT);_scRenderT=setTimeout(scRender,150);
 }
 function scOnInput(){
   const d=scDraft();d.text=document.getElementById('sc-input')?.value||'';scSaveDraft(d);
