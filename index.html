@@ -3,10 +3,19 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.46.1
+APP: Vismaad Creations v14.47.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 17-Oct-2026 - v14.46.1: STOCK RECONCILIATION QUICK ADD (PHONE). No Code.gs change.
+LAST_CHANGE: 18-Oct-2026 - v14.47.0: GST ERA FOR CA REPORTS (DASHBOARD STILL SHOWS PRE + POST). No Code.gs change.
+(G1) BUG FIX: INVOICES FROM THE INVOICE PAGE NEVER RECORDED isGST. generateInvoice built the saved invoice without isGST (only Bulk Import set it), so with GST mode ON every invoice from the Invoice page still printed as a Bill of Supply (no GSTIN, HSN, tax split, Place of Supply) despite its INV/YYYY-YY/NNN number, was left out of the GST Summary export ("BOS excluded") and out of output GST in the P&L. It now stores isGST:isGSTEnabled(). Existing invoices are untouched (missing isGST already reads as Bill of Supply).
+(G2) GST START DATE = DATE OF THE FIRST TAX INVOICE. Switching GST on no longer stamps today. New updateGstStartFromInvoices(): when the first Tax Invoice ever is saved (Invoice page or Bulk Import) its date becomes S.gstStartDate, replacing any date stamped by older versions; after that the date only moves back if an earlier Tax Invoice appears (also checked after every sync, so other devices' invoices count). A date typed by hand that is earlier than the first invoice is kept. Synced via the Settings sheet as before. Settings label: "Date you started issuing GST bills".
+(G3) BUG FIX: GST SUMMARY EXPORT deducted every credit note dated in a month that had Tax Invoices, including credit notes against Bills of Supply, understating that month's taxable value and revenue. Only credit notes against Tax Invoices (cn.isGST) are deducted now.
+(G4) SALES EXCEL EXPORT: new "GST bills only" tick (shown in GST mode, on by default). Ticked, the Sales Register contains only Tax Invoices dated on or after the GST start date and the file name ends _GST. Unticked, every bill as before. GST Summary and Inventory exports unchanged.
+(G5) P&L: "Sales included" choice under the periods: All bills (default) / Pre-GST only / GST era only, shown once the GST start date exists. Pre-GST and GST era views filter bills by date against the GST start date; a credit note follows the bill it reverses. Purchases and ITC always follow the period, so ITC on stock bought before the first Tax Invoice is kept. In All bills view, when the period has bills on both sides of the date, a "Pre-GST vs GST era" card shows bills, gross sales, credit notes, net sales, output GST and net revenue excl. GST for each side plus the total (totals match the statement).
+(G6) P&L fallback ITC estimate (used when no suit purchases are entered) is now taken from cost prices on Tax Invoices only; Bills of Supply carry no GST credit.
+(G7) GST CREDIT NOTES get their own series per financial year, matching the invoice format: CN/YYYY-YY/NNN (e.g. CN/2026-27/001). Credit notes against Bills of Supply keep CN-NNN, counted separately, so old numbers cannot clash.
+UNCHANGED: Dashboard (counts pre + post by request), Sales list, outreach, stock, tracking, printed bills, Archive Pre-GST Data.
+PREV_CHANGE: 17-Oct-2026 - v14.46.1: STOCK RECONCILIATION QUICK ADD (PHONE). No Code.gs change.
 (Q1) BUG FIX: on iPhone the "Product numbers on the shelf" box opened the number pad (inputmode="numeric"), which has no space, comma or Return key, so numbers could not be separated. The box now opens the normal keyboard (for pasting and editing).
 (Q2) NEW "Quick add" field above it: opens the number pad; type a tag number and tap + Add (or Enter / the keyboard's Done) to append it to the list. The field clears and keeps the keyboard open for the next tag (the button does not take focus). A line under it confirms "Added #45 · now ×3", and flags a number not in the register. A non-number is refused with a message. Same draft, tally and preview as before.
 PREV_CHANGE: 17-Oct-2026 - v14.46.0: STOCK RECONCILIATION (PHYSICAL COUNT IS FINAL). No Code.gs change (the StockLog sheet is created by the existing getOrCreateSheet on first write).
@@ -1514,9 +1523,9 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
       </div>
       <div id="gst-toggle-note" style="font-size:12px;color:var(--brown);margin-top:8px;"></div>
       <div id="gst-era-block" style="display:none;margin-top:12px;border-top:1px solid rgba(0,0,0,.08);padding-top:12px;">
-        <div class="fg" style="margin-bottom:10px;"><label>GST Era Start Date</label>
+        <div class="fg" style="margin-bottom:10px;"><label>Date you started issuing GST bills</label>
           <input type="date" id="ms-gst-start" onchange="saveGstStartDate(this.value)"/>
-          <div style="font-size:11px;color:#888;margin-top:4px;">Records dated before this belong to the pre-GST firm.</div>
+          <div style="font-size:11px;color:#888;margin-top:4px;">Filled in automatically from your first Tax Invoice. Bills dated before this belong to the pre-GST period. CA reports (GST Summary, Sales export with "GST bills only", P&amp;L "GST era") start here.</div>
         </div>
         <button class="btn btn-o" style="width:100%;min-height:44px;" onclick="archivePreGst()">📦 Archive Pre-GST Data</button>
         <div id="gst-archive-note" style="font-size:11px;color:#888;margin-top:6px;"></div>
@@ -3555,6 +3564,7 @@ async function syncAll(manual){
     // (fires here — after remote PopupState is merged — so seen-list is always up to date)
     setTimeout(()=>{checkFollowupPopup();checkReviewPopup();},800);
     setTimeout(checkDupInvNos,1400); // v14.25.0 H4
+    setTimeout(()=>{try{updateGstStartFromInvoices(false);}catch(e){}},1600); // v14.47.0
   }catch(e){
     setSyncStatus('err');
     const msg=e.message||String(e);
@@ -3818,7 +3828,7 @@ function applyGSTMode(){
       if(an){
         try{
           const cutoff=S.gstStartDate||'';
-          if(!cutoff){an.textContent='Set the GST era start date to enable archiving.';}
+          if(!cutoff){an.textContent='The date fills in when you generate your first Tax Invoice (or type it above). Archiving needs it.';}
           else{
             const nInv=invoices.filter(i=>(i.invDate||'')&&i.invDate<cutoff).length;
             const nCN=creditNotes.filter(c=>(c.cnDate||'')&&c.cnDate<cutoff).length;
@@ -3834,7 +3844,7 @@ function applyGSTMode(){
 
 function setGSTMode(on){
   S.gstEnabled=on;
-  if(on&&!S.gstStartDate)S.gstStartDate=today(); // v14.26.0: GST era begins the day registration is switched ON (editable in Settings)
+  // v14.47.0: the GST era start date is no longer stamped here. It is the date of the first Tax Invoice (updateGstStartFromInvoices).
   S.updatedAt=new Date().toISOString(); // v14.25.0 H5
   lsSet('vc_s',S);
   if(!on){invoices.forEach(inv=>{if(inv.isGST===undefined)inv.isGST=false;});save();}
@@ -3848,6 +3858,27 @@ function setGSTMode(on){
 // Archiving downloads a JSON backup, then moves all invoices/credit notes dated before
 // gstStartDate to InvoicesArchive/CreditNotesArchive tabs on the Google Sheet and tombstones
 // their ids in DeletedIds so every device purges its local copies. Requires Code.gs v3.
+// v14.47.0: helpers for the GST era (the date the first Tax Invoice was issued)
+function isTaxInv(i){return !!i&&(i.isGST===true||i.isGST==='true');}
+function gstEraStart(){return toISODate(S.gstStartDate)||'';}
+function isGstEraInv(i){const c=gstEraStart();return !!c&&String(toISODate(i&&i.invDate)||'')>=c;}
+// Sets the GST era start date from the Tax Invoices. firstIssued=true when the invoice just saved is
+// the first Tax Invoice ever: its date replaces whatever was there (e.g. a date stamped by older
+// versions when GST was switched on). Otherwise the date only moves back when an earlier Tax Invoice
+// exists, so a date typed by hand that is earlier than the first invoice is kept.
+function updateGstStartFromInvoices(firstIssued){
+  const dates=invoices.filter(isTaxInv).map(i=>toISODate(i.invDate)).filter(Boolean).sort();
+  if(!dates.length)return;
+  const earliest=dates[0];
+  const cur=gstEraStart();
+  let next=cur;
+  if(firstIssued||!cur||earliest<cur)next=earliest;
+  if(next===cur)return;
+  S.gstStartDate=next;S.updatedAt=new Date().toISOString();lsSet('vc_s',S);
+  gsWriteConfirmed(SHEETS.settings,settingsForSheet()).then(ok=>{if(!ok)toast('⚠️ GST start date saved locally but sheet sync failed — tap sync to retry');});
+  applyGSTMode();
+  setTimeout(()=>toast('📅 GST bills start date set to '+fmtDate(next)),1200);
+}
 function saveGstStartDate(v){
   if(!v)return;
   S.gstStartDate=v;S.updatedAt=new Date().toISOString();lsSet('vc_s',S);
@@ -3871,7 +3902,7 @@ function gsArchivePreGst(cutoff){
 function archivePreGst(){
   if(!isGSTEnabled()){toast('⚠️ Enable GST mode first');return;}
   const cutoff=S.gstStartDate;
-  if(!cutoff){toast('⚠️ Set the GST era start date first');return;}
+  if(!cutoff){toast('⚠️ Set the date you started issuing GST bills first');return;}
   const preInv=invoices.filter(i=>(i.invDate||'')&&i.invDate<cutoff);
   const preCN=creditNotes.filter(c=>(c.cnDate||'')&&c.cnDate<cutoff);
   if(preInv.length===0&&preCN.length===0){toast('✅ No pre-GST records to archive');return;}
@@ -4595,11 +4626,14 @@ async function generateInvoice(){
     itemsArr:validItems,
     gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,
     isShipped:false,status:'Pending',invoiceStatus:'Active',
+    isGST:isGSTEnabled(), // v14.47.0 BUG FIX: never set here before, so every invoice from this page printed as a Bill of Supply and was left out of the GST export
     costPrice:itemsCostTotal,
     religion:getAutoReligion(custName,custPhone,custWhatsapp),
     invUpdatedAt:new Date().toISOString(),
   };
+  const _firstTaxInv=saved.isGST&&!invoices.some(isTaxInv); // v14.47.0
   invoices.push(saved);save();
+  if(saved.isGST)updateGstStartFromInvoices(_firstTaxInv); // v14.47.0: GST era starts at the first Tax Invoice
   saveStk(); // stock already deducted above (pool-aware) — persist it
   gsWriteConfirmed(SHEETS.invoices,flattenInvoice(saved)).then(ok=>{if(!ok)toast('⚠️ Invoice saved locally but sheet sync failed — tap sync to retry');});
   // v14.25.0 C5: write only touched products · v14.27.0: includes LINKED siblings the spill drained
@@ -6273,10 +6307,11 @@ document.addEventListener('change',function(e){
   }
 });
 
-function getCNCounter(){
+function getCNCounter(gst){
   // Counter resets per financial year — CN-001 restarts each FY
+  // v14.47.0: GST credit notes (CN/YYYY-YY/NNN) and Bill of Supply credit notes (CN-NNN) count separately
   const currentFY=getFY(today());
-  const thisYearCNs=creditNotes.filter(cn=>cn.fy===currentFY);
+  const thisYearCNs=creditNotes.filter(cn=>cn.fy===currentFY&&(String(cn.cnNo||'').startsWith('CN/')===!!gst));
   if(thisYearCNs.length===0)return 1;
   const nums=thisYearCNs.map(cn=>{const m=(cn.cnNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
   return Math.max(...nums)+1;
@@ -6305,7 +6340,7 @@ function saveCreditNote(){
   }
 
   const gst=refInv.isGST===true||refInv.isGST==='true';
-  const cnNo='CN-'+String(getCNCounter()).padStart(3,'0');
+  const cnNo=gst?'CN/'+getFY(today())+'/'+String(getCNCounter(true)).padStart(3,'0'):'CN-'+String(getCNCounter(false)).padStart(3,'0'); // v14.47.0
   const cn={
     id:uid(),
     cnNo,
@@ -7774,18 +7809,44 @@ function buildPLPage(){
       <button class="btn btn-o" onclick="setPLPeriod('thisfy')">📅 Full Financial Year (${fyStart}–${fyStart+1})</button>
       <button class="btn btn-o" onclick="setPLPeriod('all')">📅 All Time</button>
     </div>
+    <div id="pl-era-row" style="margin-top:14px;padding-top:12px;border-top:.5px solid var(--sep,#e5e5ea);">${plEraRowHTML()}</div>
   </div>
   <div id="pl-content" style="margin-top:14px;"><div style="color:#aaa;text-align:center;padding:30px;">Select a period above</div></div>`;
 }
+// v14.47.0: which sales the P&L covers. 'all' (default) = every bill in the period, with a
+// pre-GST / GST era split when the period spans the GST start date; 'pre' = bills before it;
+// 'gst' = bills on or after it. Purchases always follow the period, so ITC on stock bought
+// before the first Tax Invoice is kept.
+let _plEra='all',_plPeriod='thismonth';
+function plEraRowHTML(){
+  const c=gstEraStart();
+  if(!c)return '<div style="font-size:12px;color:#888;">Sales included: all bills. The Pre-GST / GST era choice appears once your first Tax Invoice sets the GST start date.</div>';
+  const opt=(v,l)=>'<div class="chip'+(_plEra===v?' active':'')+'" role="button" tabindex="0" onclick="setPLEra(\''+v+'\')">'+l+'</div>';
+  return '<div style="font-size:12px;color:#888;margin-bottom:6px;">Sales included (GST bills from '+fmtDate(c)+'):</div>'
+    +'<div class="channel-chips" style="margin-top:0;">'+opt('all','All bills')+opt('pre','Pre-GST only')+opt('gst','GST era only')+'</div>';
+}
+function setPLEra(v){
+  _plEra=v;
+  const r=document.getElementById('pl-era-row');if(r)r.innerHTML=plEraRowHTML();
+  setPLPeriod(_plPeriod);
+}
 function setPLPeriod(p){
+  _plPeriod=p||'thismonth';
   const{from,to}=p==='all'?{from:'2026-03-02',to:today()}:getDateRange(p); // v14.35.0 B9: was UTC
+  const c=gstEraStart();
+  const era=c?_plEra:'all';
+  let inv=invoices.filter(i=>i.invDate>=from&&i.invDate<=to);
+  if(era==='pre')inv=inv.filter(i=>!isGstEraInv(i));
+  else if(era==='gst')inv=inv.filter(i=>isGstEraInv(i));
   renderPLContent(
-    invoices.filter(i=>i.invDate>=from&&i.invDate<=to),
-    purchases.filter(x=>x.date>=from&&x.date<=to)
+    inv,
+    purchases.filter(x=>x.date>=from&&x.date<=to),
+    {era,cutoff:c}
   );
 }
 function renderPLSubPage(){setPLPeriod('thismonth');}
-function renderPLContent(filtInv,filtPur){
+function renderPLContent(filtInv,filtPur,plOpts){
+  plOpts=plOpts||{era:'all',cutoff:''};
   const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
   const pct=(a,b)=>b>0?parseFloat(((a/b)*100).toFixed(1)):0;
 
@@ -7816,6 +7877,12 @@ function renderPLContent(filtInv,filtPur){
   const _voidShipCharged=parseFloat(_voidShipped.reduce((s,i)=>s+(parseFloat(i.shipping)||0),0).toFixed(2));
   const _voidShipCost=parseFloat(_voidShipped.reduce((s,i)=>s+(parseFloat(i.shippingCost)||0),0).toFixed(2));
 
+  // v14.47.0: era of a credit note = era of the bill it reverses (falls back to the note's own type)
+  function _cnEra(cn){
+    const ref=invoices.find(i=>String(i.id)===String(cn.refInvId));
+    if(ref)return isGstEraInv(ref)?'gst':'pre';
+    return (cn.isGST===true||cn.isGST==='true')?'gst':'pre';
+  }
   // ── CREDIT NOTES deducted from revenue ──
   // Derive date range from the filtered invoices passed in
   const _invDates=filtInv.map(i=>String(i.invDate||'').slice(0,10)).filter(Boolean).sort();
@@ -7826,6 +7893,8 @@ function renderPLContent(filtInv,filtPur){
     // v14.31.0: the invoice this CN reverses was already removed above — deducting the CN
     // as well would subtract the same sale twice.
     if(_voidIds.has(String(cn.refInvId)))return false;
+    // v14.47.0: in a Pre-GST or GST era view, a credit note follows the bill it reverses
+    if(plOpts.era!=='all'&&_cnEra(cn)!==plOpts.era)return false;
     const d=String(cn.cnDate).slice(0,10);
     return _cnFrom?d>=_cnFrom&&d<=_cnTo:true;
   });
@@ -7868,14 +7937,16 @@ function renderPLContent(filtInv,filtPur){
 
   // Fallback to invoice-level costPrice if no purchases entered
   const invCostIncl   = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.costPrice)||0),0).toFixed(2));
-  const invItcOnCost  = parseFloat((invCostIncl-invCostIncl/1.05).toFixed(2));
+  // v14.47.0: ITC is only estimated on Tax Invoices — a Bill of Supply period had no GST credit
+  const _invCostGst   = gstInvs.reduce((s,i)=>s+(parseFloat(i.costPrice)||0),0);
+  const invItcOnCost  = parseFloat((_invCostGst-_invCostGst/1.05).toFixed(2));
   const invCostExcl   = parseFloat((invCostIncl-invItcOnCost).toFixed(2));
 
   const usePurchReg   = suitCostIncl>0;
   const cogs          = usePurchReg ? suitCostExcl : invCostExcl;
   const cogsIncl      = usePurchReg ? suitCostIncl : invCostIncl;
   const itcSuits      = usePurchReg ? itcOnSuits : invItcOnCost;
-  const cogsSource    = usePurchReg ? 'From Purchases Register' : invCostIncl>0 ? 'From invoice cost prices — assumes 5% GST paid to supplier. If purchased from unregistered dealer, use Purchases Register for accuracy.' : 'Not entered — add cost prices to invoices or use Purchases Register';
+  const cogsSource    = usePurchReg ? 'From Purchases Register' : invCostIncl>0 ? 'From invoice cost prices — ITC assumed at 5% on Tax Invoices only. If purchased from unregistered dealer, use Purchases Register for accuracy.' : 'Not entered — add cost prices to invoices or use Purchases Register';
 
   const grossProfit   = parseFloat((suitRevExcl-cogs).toFixed(2));
   const grossMargin   = pct(grossProfit,suitRevExcl);
@@ -7933,15 +8004,54 @@ function renderPLContent(filtInv,filtPur){
   const chEntries=Object.entries(channels).sort((a,b)=>b[1]-a[1]);
   const chIcons={WhatsApp:'💬',Instagram:'📸',Facebook:'👍',Website:'🌐',Offline:'🏪','Not specified':'❓'};
 
+  // ── v14.47.0: PRE-GST / GST ERA SPLIT (All bills view, when the period has both) ──
+  const _eraLbl={all:'All bills',pre:'Pre-GST only',gst:'GST era only'}[plOpts.era]||'All bills';
+  let splitHTML='';
+  if(plOpts.era==='all'&&plOpts.cutoff){
+    const _sum=(invs,cns)=>{
+      const gross=invs.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0);
+      const cn=cns.reduce((s,c)=>s+(parseFloat(c.creditAmount)||0),0);
+      const outGst=invs.filter(isTaxInv).reduce((s,i)=>{const sp=gstSplit(i.grandTotal,i.shipping,i.discount);return s+sp.suitGST+(parseFloat(i.shipping||0)-parseFloat(i.shipping||0)/1.18);},0);
+      const net=gross-cn;
+      return{n:invs.length,gross,cn,net,outGst,excl:net-outGst};
+    };
+    const preInv=filtInv.filter(i=>!isGstEraInv(i)),gstInv=filtInv.filter(i=>isGstEraInv(i));
+    if(preInv.length&&gstInv.length){
+      const a=_sum(preInv,filtCNs.filter(c=>_cnEra(c)==='pre'));
+      const b=_sum(gstInv,filtCNs.filter(c=>_cnEra(c)==='gst'));
+      const t={n:a.n+b.n,gross:a.gross+b.gross,cn:a.cn+b.cn,net:a.net+b.net,outGst:a.outGst+b.outGst,excl:a.excl+b.excl};
+      const r2=v=>'₹'+(Math.round(v*100)/100).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+      const tr=(l,k,money)=>'<tr><td>'+l+'</td><td style="text-align:right;">'+(money?r2(a[k]):a[k])+'</td><td style="text-align:right;">'+(money?r2(b[k]):b[k])+'</td><td style="text-align:right;font-weight:700;">'+(money?r2(t[k]):t[k])+'</td></tr>';
+      splitHTML=`<div class="card">
+        <div class="card-title">🧮 Pre-GST vs GST era</div>
+        <div style="font-size:12px;color:#888;margin-bottom:10px;">GST bills started ${fmtDate(plOpts.cutoff)}. Choose "GST era only" above for the figures your CA needs.</div>
+        <div class="tbl-wrap"><table style="min-width:420px;">
+          <thead><tr><th></th><th style="text-align:right;">Pre-GST</th><th style="text-align:right;">GST era</th><th style="text-align:right;">Total</th></tr></thead>
+          <tbody>
+            ${tr('Bills','n',false)}
+            ${tr('Gross sales (incl. GST)','gross',true)}
+            ${tr('Less: credit notes','cn',true)}
+            ${tr('Net sales','net',true)}
+            ${tr('Output GST','outGst',true)}
+            ${tr('Net revenue (excl. GST)','excl',true)}
+          </tbody>
+        </table></div>
+        <div style="font-size:11px;color:#888;margin-top:8px;">Cancelled/Returned bills excluded, as in the statement below. Costs and purchases are not split: they follow the period.</div>
+      </div>`;
+    }
+  }
+
   const el=document.getElementById('pl-content');if(!el)return;
   el.innerHTML=`
+    ${plOpts.era!=='all'?'<div class="sync-banner" style="margin-bottom:14px;">🧾 Showing <strong>'+_eraLbl+'</strong> sales (GST bills from '+fmtDate(plOpts.cutoff)+'). Purchases and ITC follow the period.</div>':''}
     <div class="stat-grid" style="margin-bottom:14px;">
       <div class="stat-card"><div class="stat-val">₹${grossRev.toLocaleString('en-IN')}</div><div class="stat-lbl">Total Revenue</div></div>
       <div class="stat-card"><div class="stat-val" style="color:${netProfit>=0?'#27ae60':'#c0392b'};">₹${netProfit.toLocaleString('en-IN')}</div><div class="stat-lbl">Net Profit</div></div>
     </div>
 
+    ${splitHTML}
     <div class="card">
-      <div class="card-title">📊 P&L Statement — ${filtInv.length} invoice(s)${_voidCount>0?' · '+_voidCount+' cancelled/returned excluded':''}</div>
+      <div class="card-title">📊 P&L Statement — ${filtInv.length} invoice(s)${plOpts.era!=='all'?' · '+_eraLbl:''}${_voidCount>0?' · '+_voidCount+' cancelled/returned excluded':''}</div>
 
       ${head('💰 Revenue')}
       ${_voidCount>0?subrow('Excluded: '+_voidCount+' Cancelled/Returned invoice(s) — goods only; their shipping is kept below',_voidAmt,'#888'):''}
@@ -8077,6 +8187,13 @@ function buildExportPage(){
 
   return`<div class="card">
     <div class="card-title">📊 Export Sales Data</div>
+    <label class="gst-only" style="background:var(--goldp);border-radius:10px;padding:10px 12px;margin-bottom:14px;cursor:pointer;">
+      <span style="display:flex;align-items:center;gap:10px;">
+        <input type="checkbox" id="exp-gst-only" checked style="width:20px;height:20px;flex-shrink:0;"/>
+        <span style="font-size:14px;font-weight:600;color:var(--brown);">GST bills only</span>
+      </span>
+      <span style="display:block;font-size:12px;color:#888;margin-top:4px;line-height:1.5;">Sales exports include only Tax Invoices dated ${gstEraStart()?'on or after '+fmtDate(gstEraStart()):'from your first Tax Invoice'}. Untick to export every bill, pre-GST included.</span>
+    </label>
 
     <div style="font-size:12px;font-weight:600;color:var(--brown);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Quick Periods</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
@@ -8298,6 +8415,9 @@ function _doExport(type,from,to,label){
     const _cnOutOfRange=[];
     creditNotes.forEach(cn=>{
       if(!cn.cnDate)return;
+      // v14.47.0 BUG FIX: a credit note against a Bill of Supply was subtracted in full from the
+      // month's taxable value and revenue. Only credit notes against Tax Invoices belong here.
+      if(!(cn.isGST===true||cn.isGST==='true'))return;
       const isoMon=cn.cnDate?String(cn.cnDate).slice(0,7):'Unknown';
       if(!byMonth[isoMon]){
         // v14.31.0: a CN issued outside the exported range used to vanish silently.
@@ -8385,6 +8505,15 @@ function _doExport(type,from,to,label){
     return;
   }
 
+  // v14.47.0: "GST bills only" — Tax Invoices dated on or after the GST start date
+  let salesList=filtered;
+  const _gstOnlyEl=document.getElementById('exp-gst-only');
+  const _gstOnly=isGSTEnabled()&&(_gstOnlyEl?_gstOnlyEl.checked:true);
+  if(_gstOnly){
+    salesList=filtered.filter(i=>isTaxInv(i)&&(!gstEraStart()||isGstEraInv(i)));
+    if(salesList.length===0){toast('⚠️ No GST bills in this period. Untick "GST bills only" to export every bill.',6000);return;}
+    label=label+'_GST';
+  }
   // Sales register — columns adapt per invoice (Tax Invoice vs Bill of Supply)
   const hdr=[
     'Document Type',
@@ -8418,7 +8547,7 @@ function _doExport(type,from,to,label){
     'Invoice Status',
     'Status'
   ];
-  const rows=filtered.map(inv=>{
+  const rows=salesList.map(inv=>{
     const gst=inv.isGST===true||inv.isGST==='true';
     const grand=parseFloat(inv.grandTotal)||0;
     const ship=parseFloat(inv.shipping)||0;
@@ -8491,7 +8620,7 @@ function _doExport(type,from,to,label){
   ws['!cols']=hdr.map(h=>({wch:Math.min(Math.max(h.length,12),40)}));
   XLSX.utils.book_append_sheet(wb,ws,'Sales Register');
   XLSX.writeFile(wb,'Vismaad_Sales_'+label.replace(/[\s/]/g,'_')+'.xlsx');
-  toast('✅ '+filtered.length+' records exported');
+  toast('✅ '+salesList.length+' records exported'+(_gstOnly?' (GST bills only)':''));
 }
 
 function buildBulkPage(){
@@ -8685,6 +8814,7 @@ function showBulkPreview(rows,skipped=[]){
   el.innerHTML=html;
 }
 async function bulkSaveOnly(){
+  let _bulkFirstTax=null; // v14.47.0: true when this import contains the first Tax Invoice ever
   if(isGSTEnabled()&&!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
   const rows=window._bulkRows;
   if(!rows||!rows.length){toast('⚠️ No rows to import');return;}
@@ -8734,6 +8864,7 @@ async function bulkSaveOnly(){
         tracking:r.tracking,channel:r.channel||'',isShipped:false,status:'Pending',invoiceStatus:'Active',isGST:isGSTEnabled(),costPrice:ct||0,
         gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,dispatchDate:'',
       };
+      if(saved.isGST&&_bulkFirstTax===null)_bulkFirstTax=!invoices.some(isTaxInv); // v14.47.0
       invoices.push(saved);
       toWrite.push(saved);
       added++;
@@ -8741,6 +8872,7 @@ async function bulkSaveOnly(){
 
     // Save locally immediately
     save();lsSet('vc_ctr',invCtr);
+    if(isGSTEnabled())updateGstStartFromInvoices(_bulkFirstTax); // v14.47.0
 
     const total=toWrite.length;
     if(total===0){
