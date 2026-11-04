@@ -3,10 +3,20 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.48.0
+APP: Vismaad Creations v14.49.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 04-Nov-2026 - v14.48.0: SALES BOOK, BILL COPIES, TAX INVOICE LOCKS, DEBIT NOTES, ORDER SLIP, TRIAL LABEL. No Code.gs change (new sheets are created on first use and read one by one).
+LAST_CHANGE: 04-Nov-2026 - v14.49.1: BILL COPIES ON EVERY DISPATCH TYPE, EMAIL SIGN-IN AND SECURITY FIXES. Needs Code.gs v6 deployed on the same link.
+(S1) EMAIL SIGN-IN. A device with no sign-in shows a full-screen sign-in page and asks the sheet for nothing. Enter an email listed in the AllowedEmails tab, get a 6-digit code, done once per browser. All records on the device stay put and unsynced changes upload after sign-in. Every sheet request carries the device token. A refused request brings the sign-in page back. Settings shows who is signed in, with Sign out. The token is not in Settings or the config backup. A refused or failed read is now an error (gsRead used to treat it as an empty sheet).
+(S2) CATALOGUE. Catalogue writes report failure properly instead of always claiming success.
+(S3) PLAIN TEXT ON OLDER SCREENS (report 6.2). Customer, product, supplier, courier and note text is escaped on the Dashboard, invoice, credit note, inventory, tracking, DS report, labels, QR and price list. Text inside click handlers is escaped too. The DS report Copy Tracking button, broken by quotes in its handler, works again.
+(S4) LIBRARIES (6.4). SheetJS 0.20.3 from cdn.sheetjs.com, pdf.js 4.10.38 legacy build from jsDelivr with eval off.
+(S5) P&L (6.5). GST on credit notes comes off Output GST and Net Suit Sales.
+(S6) SALES PAGE (6.6). A damaged invoice row is skipped and named in a red note. Rows that are not records are dropped at load.
+(S7) UPI (6.7). No built-in UPI ID, name or number. With empty settings a walk-in bill or Order Slip prints without a QR and says so.
+(S8) SALES BOOK STORAGE (6.8). Each device keeps this and last financial year of printed lines plus anything unsent. Older years stay in the SalesBook sheet and are read when the Sales Book opens.
+(S9) BILL COPIES. Tax Invoices show the copy menu on every dispatch type, on Print Invoice, Sales row print, bulk print and Save + Print All. A walk-in Original (alone or in All three) carries the payment QR; Duplicate and Triplicate never do. Bulk print and PDF share carry no QR, as before.
+PREV_CHANGE: 04-Nov-2026 - v14.48.0: SALES BOOK, BILL COPIES, TAX INVOICE LOCKS, DEBIT NOTES, ORDER SLIP, TRIAL LABEL. No Code.gs change (new sheets are created on first use and read one by one).
 (B1) SALES BOOK. More → Reports → Sales Book. A4 landscape pages for the physical file: legal name, trade name, GSTIN, FY, volume, page, line per Tax Invoice / Credit Note / Debit Note / status change, taxable at 5% and 18%, CGST, SGST, IGST, brought and carried forward, signature line. No cost, phone, address or religion. Starts at the first Tax Invoice. Only entries not yet printed are printed; each print starts on a new page; unused space is crossed through. Printing needs a full sync first and is blocked by duplicate bill numbers. Entries join the book only after "Yes, add to book". A snapshot of every printed line is kept in the new SalesBook sheet, so reprints match the paper. Missing bill numbers and printed lines that later changed are shown. Month summary for the CA.
 (B2) BILL COPIES. Tax Invoice print asks Original for Recipient / Duplicate for Transporter / Triplicate for Supplier / All three (bulk too). PDF share and the walk-in QR print use the Original label. Screen preview and Bills of Supply carry no label.
 (B3) TAX INVOICE LOCKS. No delete (single or bulk; cancel through Status instead). Shipping charged, discount and state locked in Edit Invoice and the Bulk Invoice Editor, and totals are no longer recalculated. Other edits, status changes and renumbering go to the new InvoiceLog sheet. A name or number change after printing adds a correction line to the book. Bills of Supply behave as before.
@@ -912,6 +922,30 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
   </div>
 </div>
 
+<!-- ════ v14.49.0 SIGN-IN SCREEN ════ -->
+<div id="auth-gate" style="display:none;position:fixed;inset:0;background:var(--bg-grouped,#F2F2F7);z-index:1000;flex-direction:column;align-items:center;justify-content:center;overflow-y:auto;padding:24px;padding-top:calc(env(safe-area-inset-top) + 24px);padding-bottom:calc(env(safe-area-inset-bottom) + 24px);">
+  <div class="card" style="width:100%;max-width:420px;margin:0;">
+    <div style="font-size:20px;font-weight:700;margin-bottom:6px;">Vismaad Creations</div>
+    <div id="auth-email-step">
+      <div style="font-size:14px;color:#636366;margin-bottom:14px;line-height:1.45;">Enter your approved email. We will send you a 6-digit code. You only do this once on each device.</div>
+      <div class="fg"><label for="auth-email">Email</label>
+        <input id="auth-email" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254" onkeydown="if(event.key==='Enter')vcAuthSend()"/></div>
+      <button class="btn btn-p" id="auth-send" style="width:100%;" onclick="vcAuthSend()">Send code</button>
+    </div>
+    <div id="auth-code-step" style="display:none;">
+      <div style="font-size:14px;color:#636366;margin-bottom:14px;line-height:1.45;">If <strong id="auth-sent-to" style="word-break:break-all;"></strong> is approved, a code is on its way. It can take a minute, so please check spam too. It expires in 10 minutes.</div>
+      <div class="fg"><label for="auth-code">6-digit code</label>
+        <input id="auth-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="8" style="font-size:20px;letter-spacing:4px;text-align:center;" onkeydown="if(event.key==='Enter')vcAuthVerify()"/></div>
+      <button class="btn btn-p" id="auth-verify" style="width:100%;margin-bottom:8px;" onclick="vcAuthVerify()">Sign in</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-o btn-sm" id="auth-resend" style="flex:1;" onclick="vcAuthSend(true)">Send again</button>
+        <button class="btn btn-o btn-sm" style="flex:1;" onclick="vcAuthChangeEmail()">Change email</button>
+      </div>
+    </div>
+    <div id="auth-msg" role="status" style="font-size:13px;margin-top:12px;line-height:1.4;min-height:18px;"></div>
+  </div>
+</div>
+
 <!-- ════ FIRST LAUNCH SETUP SCREEN ════ -->
 <div id="setup-screen" style="display:none;position:fixed;inset:0;background:var(--cream);z-index:999;flex-direction:column;align-items:center;overflow-y:auto;padding:24px;padding-top:calc(env(safe-area-inset-top) + 24px);padding-bottom:calc(env(safe-area-inset-bottom) + 80px);">
   <div style="width:100%;max-width:480px;">
@@ -1587,6 +1621,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
         <input id="ms-cat-sheet-id" placeholder="1-rtn3pZsJJ09gbk5llf2rKkk…"/>
         <div style="font-size:11px;color:#888;margin-top:4px;">Create a new blank public Google Sheet → share as Viewer → copy ID from URL. App writes product data here for the live catalogue page.</div></div>
     </div>
+    <div style="background:var(--surface,#fff);border:1px solid var(--sep,#E5E5EA);border-radius:10px;padding:12px 14px;margin-bottom:14px;"><div id="auth-status" style="font-size:13px;margin-bottom:8px;word-break:break-all;"></div><button class="btn btn-o btn-sm" onclick="vcAuthSignOut()">Sign out of this device</button></div>
     <div style="background:#f0fff4;border:1px solid #a8e6cf;border-radius:10px;padding:12px 14px;margin-bottom:14px;">
       <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:10px;">📦 Courier Tracking (Track123)</div>
       <div style="font-size:12px;color:#888;margin-bottom:10px;line-height:1.55;">Used to auto-track DTDC and Blue Dart shipments. India Post is unaffected. Sign up free at track123.com → Developers → API Key. Free plan: 50 shipments/month per account.</div>
@@ -1612,11 +1647,11 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <div style="background:#f0fff4;border:1px solid #b2dfdb;border-radius:10px;padding:12px 14px;margin-bottom:14px;">
       <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:10px;">💳 UPI Payment (Walk-in Invoices)</div>
       <div class="fg" style="margin-bottom:10px;"><label>UPI ID</label>
-        <input id="ms-upi-id" placeholder="e.g. 7719683825-2@ybl"/></div>
+        <input id="ms-upi-id" placeholder="e.g. yourshop@okaxis"/></div>
       <div class="fg" style="margin-bottom:10px;"><label>Payee Name</label>
-        <input id="ms-upi-name" placeholder="e.g. Ravinder Kaur"/></div>
+        <input id="ms-upi-name" placeholder="e.g. Vismaad Creations"/></div>
       <div class="fg" style="margin-bottom:0;"><label>UPI Phone Number</label>
-        <input id="ms-upi-phone" placeholder="e.g. 7719683825" type="tel" inputmode="numeric"/></div>
+        <input id="ms-upi-phone" placeholder="e.g. 9876543210" type="tel" inputmode="numeric"/></div>
     </div>
     <button class="btn btn-p" onclick="saveSettings()">💾 Save Settings</button>
     <!-- Config Backup / Restore -->
@@ -2299,9 +2334,9 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <button class="modal-close" onclick="closeUpiQrModal()">✕</button>
     <div class="modal-title">💳 UPI Payment QR</div>
     <div style="font-size:12px;color:#888;margin-bottom:14px;">These details will be embedded in the QR code on the printed invoice.</div>
-    <div class="fg"><label>UPI ID *</label><input id="upi-qr-id" placeholder="e.g. 7719683825-2@ybl" oninput="previewUpiQr()"/></div>
-    <div class="fg"><label>Payee Name *</label><input id="upi-qr-name" placeholder="e.g. Ravinder Kaur" oninput="previewUpiQr()"/></div>
-    <div class="fg"><label>UPI Phone Number</label><input id="upi-qr-phone" placeholder="e.g. 7719683825" type="tel" inputmode="numeric" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>UPI ID *</label><input id="upi-qr-id" placeholder="e.g. yourshop@okaxis" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>Payee Name *</label><input id="upi-qr-name" placeholder="e.g. Vismaad Creations" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>UPI Phone Number</label><input id="upi-qr-phone" placeholder="e.g. 9876543210" type="tel" inputmode="numeric" oninput="previewUpiQr()"/></div>
     <div class="fg"><label>Amount (₹) <span style="font-weight:400;color:#888;">— auto-filled from invoice</span></label><input id="upi-qr-amount" type="number" inputmode="decimal" placeholder="0.00" oninput="previewUpiQr()"/></div>
     <div class="fg"><label>Transaction Note</label><input id="upi-qr-tn" placeholder="e.g. INV-001" oninput="previewUpiQr()"/></div>
     <div class="fg"><label>Transaction Ref (Invoice No.)</label><input id="upi-qr-tr" placeholder="e.g. INV-001" oninput="previewUpiQr()"/></div>
@@ -2613,6 +2648,7 @@ function nextDocNo(list,field,prefix,fy){
 // ═══════════════════════════════════════════
 // MODULE-LEVEL HTML ESCAPE — available everywhere
 // ═══════════════════════════════════════════
+function _jsq(s){return esc(String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"));} // v14.49.0: text inside a '...' in an onclick
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
 // ═══════════════════════════════════════════
@@ -2641,6 +2677,141 @@ const GITHUB_REPO='vismaad';
 const GITHUB_BRANCH='main';
 const CAT_SHEET_SCRIPT_URL='https://script.google.com/macros/s/AKfycbwpfwN3NXnsxyOnYUyiMvEYCLJJaqzFqzuIWMSJ2XLucP6LEHZ4nLhGuuew2HtDmEIgbQ/exec'; // same script, catalogue sheet uses separate sheetId param
 
+// ═══════════════════════════════════════════
+// v14.49.0: EMAIL SIGN-IN
+// ═══════════════════════════════════════════
+// Each device signs in once with a 6-digit code emailed to an address in the sheet's AllowedEmails tab.
+// The token stays in this browser only. It is not part of Settings or the config backup.
+function _vcAuthGet(){try{const a=JSON.parse(localStorage.getItem('vc_auth')||'null');return a&&typeof a==='object'?a:null;}catch(e){return null;}}
+function vcAuthToken(){const a=_vcAuthGet();return a&&typeof a.t==='string'?a.t:'';}
+function _gsT(){return '&t='+encodeURIComponent(vcAuthToken());}
+let _vcInitDone=false;
+function vcAuthBoot(){
+  if(vcAuthToken()){_vcInitDone=true;init();return;}
+  vcAuthShow();
+}
+// True when the sheet refused this device: forget the token and ask to sign in again. Nothing else is touched.
+function vcAuthCheck(res){
+  if(!res||!res.authRequired)return false;
+  try{localStorage.removeItem('vc_auth');}catch(e){}
+  vcAuthShow();
+  return true;
+}
+function _vcAuthEl(id){return document.getElementById(id);}
+function _vcAuthMsg(t,bad){const m=_vcAuthEl('auth-msg');if(!m)return;m.textContent=t||'';m.style.color=bad?'#c0392b':'#636366';}
+function _vcAuthPending(){
+  try{const p=JSON.parse(localStorage.getItem('vc_auth_pending')||'null');
+    if(p&&p.email&&Date.now()-p.at<600000)return p;}catch(e){}
+  return null;
+}
+let _vcAuthTimer=null;
+function _vcAuthStep(code){
+  _vcAuthEl('auth-email-step').style.display=code?'none':'block';
+  _vcAuthEl('auth-code-step').style.display=code?'block':'none';
+  if(_vcAuthTimer){clearInterval(_vcAuthTimer);_vcAuthTimer=null;}
+  if(!code)return;
+  const p=_vcAuthPending();
+  _vcAuthEl('auth-sent-to').textContent=p?p.email:'';
+  const btn=_vcAuthEl('auth-resend');
+  const tick=()=>{
+    const q=_vcAuthPending(),left=q?Math.ceil((60000-(Date.now()-q.at))/1000):0;
+    btn.disabled=left>0;btn.textContent=left>0?'Send again in '+left+'s':'Send again';
+    if(left<=0&&_vcAuthTimer){clearInterval(_vcAuthTimer);_vcAuthTimer=null;}
+  };
+  tick();_vcAuthTimer=setInterval(tick,1000);
+}
+function vcAuthShow(){
+  const g=_vcAuthEl('auth-gate');if(!g)return;
+  if(g.style.display==='flex')return;
+  g.style.display='flex';
+  _vcAuthMsg('');
+  const a=_vcAuthEl('auth-email');if(a&&!a.value)a.value=(function(){try{return localStorage.getItem('vc_auth_last')||'';}catch(e){return'';}})();
+  _vcAuthStep(!!_vcAuthPending());
+}
+// One public request to the sheet. Rejects on no internet or no reply.
+function _vcAuthCall(params){
+  return new Promise((resolve,reject)=>{
+    const cb='_auth'+Date.now()+Math.floor(Math.random()*9999);
+    const s=document.createElement('script');
+    const done=()=>{clearTimeout(timer);delete window[cb];try{document.head.removeChild(s);}catch(e){}};
+    const timer=setTimeout(()=>{done();reject(new Error('timeout'));},30000);
+    window[cb]=r=>{done();resolve(r||{});};
+    s.onerror=()=>{done();reject(new Error('network'));};
+    s.src=SCRIPT_URL+'?'+new URLSearchParams({...params,callback:cb}).toString();
+    document.head.appendChild(s);
+  });
+}
+const _VC_NO_NET='Could not reach the sheet. Please check your internet connection and try again.';
+async function vcAuthSend(resend){
+  const raw=resend?(_vcAuthPending()||{}).email:_vcAuthEl('auth-email').value;
+  const email=String(raw||'').trim().toLowerCase();
+  if(!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){_vcAuthStep(false);_vcAuthMsg('Please enter a valid email address.',true);return;}
+  const btn=_vcAuthEl(resend?'auth-resend':'auth-send');btn.disabled=true;
+  _vcAuthMsg('Sending…');
+  try{
+    const r=await _vcAuthCall({action:'requestCode',email});
+    if(r.error){_vcAuthMsg(r.error,true);btn.disabled=false;return;}
+    try{localStorage.setItem('vc_auth_pending',JSON.stringify({email,at:Date.now()}));localStorage.setItem('vc_auth_last',email);}catch(e){}
+    _vcAuthStep(true);
+    _vcAuthMsg('');
+    const c=_vcAuthEl('auth-code');if(c){c.value='';c.focus();}
+  }catch(e){_vcAuthMsg(_VC_NO_NET,true);btn.disabled=false;}
+}
+async function vcAuthVerify(){
+  const p=_vcAuthPending();
+  if(!p){_vcAuthStep(false);_vcAuthMsg('That code has expired. Please ask for a new one.',true);return;}
+  const code=String(_vcAuthEl('auth-code').value||'').replace(/\D/g,'');
+  if(code.length!==6){_vcAuthMsg('Please enter the 6-digit code.',true);return;}
+  const btn=_vcAuthEl('auth-verify');btn.disabled=true;_vcAuthMsg('Checking…');
+  try{
+    const r=await _vcAuthCall({action:'verifyCode',email:p.email,code,device:vcAuthDeviceName()});
+    btn.disabled=false;
+    if(!r.ok||!r.token){_vcAuthMsg(r.error||'Sign-in failed. Please try again.',true);return;}
+    try{localStorage.setItem('vc_auth',JSON.stringify({t:r.token,email:r.email||p.email}));localStorage.removeItem('vc_auth_pending');}catch(e){_vcAuthMsg('This browser would not save the sign-in. Please check it is not in private mode.',true);return;}
+    _vcAuthEl('auth-gate').style.display='none';
+    _vcAuthEl('auth-code').value='';
+    if(_vcAuthTimer){clearInterval(_vcAuthTimer);_vcAuthTimer=null;}
+    vcAuthAfter();
+  }catch(e){btn.disabled=false;_vcAuthMsg(_VC_NO_NET,true);}
+}
+function vcAuthAfter(){
+  if(!_vcInitDone){_vcInitDone=true;init();return;}
+  vcAuthRenderStatus();
+  const setup=_vcAuthEl('setup-screen');
+  if(setup&&setup.style.display==='flex'&&!S.address){
+    restoreSettingsFromSheet().then(ok=>{if(ok){setup.style.display='none';initContinue();}});
+    return;
+  }
+  setTimeout(()=>syncAll(true),300);
+}
+function vcAuthChangeEmail(){
+  try{localStorage.removeItem('vc_auth_pending');}catch(e){}
+  _vcAuthMsg('');_vcAuthStep(false);
+  const b=_vcAuthEl('auth-send');if(b)b.disabled=false;
+}
+// Name shown in the Devices tab, so a lost phone can be told apart
+function vcAuthDeviceName(){
+  const u=navigator.userAgent||'';
+  const home=window.navigator.standalone===true||(window.matchMedia&&matchMedia('(display-mode: standalone)').matches);
+  const os=/iPhone/.test(u)?'iPhone':/iPad/.test(u)?'iPad':/Android/.test(u)?'Android phone':/Windows/.test(u)?'Windows laptop':/Mac/.test(u)?'Mac':'Device';
+  const br=home?'home-screen app':/Edg\//.test(u)?'Edge':/SamsungBrowser/.test(u)?'Samsung Internet':/CriOS|Chrome\//.test(u)?'Chrome':/Safari\//.test(u)?'Safari':'browser';
+  return os+' ('+br+')';
+}
+function vcAuthRenderStatus(){
+  const el=_vcAuthEl('auth-status');if(!el)return;
+  const a=_vcAuthGet();
+  el.textContent=a&&a.email?'Signed in on this device as '+a.email:'Not signed in';
+}
+function vcAuthSignOut(){
+  showConfirmModal('Sign out of this device?','Your records stay here. Anything not yet synced uploads after you sign in again. You will need a new code from your email.',vcAuthSignOutNow,null);
+}
+async function vcAuthSignOutNow(){
+  const t=vcAuthToken();
+  if(t){try{await _vcAuthCall({action:'signOut',t});}catch(e){}}
+  try{localStorage.removeItem('vc_auth');}catch(e){}
+  vcAuthShow();
+}
+
 function lsGet(key,def){try{const v=localStorage.getItem(key);return v?JSON.parse(v):def;}catch(e){return def;}}
 function lsSet(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch(e){console.warn('localStorage full:',e);try{toast('⚠️ Storage full — data may not be saved. Please sync now.',7000);}catch(_){}}}
 // v14.35.0 B11: Date.now()*10000 is ~1.79e16 — past Number.MAX_SAFE_INTEGER (9.007e15), so the
@@ -2662,7 +2833,7 @@ function uid(){
 // STATE
 // ═══════════════════════════════════════════
 let S      = lsGet('vc_s',{});
-let invoices  = lsGet('vc_inv',[]);
+let invoices  = (function(){const v=lsGet('vc_inv',[]);return Array.isArray(v)?v.filter(x=>x&&typeof x==='object'):[];})(); // v14.49.0: a row that is not a record is dropped
 invoices.forEach(function(_iv){ if(_iv&&_iv.courierOverride&&typeof _iv.courierOverride==='string'){ try{const _o=JSON.parse(_iv.courierOverride);_iv.courierOverride=(_o&&typeof _o==='object')?_o:{};}catch(e){_iv.courierOverride={};} } });
 let inventory = lsGet('vc_stk',[]);
 let suppliers = lsGet('vc_sup',[]);
@@ -3002,9 +3173,11 @@ function gsRead(sheet){
     window[cb]=data=>{
       clearTimeout(timer);delete window[cb];
       try{document.head.removeChild(s);}catch{}
+      vcAuthCheck(data);
+      if(data&&data.error){reject(new Error(data.error));return;}
       resolve(data.rows||[]);
     };
-    s.src=`${SCRIPT_URL}?action=read&sheet=${encodeURIComponent(sheet)}&callback=${cb}`;
+    s.src=`${SCRIPT_URL}?action=read&sheet=${encodeURIComponent(sheet)}&callback=${cb}`+_gsT();
     s.onerror=()=>{clearTimeout(timer);delete window[cb];reject(new Error('Network error reading '+sheet));};
     document.head.appendChild(s);
   });
@@ -3022,10 +3195,11 @@ function gsReadAll(){
     window[cb]=data=>{
       clearTimeout(timer);delete window[cb];
       try{document.head.removeChild(s);}catch{}
+      vcAuthCheck(data);
       if(data&&data.sheets)resolve(data.sheets);
       else reject(new Error((data&&data.error)||'readAll not supported by deployed script'));
     };
-    s.src=`${SCRIPT_URL}?action=readAll&callback=${cb}`;
+    s.src=`${SCRIPT_URL}?action=readAll&callback=${cb}`+_gsT();
     s.onerror=()=>{clearTimeout(timer);delete window[cb];reject(new Error('Network error on readAll'));};
     document.head.appendChild(s);
   });
@@ -3034,7 +3208,7 @@ function gsReadAll(){
 function gsWrite(sheet,data){
   const flat=flattenForSheet(data);
   const payload=makePayload(flat);
-  const params=new URLSearchParams({action:'write',sheet,data:payload});
+  const params=new URLSearchParams({action:'write',sheet,data:payload,t:vcAuthToken()});
   fetch(SCRIPT_URL+'?'+params.toString(),{method:'GET',mode:'no-cors',keepalive:true}).catch(()=>{}); // v14.25.0 H3: keepalive survives tab background/close
 }
 
@@ -3045,7 +3219,7 @@ function gsWriteConfirmed(sheet,data,_retry){
     const flat=flattenForSheet(data);
     const payload=makePayload(flat);
     const cb='_w'+Date.now()+Math.floor(Math.random()*9999);
-    const url=SCRIPT_URL+'?action=write&sheet='+encodeURIComponent(sheet)+'&data='+encodeURIComponent(payload)+'&callback='+cb;
+    const url=SCRIPT_URL+'?action=write&sheet='+encodeURIComponent(sheet)+'&data='+encodeURIComponent(payload)+'&callback='+cb+_gsT();
     const s=document.createElement('script');
     const timer=setTimeout(function(){
       delete window[cb];try{document.head.removeChild(s);}catch{}
@@ -3061,6 +3235,7 @@ function gsWriteConfirmed(sheet,data,_retry){
     window[cb]=function(res){
       clearTimeout(timer);delete window[cb];try{document.head.removeChild(s);}catch{}
       // v14.37.0: an {error} reply (e.g. Code.gs v4 lock busy) is NOT a confirmation — it was counted as one
+      vcAuthCheck(res);
       resolve(!(res&&res.error));
     };
     s.onerror=function(){
@@ -3113,7 +3288,7 @@ function _gsWriteChunk(sheet,chunk){
   const send=function(attempt){
     return new Promise(function(resolve){
       const cb='_wb'+Date.now()+Math.floor(Math.random()*9999);
-      const url=SCRIPT_URL+'?action=writeBatch&sheet='+encodeURIComponent(sheet)+'&data='+encodeURIComponent('['+chunk.map(c=>c.js).join(',')+']')+'&callback='+cb;
+      const url=SCRIPT_URL+'?action=writeBatch&sheet='+encodeURIComponent(sheet)+'&data='+encodeURIComponent('['+chunk.map(c=>c.js).join(',')+']')+'&callback='+cb+_gsT();
       const sc=document.createElement('script');
       const done=function(v){clearTimeout(timer);delete window[cb];try{document.head.removeChild(sc);}catch{};resolve(v);};
       const timer=setTimeout(function(){done(null);},60000);
@@ -3122,6 +3297,7 @@ function _gsWriteChunk(sheet,chunk){
       sc.src=url;
       document.head.appendChild(sc);
     }).then(function(res){
+      if(vcAuthCheck(res))return chunk.map(()=>false);
       if(res&&/unknown action/i.test(String(res.error||''))){
         _batchUnsupported=true; // older Code.gs still deployed: one by one, as before
         return Promise.all(chunk.map(c=>gsWriteConfirmed(sheet,c.rec)));
@@ -3157,10 +3333,10 @@ function makePayload(flat){
 }
 
 function gsDelete(sheet,id){
-  fetch(SCRIPT_URL+'?'+new URLSearchParams({action:'delete',sheet,id:String(id)}).toString(),{method:'GET',mode:'no-cors',keepalive:true}).catch(()=>{});
+  fetch(SCRIPT_URL+'?'+new URLSearchParams({action:'delete',sheet,id:String(id),t:vcAuthToken()}).toString(),{method:'GET',mode:'no-cors',keepalive:true}).catch(()=>{});
 }
 function gsClearSheet(sheet){
-  fetch(SCRIPT_URL+'?'+new URLSearchParams({action:'clearSheet',sheet}).toString(),{method:'GET',mode:'no-cors'}).catch(()=>{});
+  fetch(SCRIPT_URL+'?'+new URLSearchParams({action:'clearSheet',sheet,t:vcAuthToken()}).toString(),{method:'GET',mode:'no-cors'}).catch(()=>{});
 }
 function flattenInvoice(inv){
   return flattenForSheet(inv);
@@ -3245,6 +3421,7 @@ function parseInvoiceRow(r){
 
 
 async function syncAll(manual){
+  if(!vcAuthToken()){vcAuthShow();return;} // v14.49.0
   if(syncing)return;syncing=true;setSyncStatus('busy');
   const _syncStart=Date.now(); // v14.25.0 C1: edits made DURING sync stay newer than lastSyncTime and push next cycle
   if(_autoSyncTimer){clearTimeout(_autoSyncTimer);_autoSyncTimer=null;}
@@ -3259,8 +3436,10 @@ async function syncAll(manual){
       // drop straight into 12 sequential per-sheet reads, each able to time out and fail the whole sync
       console.warn('readAll failed, retrying once:',e.message);
       await new Promise(r=>setTimeout(r,1500));
+      if(!vcAuthToken())throw new Error('Sign-in required'); // v14.49.0
       try{_bulk=await gsReadAll();}catch(e2){console.warn('readAll unavailable — per-sheet fallback:',e2.message);}
     }
+    if(!vcAuthToken())throw new Error('Sign-in required'); // v14.49.0
     // v14.37.0: snapshot what THIS device changed since the last confirmed sync, BEFORE the merge.
     // Only these are pushed afterwards. Previously everything with updatedAt>lastSync was pushed,
     // which also re-uploaded every record that had just arrived FROM the sheet.
@@ -4162,8 +4341,8 @@ function gsArchivePreGst(cutoff){
       delete window[cb];try{document.head.removeChild(s);}catch{}
       reject(new Error('Timeout — the archive may still be running on the sheet. Check the InvoicesArchive tab before retrying.'));
     },180000);
-    window[cb]=data=>{clearTimeout(timer);delete window[cb];try{document.head.removeChild(s);}catch{};resolve(data);};
-    s.src=`${SCRIPT_URL}?action=archivePreGst&cutoff=${encodeURIComponent(cutoff)}&callback=${cb}`;
+    window[cb]=data=>{clearTimeout(timer);delete window[cb];try{document.head.removeChild(s);}catch{};vcAuthCheck(data);resolve(data);};
+    s.src=`${SCRIPT_URL}?action=archivePreGst&cutoff=${encodeURIComponent(cutoff)}&callback=${cb}`+_gsT();
     s.onerror=()=>{clearTimeout(timer);delete window[cb];reject(new Error('Network error during archive'));};
     document.head.appendChild(s);
   });
@@ -4258,6 +4437,7 @@ async function completeSetup(){
 }
 
 function loadSettings(){
+  vcAuthRenderStatus(); // v14.49.0
   ['gstin','address','phone','email'].forEach(k=>{
     ['s-','ms-'].forEach(pfx=>{const el=document.getElementById(pfx+k);if(el&&S[k])el.value=S[k];});
   });
@@ -4280,11 +4460,11 @@ function loadSettings(){
   const t123k2El=document.getElementById('ms-track123-key2');
   if(t123k2El&&S.track123Key2)t123k2El.value=S.track123Key2;
   const upiIdEl=document.getElementById('ms-upi-id');
-  if(upiIdEl)upiIdEl.value=S.upiId||'7719683825-2@ybl';
+  if(upiIdEl)upiIdEl.value=S.upiId||'';
   const upiNameEl=document.getElementById('ms-upi-name');
-  if(upiNameEl)upiNameEl.value=S.upiName||'Ravinder Kaur';
+  if(upiNameEl)upiNameEl.value=S.upiName||'';
   const upiPhoneEl=document.getElementById('ms-upi-phone');
-  if(upiPhoneEl)upiPhoneEl.value=S.upiPhone||'7719683825';
+  if(upiPhoneEl)upiPhoneEl.value=S.upiPhone||'';
   applyGSTMode();
 }
 
@@ -4424,12 +4604,12 @@ function renderItems(){
         <datalist id="iname-list-${it.id}">${buildProdNameOptions()}</datalist>
       </div>
       <div class="fg" style="margin-bottom:10px;"><label>Description</label>
-        <input id="idesc-${it.id}" value="${it.desc}" placeholder="Unstitched Suit"
+        <input id="idesc-${it.id}" value="${esc(it.desc)}" placeholder="Unstitched Suit"
           oninput="updateItem(${it.id},'desc',this.value)" style="padding:11px 12px;"/>
       </div>
       <div class="row2">
         <div class="fg" style="margin-bottom:0;"><label>HSN</label>
-          <input id="ihsn-${it.id}" value="${it.hsn}" oninput="updateItem(${it.id},'hsn',this.value)" style="padding:11px 12px;"/>
+          <input id="ihsn-${it.id}" value="${esc(it.hsn)}" oninput="updateItem(${it.id},'hsn',this.value)" style="padding:11px 12px;"/>
         </div>
         <div class="fg" style="margin-bottom:0;"><label>Unit Price (₹ incl.GST)</label>
           <input type="number" id="iprice-${it.id}" value="${it.unitPrice||''}" placeholder="0"
@@ -4447,7 +4627,7 @@ function renderItems(){
         ${it.dsSupId?`<div style="background:#fff8ee;border:1px solid #ffe0b2;border-radius:0 0 8px 8px;padding:8px 10px;margin-top:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
           <select onchange="updateItemDS(${it.id},'dsSupId',this.value,this.options[this.selectedIndex]?.text)" style="flex:1;min-width:120px;padding:7px 8px;border-radius:6px;border:1px solid #ddd;font-size:12px;">
             <option value="">— Select Supplier —</option>
-            ${suppliers.map(s=>`<option value="${s.id}" ${s.id===it.dsSupId?'selected':''}>${s.name}</option>`).join('')}
+            ${suppliers.map(s=>`<option value="${s.id}" ${s.id===it.dsSupId?'selected':''}>${esc(s.name)}</option>`).join('')}
           </select>
           <input type="date" value="${it.dsDate||''}" onchange="updateItemDS(${it.id},'dsDate',this.value)" style="padding:7px 8px;border-radius:6px;border:1px solid #ddd;font-size:12px;flex:1;min-width:110px;"/>
         </div>`:''}
@@ -4512,7 +4692,7 @@ function lookupProduct(rowId,val){
 }
 function buildProdNameOptions(){
   return inventory.filter(p=>p.qty>0).sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo))
-    .map(p=>`<option value="#${p.prodNo} — ${p.name}">`).join('');
+    .map(p=>`<option value="#${p.prodNo} — ${esc(p.name)}">`).join('');
 }
 function lookupProductByName(rowId,val){
   if(!val)return;
@@ -4554,7 +4734,7 @@ function renderVariantDropdown(rowId, prod) {
     const vQty = parseInt(v.qty) || 0;
     const label = v.label || 'Design (unlabelled)';
     const isOut = vQty === 0;
-    return `<option value="${v.id}" data-label="${esc(label)}" ${isOut?'disabled':''} ${it&&it.variantId===v.id?'selected':''}>${label}${isOut?' (Sold Out)':' (Qty: '+vQty+')'}</option>`;
+    return `<option value="${v.id}" data-label="${esc(label)}" ${isOut?'disabled':''} ${it&&it.variantId===v.id?'selected':''}>${esc(label)}${isOut?' (Sold Out)':' (Qty: '+vQty+')'}</option>`;
   }).join('');
   container.innerHTML = `<div class="fg" style="margin-top:8px;margin-bottom:0;">
     <label>Colour / Design *</label>
@@ -4641,7 +4821,7 @@ function hsnOptionsHTML(sel){
   let matched=false;
   HSN_OPTIONS.forEach(o=>{
     const s=o.code===sel; if(s)matched=true;
-    html+='<option value="'+o.code+'"'+(s?' selected':'')+'>'+o.code+' — '+o.label+'</option>';
+    html+='<option value="'+o.code+'"'+(s?' selected':'')+'>'+o.code+' — '+esc(o.label)+'</option>';
   });
   // Preserve a legacy/custom code that isn't in the list so it isn't silently lost
   if(sel&&!matched){
@@ -4947,10 +5127,10 @@ function getInvHtml(inv,copyLabel){
 }
 function printCurrentInvoice(){
   if(!currentInv)return;
-  if((currentInv.channel==='walkin'||currentInv.dispatchMethod==='walkin')&&(S.upiId||'7719683825-2@ybl')){
-    openUpiQrModal(currentInv);return;
-  }
-  if(isBillLocked(currentInv)){vcBillCopyMenu([currentInv]);return;} // v14.48.0
+  const _walk=currentInv.channel==='walkin'||currentInv.dispatchMethod==='walkin';
+  if(_walk&&!S.upiId)toast('⚠️ No payment QR on this bill. Add your UPI ID in Settings to include one.',5000); // v14.49.0
+  if(isBillLocked(currentInv)){vcBillCopyMenu([currentInv]);return;} // v14.49.1: every dispatch type, walk-in included
+  if(_walk&&S.upiId){openUpiQrModal(currentInv);return;}
   document.getElementById('print-area').innerHTML=`<div class="print-page">${getInvHtml(currentInv)}</div>`;
   window.print();
 }
@@ -5037,8 +5217,8 @@ function buildInvoiceHTML(data){
     }
     return'<tr style="border-bottom:1px solid #e2d4bc;">'
       +'<td style="padding:6px 8px;">'+(i+1)+'</td>'
-      +'<td style="padding:6px 8px;"><strong>'+(it.desc||'Unstitched Suit')+'</strong>'+(it.prodNo?'<span style="font-size:10px;color:#888;"> #'+it.prodNo+'</span>':'')+'</td>'
-      +(gstMode?'<td style="padding:6px 8px;">'+(it.hsn||'540754')+'</td>':'')
+      +'<td style="padding:6px 8px;"><strong>'+esc(it.desc||'Unstitched Suit')+'</strong>'+(it.prodNo?'<span style="font-size:10px;color:#888;"> #'+it.prodNo+'</span>':'')+'</td>'
+      +(gstMode?'<td style="padding:6px 8px;">'+esc(it.hsn||'540754')+'</td>':'')
       +'<td style="padding:6px 8px;text-align:center;">'+(it.qty||1)+'</td>'
       +'<td style="padding:6px 8px;text-align:right;">'+f(it.unitPrice||0)+'</td>'
       +(gstMode?'<td style="padding:6px 8px;text-align:right;">'+f(lineTax)+'</td>':'')
@@ -5048,7 +5228,7 @@ function buildInvoiceHTML(data){
   const shipRow=storedShipping>0
     ?'<tr style="border-bottom:1px solid #e2d4bc;">'
       +'<td style="padding:6px 8px;">'+(validItems.length+1)+'</td>'
-      +'<td style="padding:6px 8px;"><strong>Shipping Charges</strong>'+(data.tracking?'<br/><span style="font-size:10px;color:#888;">'+data.tracking+'</span>':'')+'</td>'
+      +'<td style="padding:6px 8px;"><strong>Shipping Charges</strong>'+(data.tracking?'<br/><span style="font-size:10px;color:#888;">'+esc(data.tracking)+'</span>':'')+'</td>'
       +(gstMode?'<td style="padding:6px 8px;">9965</td>':'')
       +'<td style="padding:6px 8px;text-align:center;">1</td>'
       +'<td style="padding:6px 8px;text-align:right;">'+f(storedShipping)+'</td>'
@@ -5059,7 +5239,7 @@ function buildInvoiceHTML(data){
   const discColspan=gstMode?6:4;
   // H3: discount shown above GST summary (pre-tax deduction)
   const discRow=storedDiscount>0?'<tr><td colspan="'+discColspan+'" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: Discount (pre-GST)</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−'+f(storedDiscount)+'</td></tr>':'';
-  const hsnSuit=[...new Set(validItems.map(i=>i.hsn||'540754'))].join('/');
+  const hsnSuit=esc([...new Set(validItems.map(i=>i.hsn||'540754'))].join('/'));
   const gstRows=_isIntra
     ?'<tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">'+hsnSuit+'</td><td style="padding:3px 8px;">'+f(displaySuitTaxable)+'</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">'+f(displaySuitGST/2)+'</td></tr>'
      +'<tr><td style="padding:3px 8px;">SGST</td><td style="padding:3px 8px;">'+hsnSuit+'</td><td style="padding:3px 8px;">'+f(displaySuitTaxable)+'</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">'+f(displaySuitGST/2)+'</td></tr>'
@@ -5081,8 +5261,8 @@ function buildInvoiceHTML(data){
       +(data.dispatchDate?'<div style="font-size:11px;color:#555;">📅 '+fd(data.dispatchDate)+'</div>':'');
   }else if(courierLabel){
     dispatchHtml='<div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Dispatched Via</div>'
-      +'<div style="font-size:13px;font-weight:700;">'+courierLabel+'</div>'
-      +'<div style="font-size:11px;color:#555;">'+(data.tracking?'🔍 <strong>'+data.tracking+'</strong><br/>':'')+(data.dispatchDate?'📅 '+fd(data.dispatchDate):'')+'</div>';
+      +'<div style="font-size:13px;font-weight:700;">'+esc(courierLabel)+'</div>'
+      +'<div style="font-size:11px;color:#555;">'+(data.tracking?'🔍 <strong>'+esc(data.tracking)+'</strong><br/>':'')+(data.dispatchDate?'📅 '+fd(data.dispatchDate):'')+'</div>';
   }
 
   return`<div style="font-family:'DM Sans',sans-serif;font-size:12px;color:#1a1208;background:#fff;padding:20px;">
@@ -5090,16 +5270,16 @@ function buildInvoiceHTML(data){
       <div>
         ${data.logoB64?'<img src="'+data.logoB64+'" style="height:44px;object-fit:contain;display:block;margin-bottom:5px;"/>' :''}
         <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#5c3d1e;">Vismaad Creations</div>
-        ${gstMode?'<div style="font-size:11px;color:#555;margin-top:4px;"><strong>GSTIN:</strong> '+(data.gstin||S.gstin||'—')+' &nbsp;|&nbsp; <strong>State Code:</strong> 03 (Punjab)</div>':''}
-        <div style="font-size:11px;color:#555;">${data.bizAddress||S.address||''}</div>
-        <div style="font-size:11px;color:#555;">${data.bizPhone||S.phone||''}${(data.bizEmail||S.email)?' | '+(data.bizEmail||S.email):''}</div>
+        ${gstMode?'<div style="font-size:11px;color:#555;margin-top:4px;"><strong>GSTIN:</strong> '+esc(data.gstin||S.gstin||'—')+' &nbsp;|&nbsp; <strong>State Code:</strong> 03 (Punjab)</div>':''}
+        <div style="font-size:11px;color:#555;">${esc(data.bizAddress||S.address||'')}</div>
+        <div style="font-size:11px;color:#555;">${esc(data.bizPhone||S.phone||'')}${(data.bizEmail||S.email)?' | '+esc(data.bizEmail||S.email):''}</div>
       </div>
       <div style="text-align:right;">
         <div style="font-size:16px;font-weight:700;color:#5c3d1e;text-transform:uppercase;letter-spacing:1.5px;">${gstMode?'Tax Invoice':'Bill of Supply'}</div>${gstMode&&data.copyLabel?'<div style="font-size:10px;font-weight:700;letter-spacing:.5px;margin-top:2px;">'+esc(data.copyLabel)+'</div>':''}
         <div style="font-size:12px;color:#555;margin-top:3px;"><strong>${gstMode?'Invoice No.':'Bill No.'}:</strong> ${data.invNo}</div>
         <div style="font-size:12px;color:#555;"><strong>Date:</strong> ${fd(data.invDate)}</div>
         <div style="font-size:12px;color:#555;"><strong>FY:</strong> ${data.fy||''}</div>
-        ${gstMode?'<div style="font-size:11px;color:#555;margin-top:4px;"><strong>Place of Supply:</strong> '+(data.custState||'—')+' ('+getStateCode(data.custState||'')+')</div>':''}
+        ${gstMode?'<div style="font-size:11px;color:#555;margin-top:4px;"><strong>Place of Supply:</strong> '+esc(data.custState||'—')+' ('+getStateCode(data.custState||'')+')</div>':''}
         ${gstMode?'<div style="font-size:11px;color:#555;"><strong>Reverse Charge:</strong> No</div>':''}
         ${gstMode?'<div style="margin-top:5px;display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:'+(_isIntra?'#dff0d8':'#e8f4fd')+';color:'+(_isIntra?'#27ae60':'#2980b9')+';">'+(_isIntra?'Intra-State (Punjab)':'Inter-State')+'</div>':''}
       </div>
@@ -5108,9 +5288,9 @@ function buildInvoiceHTML(data){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px;">
       <div>
         <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Billed To</div>
-        <div style="font-size:13px;font-weight:700;">${data.custName}</div>
-        <div style="font-size:11px;color:#555;line-height:1.6;">${data.custPhone?'📞 '+data.custPhone+'<br/>':''}${data.custWhatsapp&&data.custWhatsapp!==data.custPhone?'💬 '+data.custWhatsapp+'<br/>':''}${data.custAddress?data.custAddress.replace(/\n/g,'<br/>')+'<br/>':''}${data.custState?'<strong>'+data.custState+'</strong>'+(gstMode?' ('+getStateCode(data.custState)+')':''):''}</div>
-        ${gstMode&&data.custGstin?'<div style="font-size:11px;color:#555;margin-top:3px;"><strong>Buyer GSTIN:</strong> '+data.custGstin+'</div>':''}
+        <div style="font-size:13px;font-weight:700;">${esc(data.custName)}</div>
+        <div style="font-size:11px;color:#555;line-height:1.6;">${data.custPhone?'📞 '+esc(data.custPhone)+'<br/>':''}${data.custWhatsapp&&data.custWhatsapp!==data.custPhone?'💬 '+esc(data.custWhatsapp)+'<br/>':''}${data.custAddress?esc(data.custAddress).replace(/\n/g,'<br/>')+'<br/>':''}${data.custState?'<strong>'+esc(data.custState)+'</strong>'+(gstMode?' ('+getStateCode(data.custState)+')':''):''}</div>
+        ${gstMode&&data.custGstin?'<div style="font-size:11px;color:#555;margin-top:3px;"><strong>Buyer GSTIN:</strong> '+esc(data.custGstin)+'</div>':''}
       </div>
       <div>${dispatchHtml}</div>
     </div>
@@ -5178,6 +5358,9 @@ function tdGet(t){
   return trackingData[k.toUpperCase()]||trackingData[k]||undefined;
 }
 function applySortToList(list){
+  try{return _applySortToList(list);}catch(e){console.warn('Sort skipped:',e.message);return list;} // v14.49.0
+}
+function _applySortToList(list){
   return[...list].sort((a,b)=>{
     const da=a.invDate||'',db=b.invDate||'';
     if(currentSort==='date-desc')return db>da?1:db<da?-1:0;  // newest first: b before a
@@ -5210,7 +5393,9 @@ function renderSales(){
   const sf=document.getElementById('sales-filter')?.value||'';
   // Detect duplicate invNo — keep newest (highest id), flag duplicates for display
   const seen={};const dupNos=new Set();
+  const _salesBad=[]; // v14.49.0: damaged rows are skipped and named here, the page still opens
   invoices.forEach(inv=>{
+    if(!inv||typeof inv!=='object'||(!inv.invNo&&(inv.id===undefined||inv.id===null||inv.id===''))){_salesBad.push('(no number)');return;}
     const k=inv.invNo||String(inv.id);
     if(!seen[k]){seen[k]=inv;}
     else{dupNos.add(k);if(inv.id>seen[k].id)seen[k]=inv;}
@@ -5221,9 +5406,9 @@ function renderSales(){
   // v14.28.1: search + religion are applied FIRST so they combine with every dropdown option.
   // Previously the Cancelled/Returned branches returned early, silently ignoring the search box.
   const _religionOverrides=(_salesReligionFilter&&_salesReligionFilter!=='All')?lsGet('vc_religion_overrides',{}):null;
-  salesFiltered=applySortToList(deduped.filter(inv=>{
+  salesFiltered=applySortToList(deduped.filter(inv=>{try{
     // ── Text search ──
-    if(q&&!inv.custName?.toLowerCase().includes(q)&&!inv.invNo?.toLowerCase().includes(q)&&!(inv.itemsSummary||'').toLowerCase().includes(q))return false;
+    if(q&&!String(inv.custName||'').toLowerCase().includes(q)&&!String(inv.invNo||'').toLowerCase().includes(q)&&!String(inv.itemsSummary||'').toLowerCase().includes(q))return false;
     // ── Religion filter ──
     if(_religionOverrides){
       const ph=phoneKey(inv.custWhatsapp||inv.custPhone||'');
@@ -5237,14 +5422,15 @@ function renderSales(){
     // say. Buckets stay mutually exclusive (every invoice resolves to exactly one) and Hand/Walk-in
     // is now a real, selectable bucket instead of a silent exclusion from No Tracking.
     return getInvoiceBucket(inv).bucket===sf;
-  }));
+  }catch(e){_salesBad.push(String(inv.invNo||inv.id));return false;}}));
   const cnt=document.getElementById('sales-count');
   if(cnt)cnt.textContent=salesFiltered.length+' invoice'+(salesFiltered.length!==1?'s':'');
   updateSelCount();
   const el=document.getElementById('sales-list');if(!el)return;
-  if(!salesFiltered.length){el.innerHTML='<div style="color:#aaa;text-align:center;padding:30px;">No invoices found</div>';return;}
+  const _badNote=()=>_salesBad.length?'<div style="background:#fde8e8;border:1px solid #e6b0aa;border-radius:10px;padding:10px 12px;font-size:13px;color:#c0392b;margin-bottom:10px;line-height:1.5;">⚠️ '+_salesBad.length+' damaged invoice row'+(_salesBad.length>1?'s':'')+' skipped: '+esc([...new Set(_salesBad)].slice(0,10).join(', '))+'. Please check '+(_salesBad.length>1?'them':'it')+' in the Invoices tab of your Google Sheet.</div>':'';
+  if(!salesFiltered.length){el.innerHTML=_badNote()+'<div style="color:#aaa;text-align:center;padding:30px;">No invoices found</div>';return;}
   const chIcon={WhatsApp:'💬',Instagram:'📸',Facebook:'👍',Website:'🌐',Offline:'🏪'};
-  el.innerHTML=salesFiltered.map((inv,idx)=>{
+  const _salesRows=salesFiltered.map((inv,idx)=>{try{
     // ── v14.35.0 C19: badge comes from getInvoiceBucket(), the same call the filter above makes ──
     const _bk=getInvoiceBucket(inv);
     // v14.35.1: restored — C19 dropped this while the ✅/↩ Delivered button below still used it,
@@ -5292,11 +5478,12 @@ function renderSales(){
             <button class="btn btn-o btn-sm" onclick="editInvoiceByIdx(${idx})">✏️ Edit</button>
             <button type="button" class="ui-morebtn" aria-label="More actions" title="More actions" data-shipped="${shipped?1:0}" data-mdel="${manualDelivered?1:0}" data-st="${esc(_invSt)}" onclick="uiInvMenu(${idx},this)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18" cy="12" r="1.3" fill="currentColor"/></svg></button>
           </div>
-          ${vcDnBlock(inv)}${(()=>{const invCNs=creditNotes.filter(cn=>String(cn.refInvId)===String(inv.id));if(!invCNs.length)return'';return'<div style="margin-top:8px;border-top:1px solid #e8dcc8;padding-top:8px;">'+invCNs.map(cn=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;"><div><span style="font-size:11px;font-weight:700;color:#c0392b;">'+cn.cnNo+'</span> <span style="font-size:11px;color:#888;">'+fmtDate(cn.cnDate)+' · '+cn.reason+'</span></div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:12px;font-weight:700;color:#c0392b;">−₹'+parseFloat(cn.creditAmount||0).toLocaleString('en-IN')+'</span><button class="btn btn-o btn-sm" style="padding:4px 8px;font-size:10px;min-height:0;" onclick="printCreditNote('+JSON.stringify(cn).replace(/"/g,'&quot;')+')">🖨️</button></div></div>').join('')+'</div>'})()}
+          ${vcDnBlock(inv)}${(()=>{const invCNs=creditNotes.filter(cn=>String(cn.refInvId)===String(inv.id));if(!invCNs.length)return'';return'<div style="margin-top:8px;border-top:1px solid #e8dcc8;padding-top:8px;">'+invCNs.map(cn=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;"><div><span style="font-size:11px;font-weight:700;color:#c0392b;">'+cn.cnNo+'</span> <span style="font-size:11px;color:#888;">'+fmtDate(cn.cnDate)+' · '+esc(cn.reason)+'</span></div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:12px;font-weight:700;color:#c0392b;">−₹'+parseFloat(cn.creditAmount||0).toLocaleString('en-IN')+'</span><button class="btn btn-o btn-sm" style="padding:4px 8px;font-size:10px;min-height:0;" onclick="printCreditNote('+JSON.stringify(cn).replace(/"/g,'&quot;')+')">🖨️</button></div></div>').join('')+'</div>'})()}
         </div>
       </div>
     </div>`;
-  }).join('');
+  }catch(e){_salesBad.push(String(inv.invNo||inv.id));return'';}}).join('');
+  el.innerHTML=_badNote()+_salesRows;
 
   // Credit notes are now rendered inside each invoice card
   const cnSection=document.getElementById('cn-section');
@@ -5497,6 +5684,7 @@ function viewInvoiceByIdx(idx){
 }
 function printInvoiceByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
+  if(isBillLocked(inv)){vcBillCopyMenu([inv]);return;} // v14.49.1
   document.getElementById('print-area').innerHTML=`<div class="print-page">${getInvHtml(inv)}</div>`;window.print();
 }
 function toggleShippedByIdx(idx){
@@ -5690,13 +5878,13 @@ function renderEditDSItems(inv){
   const list=document.getElementById('edit-ds-items-list');
   if(!sec||!list)return;
   const arr=expandItems(inv.itemsArr);
-  const supOpts='<option value="">— Select Supplier —</option>'+suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  const supOpts='<option value="">— Select Supplier —</option>'+suppliers.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');
   const rows=arr.map((it,idx)=>{
     const isDS=!!(it.dsSupId);
     const dsDate=it.dsDate||inv.invDate||today();
     return `<div style="background:${isDS?'#fff8ee':'#fafafa'};border:1px solid ${isDS?'#ffe0b2':'#eee'};border-radius:8px;padding:10px 12px;margin-bottom:8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${isDS?'8px':'0'};">
-        <div style="font-size:13px;font-weight:600;color:#444;">${it.prodNo?'#'+it.prodNo+' — ':''}${it.desc}</div>
+        <div style="font-size:13px;font-weight:600;color:#444;">${it.prodNo?'#'+it.prodNo+' — ':''}${esc(it.desc)}</div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:600;color:#e67e22;">
           <input type="checkbox" ${isDS?'checked':''} onchange="toggleEditDSItem('${inv.id}',${idx},this.checked)" style="width:16px;height:16px;accent-color:#e67e22;"/>
           DS
@@ -5704,7 +5892,7 @@ function renderEditDSItems(inv){
       </div>
       ${isDS?`<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
         <select onchange="updateEditDSItem('${inv.id}',${idx},'dsSupId',this.value,this.options[this.selectedIndex]?.text)" style="flex:1;min-width:120px;padding:7px 8px;border-radius:6px;border:1px solid #ddd;font-size:12px;">
-          ${suppliers.map(s=>`<option value="${s.id}" ${s.id===it.dsSupId?'selected':''}>${s.name}</option>`).join('')||supOpts}
+          ${suppliers.map(s=>`<option value="${s.id}" ${s.id===it.dsSupId?'selected':''}>${esc(s.name)}</option>`).join('')||supOpts}
         </select>
         <input type="date" value="${dsDate}" onchange="updateEditDSItem('${inv.id}',${idx},'dsDate',this.value)" style="padding:7px 8px;border-radius:6px;border:1px solid #ddd;font-size:12px;flex:1;min-width:110px;"/>
         <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#888;white-space:nowrap;">
@@ -5874,8 +6062,9 @@ function shareInvoiceWhatsApp(){
 function shareInvoicePDF(){
   const inv=sharingInv;if(!inv)return;
   closeShareModal();
-  if((inv.channel==='walkin'||inv.dispatchMethod==='walkin')&&(S.upiId||'7719683825-2@ybl')){
-    openUpiQrModal(inv);return;
+  if((inv.channel==='walkin'||inv.dispatchMethod==='walkin')){
+    if(S.upiId){openUpiQrModal(inv);return;}
+    toast('⚠️ No payment QR on this bill. Add your UPI ID in Settings to include one.',5000); // v14.49.0
   }
   // Print the invoice — on iPhone Safari this gives Share → Save to Files / WhatsApp
   document.getElementById('print-area').innerHTML=
@@ -6296,7 +6485,7 @@ function parsePastedDetails(){
   const addrDiv=document.createElement('div');
   addrDiv.style.cssText='padding:8px 10px;border-radius:8px;background:#f5f5f5;margin-bottom:4px;';
   addrDiv.innerHTML='<div style="font-size:12px;color:#888;font-weight:600;">📋 Address (full pasted text)</div>'
-    +'<div style="font-size:13px;color:#555;margin-top:3px;white-space:pre-wrap;">'+result.address+'</div>';
+    +'<div style="font-size:13px;color:#555;margin-top:3px;white-space:pre-wrap;">'+esc(result.address)+'</div>';
   list.appendChild(addrDiv);
 
   document.getElementById('paste-input-section').style.display='none';
@@ -6798,23 +6987,23 @@ function printCreditNote(cn){
       <div>
         ${logoB64?'<img src="'+logoB64+'" style="height:44px;object-fit:contain;display:block;margin-bottom:5px;"/>'  :''}
         <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#5c3d1e;">Vismaad Creations</div>
-        ${gst?'<div style="font-size:11px;color:#555;"><strong>GSTIN:</strong> '+(S.gstin||'—')+' | State Code: 03 (Punjab)</div>':''}
-        <div style="font-size:11px;color:#555;">${S.address||''}</div>
-        <div style="font-size:11px;color:#555;">${S.phone||''}</div>
+        ${gst?'<div style="font-size:11px;color:#555;"><strong>GSTIN:</strong> '+esc(S.gstin||'—')+' | State Code: 03 (Punjab)</div>':''}
+        <div style="font-size:11px;color:#555;">${esc(S.address||'')}</div>
+        <div style="font-size:11px;color:#555;">${esc(S.phone||'')}</div>
       </div>
       <div style="text-align:right;">
         <div style="font-size:16px;font-weight:700;color:#c0392b;text-transform:uppercase;letter-spacing:1.5px;">Credit Note</div>
         <div style="font-size:12px;color:#555;margin-top:3px;"><strong>No:</strong> ${cn.cnNo}</div>
         <div style="font-size:12px;color:#555;"><strong>Date:</strong> ${fmtDate(cn.cnDate)}</div>
-        <div style="font-size:12px;color:#555;"><strong>Against:</strong> ${cn.refInvNo} dt. ${fmtDate(cn.refInvDate)}</div>
+        <div style="font-size:12px;color:#555;"><strong>Against:</strong> ${esc(cn.refInvNo)} dt. ${fmtDate(cn.refInvDate)}</div>
         ${gst?'<div style="font-size:11px;color:#555;"><strong>Reverse Charge:</strong> No</div>':''}
       </div>
     </div>
     <hr style="border:none;border-top:2px solid #c0392b;margin:12px 0;"/>
     <div style="margin-bottom:14px;">
       <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Customer</div>
-      <div style="font-size:13px;font-weight:700;">${cn.custName}</div>
-      <div style="font-size:11px;color:#555;">${cn.custPhone?'📞 '+cn.custPhone+' · ':''}${cn.custState||''}</div>
+      <div style="font-size:13px;font-weight:700;">${esc(cn.custName)}</div>
+      <div style="font-size:11px;color:#555;">${cn.custPhone?'📞 '+esc(cn.custPhone)+' · ':''}${esc(cn.custState||'')}</div>
     </div>
     <table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
       <thead><tr style="background:#c0392b;color:#fff;">
@@ -6825,7 +7014,7 @@ function printCreditNote(cn){
       </tr></thead>
       <tbody>
         <tr style="border-bottom:1px solid #e2d4bc;">
-          <td style="padding:6px 8px;">Credit against ${cn.refInvNo}<br/><span style="font-size:10px;color:#888;">Reason: ${cn.reason}</span></td>
+          <td style="padding:6px 8px;">Credit against ${esc(cn.refInvNo)}<br/><span style="font-size:10px;color:#888;">Reason: ${esc(cn.reason)}</span></td>
           ${gst?'<td style="padding:6px 8px;text-align:right;">'+f(cn.taxableReversed)+'</td>':''}
           ${gst?'<td style="padding:6px 8px;text-align:right;">'+f(cn.gstReversed)+'</td>':''}
           <td style="padding:6px 8px;text-align:right;font-weight:700;">${f(cn.creditAmount)}</td>
@@ -6839,7 +7028,7 @@ function printCreditNote(cn){
     <div style="background:#fde8e8;border-radius:5px;padding:7px 10px;font-size:11px;color:#c0392b;font-weight:600;margin-bottom:12px;">
       Credit Amount in Words: <strong>${numberToWords(Math.round(cn.creditAmount))} Rupees Only</strong>
     </div>
-    ${cn.notes?'<div style="font-size:11px;color:#888;margin-bottom:12px;">Notes: '+cn.notes+'</div>':''}
+    ${cn.notes?'<div style="font-size:11px;color:#888;margin-bottom:12px;">Notes: '+esc(cn.notes)+'</div>':''}
     <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:14px;">
       <div style="font-size:10px;color:#888;font-style:italic;">Computer-generated credit note.</div>
       <div style="text-align:right;"><div style="font-size:10px;color:#888;margin-bottom:24px;">For Vismaad Creations</div>
@@ -7003,11 +7192,11 @@ function renderDashboard(){
       ?'<span style="font-size:10px;font-weight:700;color:#fff;background:#e67e22;padding:1px 6px;border-radius:6px;margin-left:4px;">📦 DS</span>'
       :'<span style="font-size:10px;font-weight:700;color:#e67e22;background:#fff3e0;border:1px solid #e67e22;padding:1px 6px;border-radius:6px;margin-left:4px;">📦 Partial DS</span>';
     return`<div class="list-row" style="cursor:pointer;" onclick="openInvoiceFromDash('${inv.id}')">
-      <div><div class="list-main">${inv.custName}${_dashDSBadge}</div>
+      <div><div class="list-main">${esc(inv.custName)}${_dashDSBadge}</div>
       <div class="list-sub">${inv.invNo||'—'} · ${fmtDate(inv.invDate)}</div></div>
       <div class="list-right">
         <div class="list-amt">₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}</div>
-        <span class="badge ${dBadgeClass}">${dBadgeIcon}${dashStatus}</span>
+        <span class="badge ${dBadgeClass}">${dBadgeIcon}${esc(dashStatus)}</span>
       </div>
     </div>`;
   }).join(''):'<div style="color:#aaa;font-size:13px;text-align:center;padding:16px;">All orders delivered ✅</div>';
@@ -7018,7 +7207,7 @@ function renderDashboard(){
     return`<div class="list-row"><div style="flex:1;">
       <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:16px;font-weight:700;color:var(--brown);">#${p.prodNo}</span>
       <span style="background:${ac.bg};color:${ac.fg};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">${getAgeDays(p.dateAdded)}d</span></div>
-      <div style="font-size:13px;font-weight:500;">${p.name}</div>
+      <div style="font-size:13px;font-weight:500;">${esc(p.name)}</div>
       <div style="font-size:11px;color:#888;">${p.qty} left · ${fmtDate(p.dateAdded)}</div>
     </div></div>`;}).join('')+(agingAll.length>8?`<div style="text-align:center;padding:10px;font-size:13px;color:var(--gold);cursor:pointer;" onclick="showPage('inventory',document.getElementById('bnav-inventory'))">View all ${agingAll.length} →</div>`:'')
     :'<div style="color:#aaa;font-size:13px;text-align:center;padding:16px;">No unsold stock ✅</div>';
@@ -7199,9 +7388,9 @@ function renderAgingGrid(){
         <div style="text-align:right;"><div style="font-size:13px;font-weight:700;color:var(--brown);">${p.qty} of ${p.qtyOriginal||p.qty} left</div>
         ${p.sellPrice?`<div style="font-size:12px;color:#888;">₹${parseFloat(p.sellPrice).toLocaleString('en-IN')} each</div>`:''}</div>
       </div>
-      <div style="font-size:14px;font-weight:600;">${p.name}</div>
-      ${p.fabric?`<div style="font-size:12px;color:#888;margin-top:2px;">${p.fabric}</div>`:''}
-      ${p.notes?`<div style="font-size:12px;color:#888;">${p.notes}</div>`:''}
+      <div style="font-size:14px;font-weight:600;">${esc(p.name)}</div>
+      ${p.fabric?`<div style="font-size:12px;color:#888;margin-top:2px;">${esc(p.fabric)}</div>`:''}
+      ${p.notes?`<div style="font-size:12px;color:#888;">${esc(p.notes)}</div>`:''}
       <!-- Posting stage -->
       ${(()=>{
         const stage=getPostingStage(p);
@@ -7276,10 +7465,10 @@ function renderInventory(){
       <div style="flex:1;">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-size:18px;font-weight:700;color:var(--brown);">#${p.prodNo}</span>${isPendingReview(p)?'<span class="badge badge-review">⏳ Review</span>':''}${badge}${varBadge}
         ${s>0?`<span style="background:${ac.bg};color:${ac.fg};padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;">${ac.lbl}</span>`:''}</div>
-        <div class="list-main" style="margin-top:3px;">${p.name}</div>
+        <div class="list-main" style="margin-top:3px;">${esc(p.name)}</div>
         ${p.billNo?`<div class="list-sub" style="color:#9a6a00;">🧾 ${esc(sbBillRef(p))}</div>`:''}
         ${(()=>{const mp=marginPct(p.cost,p.sellPrice);const mc=mp===null?'':(mp<0?'#e74c3c':'#27ae60');
-          return`<div class="list-sub">${p.cost?'Cost ₹'+p.cost+' · ':''}${mp!==null?`<span style="color:${mc};font-weight:600;">${mp>=0?'+':''}${mp}% margin</span> · `:''}${s} of ${orig} in stock${p.notes?' · '+p.notes:''}</div>`;})()}
+          return`<div class="list-sub">${p.cost?'Cost ₹'+p.cost+' · ':''}${mp!==null?`<span style="color:${mc};font-weight:600;">${mp>=0?'+':''}${mp}% margin</span> · `:''}${s} of ${orig} in stock${p.notes?' · '+esc(p.notes):''}</div>`;})()}
         <div class="list-sub" style="margin-top:1px;"><span style="background:var(--goldp);color:var(--brown);padding:1px 6px;border-radius:6px;font-size:10px;font-weight:600;">HSN ${p.hsn||DEFAULT_HSN}</span>${p.dateAdded?`<span style="color:#888;font-size:10px;margin-left:6px;">📅 Recd ${fmtDate(p.dateAdded)}</span>`:'<span style="color:#c47b00;font-size:10px;margin-left:6px;">📅 No date</span>'}</div>
         ${s>0?(()=>{
           const stage=getPostingStage(p);
@@ -7346,19 +7535,19 @@ function goToLabel(){
   },100);}
 }
 function printLabel(){
-  const name=document.getElementById('lbl-to-name')?.value.trim();
+  const name=esc(document.getElementById('lbl-to-name')?.value.trim());
   if(!name){toast('⚠️ Enter customer name');return;}
   const rawAddr=document.getElementById('lbl-to-addr')?.value||'';
   const pin=document.getElementById('lbl-to-pin')?.value||'';
-  const ph=document.getElementById('lbl-to-ph')?.value||'';
-  const wa=document.getElementById('lbl-to-wa')?.value||'';
-  const invNo=document.getElementById('lbl-inv-no')?.value||'';
-  const track=document.getElementById('lbl-tracking2')?.value||'';
+  const ph=esc(document.getElementById('lbl-to-ph')?.value||'');
+  const wa=esc(document.getElementById('lbl-to-wa')?.value||'');
+  const invNo=esc(document.getElementById('lbl-inv-no')?.value||'');
+  const track=esc(document.getElementById('lbl-tracking2')?.value||'');
   const rawFromAddr=document.getElementById('lbl-from-addr')?.value||'';
-  const fromPh=document.getElementById('lbl-from-ph')?.value||'';
-  const addrParts=[rawAddr.trim(),pin?'PIN: '+pin:''].filter(Boolean);
+  const fromPh=esc(document.getElementById('lbl-from-ph')?.value||'');
+  const addrParts=[esc(rawAddr.trim()),pin?'PIN: '+esc(pin):''].filter(Boolean);
   const addr=addrParts.join('<br/>');
-  const fromAddr=rawFromAddr.replace(/\n/g,'<br/>');
+  const fromAddr=esc(rawFromAddr).replace(/\n/g,'<br/>');
 
   // Build phone line — show both if different
   const phLine=ph&&wa&&ph!==wa
@@ -7781,7 +7970,7 @@ function buildBulkEditPage(){
       <div onclick="toggleBulkRow(${i})"
         style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;background:${hasCost?'var(--warm)':'#fff8ee'};">
         <div>
-          <div style="font-weight:700;font-size:14px;">${inv.invNo||'—'} · ${inv.custName||'—'}</div>
+          <div style="font-weight:700;font-size:14px;">${inv.invNo||'—'} · ${esc(inv.custName||'—')}</div>
           <div style="font-size:12px;color:#888;">${fmtDate(inv.invDate)} · ₹${parseFloat(inv.grandTotal||0).toLocaleString('en-IN')}
             ${hasCost?'· <span style="color:#27ae60;">Cost ₹'+parseFloat(inv.costPrice).toLocaleString('en-IN')+'</span>':'· <span style="color:#e67e22;">Cost missing</span>'}
           </div>
@@ -7799,12 +7988,12 @@ function buildBulkEditPage(){
         </div>
         <div class="row2">
           <div class="fg"><label>Shipping Phone</label>
-            <input id="be-phone-${i}" value="${inv.custPhone||''}" type="tel"/></div>
+            <input id="be-phone-${i}" value="${esc(inv.custPhone||'')}" type="tel"/></div>
           <div class="fg"><label>WhatsApp</label>
-            <input id="be-whatsapp-${i}" value="${inv.custWhatsapp||''}" type="tel"/></div>
+            <input id="be-whatsapp-${i}" value="${esc(inv.custWhatsapp||'')}" type="tel"/></div>
         </div>
         <div class="fg"><label>Address</label>
-          <textarea id="be-address-${i}" rows="2">${inv.custAddress||''}</textarea></div>
+          <textarea id="be-address-${i}" rows="2">${esc(inv.custAddress||'')}</textarea></div>
         <div class="row2">
           <div class="fg"><label>Shipping Charged (₹)</label>
             <input id="be-ship-${i}" type="number" value="${inv.shipping||0}" ${isBillLocked(inv)?'disabled':''}/></div>
@@ -7829,7 +8018,7 @@ function buildBulkEditPage(){
               <option value="walkin" ${inv.dispatchMethod==='walkin'?'selected':''}>Walk-in / Collected in person (QR code needed)</option>
             </select></div>
           <div class="fg"><label>Tracking No.</label>
-            <div style="display:flex;gap:8px;align-items:stretch;"><input id="be-tracking-${i}" value="${inv.tracking||''}" style="flex:1;"/><button type="button" class="btn btn-o" onclick="openTrackScanner('be-tracking-${i}')" title="Scan the barcode or printed number on the receipt" style="flex:0 0 auto;min-height:48px;padding:0 14px;font-size:18px;">📷</button></div></div>
+            <div style="display:flex;gap:8px;align-items:stretch;"><input id="be-tracking-${i}" value="${esc(inv.tracking||'')}" style="flex:1;"/><button type="button" class="btn btn-o" onclick="openTrackScanner('be-tracking-${i}')" title="Scan the barcode or printed number on the receipt" style="flex:0 0 auto;min-height:48px;padding:0 14px;font-size:18px;">📷</button></div></div>
         </div>
         <div class="row2">
           <div class="fg"><label>Channel</label>
@@ -7991,7 +8180,7 @@ function buildPurchasesPage(){
     <div class="fg"><label id="pp-sup-label">Shop / Supplier (optional)</label>
       <select id="pp-sup-sel" onchange="onPurSupChange()">
         <option value="">— select or type below —</option>
-        ${suppliers.map(s=>`<option value="${s.name}">${s.name}</option>`).join('')}
+        ${suppliers.map(s=>`<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('')}
         <option value="__other__">Other / Type manually</option>
       </select>
       <input id="pp-sup" placeholder="Supplier name" style="margin-top:6px;${suppliers.length?'display:none;':''}"/>
@@ -8183,7 +8372,7 @@ function renderPLContent(filtInv,filtPur,plOpts){
     return _cnFrom?d>=_cnFrom&&d<=_cnTo:true;
   });
   const totalCreditAmt=parseFloat(filtCNs.reduce((s,cn)=>s+(parseFloat(cn.creditAmount)||0),0).toFixed(2));
-  const totalCreditGST=parseFloat(filtCNs.reduce((s,cn)=>s+(parseFloat(cn.gstReversed)||0),0).toFixed(2));
+  const totalCreditGST=parseFloat(filtCNs.reduce((s,cn)=>s+((cn.isGST===true||cn.isGST==='true')?(parseFloat(cn.gstReversed)||0):0),0).toFixed(2));
 
  // v14.48.0: debit notes follow the same rules as credit notes
   const filtDNs=debitNotes.filter(dn=>{
@@ -8205,14 +8394,14 @@ function renderPLContent(filtInv,filtPur,plOpts){
     // v14.31.0: via gstSplit — the old form divided the WHOLE grand (shipping included)
     // by 1.05 and then subtracted shipping tax, which mis-stated the suit component.
     return s+gstSplit(i.grandTotal,i.shipping,i.discount).suitGST;
-  },totalDebitGST).toFixed(2));
+  },totalDebitGST-totalCreditGST).toFixed(2)); // v14.49.0: GST on credit notes comes off, it was calculated but never used
   const shipCharged   = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.shipping)||0),0).toFixed(2));
   const gstOnShip     = parseFloat(gstInvs.reduce((s,i)=>{const sh=parseFloat(i.shipping||0);return s+(sh-sh/1.18);},0).toFixed(2));
   const totalOutGST   = parseFloat((gstOnSuits+gstOnShip).toFixed(2));
   const shipChargedExcl = parseFloat((shipCharged - gstOnShip).toFixed(2));
   const nonGstRevenue = parseFloat(nonGstInvs.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0).toFixed(2));
   const suitRevIncl   = parseFloat((grossRev-shipCharged).toFixed(2));
-  const suitRevExcl   = parseFloat((suitRevIncl-(anyGST?gstOnSuits:0)).toFixed(2));
+  const suitRevExcl   = parseFloat((suitRevIncl-((anyGST||totalCreditGST||totalDebitGST)?gstOnSuits:0)).toFixed(2));
   const netRev        = parseFloat((suitRevExcl+shipChargedExcl).toFixed(2));
 
   // ── COST OF GOODS — Suit Purchases ──
@@ -8591,21 +8780,29 @@ function getDateRange(period){
   return{from:'',to:'',label:'All Time'};
 }
 
+// v14.49.0: fixed version of the Excel library, from its publisher (the copy on cdnjs stops at 0.18.5, which has known flaws)
+function vcLoadXlsx(cb){
+  if(window.XLSX){cb();return;}
+  const s=document.createElement('script');
+  s.src='https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+  s.onload=cb;
+  s.onerror=()=>toast('⚠️ The Excel reader could not load. Please check your internet connection.',5000);
+  document.head.appendChild(s);
+}
+
 function doExportCustom(){
   const from=document.getElementById('exp-from')?.value;
   const to=document.getElementById('exp-to')?.value;
   if(!from||!to){toast('⚠️ Select both From and To dates');return;}
   if(from>to){toast('⚠️ From date must be before To date');return;}
   const load=()=>_doExport('sales',from,to,'custom_'+fmtExportDate(from)+'_to_'+fmtExportDate(to));
-  if(!window.XLSX){const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=load;document.head.appendChild(s);}
-  else load();
+  vcLoadXlsx(load);
 }
 
 function doExport(type,period){
   const{from,to,label}=getDateRange(period);
   const load=()=>_doExport(type,from,to,label);
-  if(!window.XLSX){const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=load;document.head.appendChild(s);}
-  else load();
+  vcLoadXlsx(load);
 }
 
 function _doExport(type,from,to,label){
@@ -9067,7 +9264,7 @@ function handleBulkUpload(e){
     if(window.XLSX){go();}
     else{
       const s=document.createElement('script');
-      s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.src='https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
       s.onload=go;
       s.onerror=()=>{hideLoading();toast('❌ Excel library failed to load. Save your file as CSV and try again.',6000);};
       document.head.appendChild(s);
@@ -9091,8 +9288,8 @@ function showBulkPreview(rows,skipped=[]){
     <div style="font-size:12px;color:#888;margin-bottom:8px;">First few rows — verify dates look correct:</div>
     <div style="max-height:300px;overflow-y:auto;">
     ${rows.map(r=>`<div class="list-row">
-      <div><div class="list-main">${r.custName}</div>
-      <div class="list-sub">${r.invDate?fmtDate(r.invDate):''} · ${r.custState} · ${r.itemsArr.map(it=>it.desc).join(', ')}</div></div>
+      <div><div class="list-main">${esc(r.custName)}</div>
+      <div class="list-sub">${r.invDate?fmtDate(r.invDate):''} · ${esc(r.custState)} · ${r.itemsArr.map(it=>it.desc).join(', ')}</div></div>
       <div class="list-right"><div class="list-amt">₹${(r.itemsArr.reduce((s,it)=>s+(it.qty||1)*it.unitPrice,0)+r.shipping-r.discount).toLocaleString('en-IN')}</div></div>
     </div>`).join('')}
     </div>
@@ -9107,7 +9304,7 @@ function showBulkPreview(rows,skipped=[]){
       <div class="card-title" style="color:#e67e22;">⚠️ ${skipped.length} row${skipped.length>1?'s':''} skipped</div>
       ${skipped.map(s=>`<div class="list-row"><div>
         <div style="font-weight:600;font-size:13px;">Row ${s.rowNum}: ${s.rawName}</div>
-        <div style="font-size:12px;color:#c0392b;margin-top:2px;">❌ ${s.reason}</div>
+        <div style="font-size:12px;color:#c0392b;margin-top:2px;">❌ ${esc(s.reason)}</div>
         ${s.rawDate?`<div style="font-size:11px;color:#888;">Date in file: ${s.rawDate}</div>`:''}
       </div></div>`).join('')}
       <div style="font-size:12px;color:#888;margin-top:10px;">Fix these in your file and re-upload. Already-imported rows will be skipped.</div>
@@ -9229,6 +9426,7 @@ async function bulkSaveAndPrint(){
   await bulkSaveOnly();
   const newInvs=invoices.slice(before);
   if(!newInvs.length){toast('No new invoices to print');return;}
+  if(newInvs.some(isBillLocked)){vcBillCopyMenu(newInvs);return;} // v14.49.1
   document.getElementById('print-area').innerHTML=newInvs.map(inv=>`<div class="print-page">${getInvHtml(inv)}</div>`).join('');
   window.print();
 }
@@ -9928,13 +10126,13 @@ function showReviewPopup(){
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;">
       <a href="https://wa.me/${num}?text=${encodeURIComponent(msgText)}" target="_blank"
-        onclick="logMsg('${phone}','${msgKey}',${yr},'');_reviewPopupIdx++;showReviewPopup();"
+        onclick="logMsg('${_jsq(phone)}','${_jsq(msgKey)}',${yr},'');_reviewPopupIdx++;showReviewPopup();"
         class="btn btn-g" style="min-height:48px;text-decoration:none;text-align:center;">💬 Send Delivery Message</a>
       <div style="display:flex;gap:8px;">
-        <button class="btn btn-o" style="flex:1;min-height:44px;" onclick="logMsg('${phone}','${msgKey}',${yr},'');_reviewPopupIdx++;showReviewPopup();">✓ Already Sent</button>
-        <button class="btn btn-o" style="flex:1;min-height:44px;" onclick="skipReview('${trackNo}');_reviewPopupIdx++;showReviewPopup();">⏭ Skip (7 days)</button>
+        <button class="btn btn-o" style="flex:1;min-height:44px;" onclick="logMsg('${_jsq(phone)}','${_jsq(msgKey)}',${yr},'');_reviewPopupIdx++;showReviewPopup();">✓ Already Sent</button>
+        <button class="btn btn-o" style="flex:1;min-height:44px;" onclick="skipReview('${_jsq(trackNo)}');_reviewPopupIdx++;showReviewPopup();">⏭ Skip (7 days)</button>
       </div>
-      <button class="btn btn-o" style="min-height:40px;color:#c0392b;font-size:13px;" onclick="neverReview('${phone}');_reviewPopupIdx++;showReviewPopup();">🚫 Never Remind This Customer</button>
+      <button class="btn btn-o" style="min-height:40px;color:#c0392b;font-size:13px;" onclick="neverReview('${_jsq(phone)}');_reviewPopupIdx++;showReviewPopup();">🚫 Never Remind This Customer</button>
     </div>`;
   const counter=document.getElementById('review-popup-counter');
   if(counter&&_reviewPopupQueue.length>1)counter.textContent=(_reviewPopupIdx+1)+' of '+_reviewPopupQueue.length;
@@ -10349,14 +10547,14 @@ async function renderOutreachPage(){
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
           <a href="https://wa.me/${num}?text=${encodeURIComponent(msgText)}" target="_blank"
-            onclick="logMsg('${phone}','${msgKey}',${yr},'');setTimeout(()=>renderOutreachPage(),600);"
+            onclick="logMsg('${_jsq(phone)}','${_jsq(msgKey)}',${yr},'');setTimeout(()=>renderOutreachPage(),600);"
             class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;text-align:center;">💬 Send</a>
           <button class="btn btn-o btn-sm" style="min-height:34px;font-size:11px;"
-            onclick="logMsg('${phone}','${msgKey}',${yr},'');renderOutreachPage();renderOutreachWidget();">✓ Already sent</button>
+            onclick="logMsg('${_jsq(phone)}','${_jsq(msgKey)}',${yr},'');renderOutreachPage();renderOutreachWidget();">✓ Already sent</button>
           <button class="btn btn-o btn-sm" style="min-height:34px;font-size:11px;"
-            onclick="skipReview('${trackNo||inv.invNo}');renderOutreachPage();">⏭ Skip</button>
+            onclick="skipReview('${_jsq(trackNo||inv.invNo)}');renderOutreachPage();">⏭ Skip</button>
           <button class="btn btn-o btn-sm" style="min-height:34px;font-size:11px;color:#c0392b;"
-            onclick="neverReview('${phone}');renderOutreachPage();">🚫 Never</button>
+            onclick="neverReview('${_jsq(phone)}');renderOutreachPage();">🚫 Never</button>
         </div>
       </div>`;
     });
@@ -10385,20 +10583,20 @@ async function renderOutreachPage(){
       const rCol=rColour[c.religion]||'#888';
       html+=`<div class="list-row" style="align-items:flex-start;gap:8px;">
         <div style="flex:1;min-width:0;">
-          <div class="list-main">${c.name}
-            <span data-rel-phone="${c.phone}" style="font-size:10px;font-weight:700;color:#fff;background:${rCol};padding:1px 6px;border-radius:8px;margin-left:6px;">${c.religion}</span>
+          <div class="list-main">${esc(c.name)}
+            <span data-rel-phone="${esc(c.phone)}" style="font-size:10px;font-weight:700;color:#fff;background:${rCol};padding:1px 6px;border-radius:8px;margin-left:6px;">${c.religion}</span>
           </div>
           <div class="list-sub">${c.lastInvNo} · ${fmtDate(c.lastOrder)} · ${days} days ago</div>
-          <button data-rphone="${c.phone}" data-rname="${esc(c.name||'')}" data-rcurrent="${c.religion}"
+          <button data-rphone="${esc(c.phone)}" data-rname="${esc(c.name||'')}" data-rcurrent="${c.religion}"
             style="font-size:10px;color:#888;background:none;border:none;padding:2px 0;cursor:pointer;"
             onclick="showReligionOverride(this)">Change religion</button>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
           <a href="https://wa.me/${num}?text=${encodeURIComponent(msg)}" target="_blank"
-            onclick="logMsg('${c.phone}','followup',${yr},'');setTimeout(()=>renderOutreachPage(),600);"
+            onclick="logMsg('${_jsq(c.phone)}','followup',${yr},'');setTimeout(()=>renderOutreachPage(),600);"
             class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;text-align:center;">💬 Send</a>
           <button class="btn btn-o btn-sm" style="min-height:34px;font-size:11px;color:#c0392b;"
-            onclick="logMsg('${c.phone}','followup_opt_out',${yr},'');renderOutreachPage();">🚫 Opted Out</button>
+            onclick="logMsg('${_jsq(c.phone)}','followup_opt_out',${yr},'');renderOutreachPage();">🚫 Opted Out</button>
         </div>
       </div>`;
     });
@@ -10443,7 +10641,7 @@ async function renderOutreachPage(){
     if(window._sendAllData&&window._sendAllData[f.key])window._sendAllData[f.key].links=[...sendAllLinks];
 
     html+=`<div class="card">
-      <div class="card-title">🎉 ${f.name} — ${dayLabel}</div>
+      <div class="card-title">🎉 ${esc(f.name)} — ${dayLabel}</div>
       ${fallbackNote}
       <div style="font-size:12px;color:#888;margin-bottom:10px;">${visible.length} to send · ${sentCount} already sent</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
@@ -10463,16 +10661,16 @@ async function renderOutreachPage(){
           const rCol=rColour[c.religion]||'#888';
           return`<div class="list-row" style="align-items:flex-start;gap:8px;">
             <div style="flex:1;min-width:0;">
-              <div class="list-main">${c.name}
-                <span data-rel-phone="${c.phone}" style="font-size:10px;font-weight:700;color:#fff;background:${rCol};padding:1px 6px;border-radius:8px;margin-left:6px;">${c.religion}</span>
+              <div class="list-main">${esc(c.name)}
+                <span data-rel-phone="${esc(c.phone)}" style="font-size:10px;font-weight:700;color:#fff;background:${rCol};padding:1px 6px;border-radius:8px;margin-left:6px;">${c.religion}</span>
               </div>
               <div class="list-sub">${c.state||'—'} · ${fmtDate(c.lastOrder)}</div>
-              <button data-rphone="${c.phone}" data-rname="${esc(c.name||'')}" data-rcurrent="${c.religion}"
+              <button data-rphone="${esc(c.phone)}" data-rname="${esc(c.name||'')}" data-rcurrent="${c.religion}"
                 style="font-size:10px;color:#888;background:none;border:none;padding:2px 0;cursor:pointer;"
                 onclick="showReligionOverride(this)">Change religion</button>
             </div>
             <a href="https://wa.me/${num}?text=${encodeURIComponent(msg)}" target="_blank"
-              onclick="logMsg('${c.phone}','${f.key}',${yr},'');setTimeout(()=>renderOutreachPage(),600);"
+              onclick="logMsg('${_jsq(c.phone)}','${f.key}',${yr},'');setTimeout(()=>renderOutreachPage(),600);"
               class="btn btn-g btn-sm" style="min-height:40px;text-decoration:none;text-align:center;">💬 Send</a>
           </div>`;
         }).join('')
@@ -10776,16 +10974,16 @@ function bulkPrintLabels(){
 
   // Build label for one invoice using same CSS/structure as single printLabel()
   function buildOneLabelBody(inv){
-    const name=inv.custName||'—';
+    const name=esc(inv.custName||'—');
     const rawAddr=inv.custAddress||'';
     const pin=inv.custPin||'';
-    const ph=inv.custPhone||'';
-    const wa=inv.custWhatsapp||'';
-    const invNo=inv.invNo||'';
-    const track=inv.tracking||'';
-    const fromAddr=(S.address||'').replace(/\n/g,'<br/>');
-    const fromPh=S.phone||'';
-    const addrParts=[rawAddr.trim(),pin?'PIN: '+pin:''].filter(Boolean);
+    const ph=esc(inv.custPhone||'');
+    const wa=esc(inv.custWhatsapp||'');
+    const invNo=esc(inv.invNo||'');
+    const track=esc(inv.tracking||'');
+    const fromAddr=esc(S.address||'').replace(/\n/g,'<br/>');
+    const fromPh=esc(S.phone||'');
+    const addrParts=[esc(rawAddr.trim()),pin?'PIN: '+esc(pin):''].filter(Boolean);
     const addr=addrParts.join('<br/>');
     const phLine=ph&&wa&&ph!==wa
       ?'&#9990; '+ph+' &nbsp;|&nbsp; 💬 '+wa
@@ -11193,7 +11391,7 @@ function getTop1000Tracked(){
 function ensureXLSX(cb){
   if(window.XLSX){cb();return;}
   const s=document.createElement('script');
-  s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+  s.src='https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
   s.onload=cb;
   s.onerror=function(){toast('❌ Could not load Excel library — check your internet connection');};
   document.head.appendChild(s);
@@ -11542,7 +11740,7 @@ function renderTrackingPage(){
             ?'<span class="badge b-green">Delivered</span>'
             :isOD
               ?'<span class="badge b-red">⚠️ Overdue</span>'
-              :'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
+              :'<span class="badge b-blue">'+esc(td.status||'In Transit')+'</span>';
       // Show parcel label if multi-tracking invoice
       const multiNos=(inv.tracking||'').split(',').filter(t=>t.trim()).length;
       const parcelNote=multiNos>1?`<span style="font-size:11px;color:var(--gold);margin-left:6px;">pkg ${(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean).indexOf(inv._singleTracking)+1}/${multiNos}</span>`:'';
@@ -11616,7 +11814,7 @@ function renderTrackingPage(){
         ?'<span class="badge b-green">Delivered</span>'
         :isOD
           ?'<span class="badge b-red">⚠️ Overdue</span>'
-          :'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
+          :'<span class="badge b-blue">'+esc(td.status||'In Transit')+'</span>';
       return`<tr style="${rowBg}">
         <td style="font-weight:600;color:var(--brown);">${i+1}</td>
         <td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}</td>
@@ -11769,7 +11967,7 @@ function renderTrackingResults(){
       const isDelivered=cat==='delivered';const isOD=cat==='overdue';const isNoTracking=cat==='notracking';const isAwaiting=cat==='awaiting';
       const trackDisplay=isNoTracking?'':inv._singleTracking||inv.tracking;
       const cardBg=isOD?'border-color:#e74c3c;background:#fff8f8;':isDelivered?'border-color:#27ae60;background:#f0fff4;':isNoTracking?'border-color:#f39c12;background:#fffbf0;':'';
-      const stBadge=isNoTracking?'<span class="badge b-yellow">📭 No Tracking</span>':isAwaiting?'<span class="badge b-yellow">⏳ Awaiting Update</span>':isDelivered?'<span class="badge b-green">Delivered</span>':isOD?'<span class="badge b-red">⚠️ Overdue</span>':'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
+      const stBadge=isNoTracking?'<span class="badge b-yellow">📭 No Tracking</span>':isAwaiting?'<span class="badge b-yellow">⏳ Awaiting Update</span>':isDelivered?'<span class="badge b-green">Delivered</span>':isOD?'<span class="badge b-red">⚠️ Overdue</span>':'<span class="badge b-blue">'+esc(td.status||'In Transit')+'</span>';
       const multiNos=(inv.tracking||'').split(',').filter(t=>t.trim()).length;
       const parcelNote=multiNos>1?`<span style="font-size:11px;color:var(--gold);margin-left:6px;">pkg ${(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean).indexOf(inv._singleTracking)+1}/${multiNos}</span>`:'';
       const courierCode=inv._courierCode||detectCourier(inv._singleTracking||'')||((inv.courierOverride||{})[String(inv._singleTracking||'').toUpperCase()])||'indiapost';
@@ -11812,7 +12010,7 @@ function renderTrackingResults(){
         :'<span style="font-size:10px;font-weight:700;color:#e67e22;background:#fff3e0;border:1px solid #e67e22;padding:1px 5px;border-radius:5px;margin-left:4px;">📦 Partial DS</span>';
       if(isNoTracking)return`<tr style="${rowBg}"><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${_tkDSBadge2}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;color:#aaa;font-style:italic;">—</td><td>${fmtDate(inv.invDate)}</td><td colspan="3"><span class="badge b-yellow">📭 No Tracking</span></td></tr>`;
       if(!td)return`<tr><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}${_tkDSBadge2}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td><td>${fmtDate(inv.invDate)}</td><td colspan="3"><span class="badge b-yellow">⏳ Awaiting Update</span></td></tr>`;
-      const stBadge=isDelivered?'<span class="badge b-green">Delivered</span>':isOD?'<span class="badge b-red">⚠️ Overdue</span>':'<span class="badge b-blue">'+(td.status||'In Transit')+'</span>';
+      const stBadge=isDelivered?'<span class="badge b-green">Delivered</span>':isOD?'<span class="badge b-red">⚠️ Overdue</span>':'<span class="badge b-blue">'+esc(td.status||'In Transit')+'</span>';
       return`<tr style="${rowBg}"><td style="font-weight:600;color:var(--brown);">${i+1}</td><td>${esc2(inv.invNo)}${pkgLabel}${courierBadge}${_tkDSBadge2}</td><td style="font-size:12px;">${esc2(inv.custName)}</td><td style="font-size:11px;color:#666;">${locCell}</td><td style="font-size:11px;font-family:monospace;">${esc2(trackDisplay)}</td><td>${fmtDate(inv.invDate)}</td><td>${parseBookedOn(td.bookedOn||'')?esc2(fmtDateTxt(td.bookedOn)):'—'}</td><td>${stBadge}</td><td style="font-size:11px;color:#555;max-width:180px;word-break:break-word;">${td.source==='track123'&&(td.lastEventDetail||td.lastEvent)?('<span style="font-weight:600;">'+(td.lastEventDetail?esc2(td.lastEventDetail):(td.lastEvent?esc2(td.lastEvent):''))+'</span>'+(td.lastEventLocation?'<br/><span style="color:#888;">📍 '+esc2(td.lastEventLocation)+'</span>':'')+(td.lastEventTime?'<br/><span style="color:#aaa;font-size:10px;">'+esc2(fmtDateTxt(td.lastEventTime))+'</span>':'')):((td.lastEvent&&td.lastEvent.trim().toLowerCase()!=='n/a')?esc2(td.lastEvent):'')}</td></tr>`;
     }).join('');
     ra.innerHTML=statsHtml+`<div class="card" style="padding:0;overflow:hidden;"><div class="tbl-wrap flush"><table style="min-width:700px;"><thead><tr><th>#</th><th>Invoice</th><th>Customer</th><th>Location</th><th>Tracking No.</th><th>Inv. Date</th><th>Booked On</th><th>Status</th><th>Last Event</th></tr></thead><tbody>${rows}</tbody></table></div></div><div style="font-size:11px;color:#aaa;text-align:center;margin-top:8px;padding-bottom:8px;">⚠️ Flagged overdue = &gt;6 days since Booked On date and not yet delivered</div>`;
@@ -12177,7 +12375,7 @@ function _openMarkSoldInvoiceSelector() {
   const sel = document.getElementById('iem-inv-select');
   sel.innerHTML = '<option value="">— select invoice —</option>' +
     [...invoices].sort((a,b) => (b.invDate||'') > (a.invDate||'') ? 1 : -1)
-      .map(i => '<option value="' + i.id + '">' + (i.invNo||i.id) + ' · ' + (i.custName||'') + ' · ' + fmtDate(i.invDate) + '</option>')
+      .map(i => '<option value="' + i.id + '">' + (i.invNo||i.id) + ' · '+esc(i.custName||'')+' · ' + fmtDate(i.invDate) + '</option>')
       .join('');
   document.getElementById('iem-sold-link').style.display = 'block';
 }
@@ -12452,7 +12650,7 @@ function printInvPriceList() {
 
     let html = '<tr style="' + rowBg + '">'
       + '<td style="padding:8px 10px;font-weight:700;color:#5c3d1e;">#' + p.prodNo + '</td>'
-      + '<td style="padding:8px 10px;">' + (p.name || '') + (p.fabric ? '<br/><span style="font-size:10pt;color:#888;">' + p.fabric + '</span>' : '') + '</td>'
+      + '<td style="padding:8px 10px;">' + esc(p.name || '') + (p.fabric ? '<br/><span style="font-size:10pt;color:#888;">'+esc(p.fabric)+'</span>' : '') + '</td>'
       + '<td style="padding:8px 10px;text-align:center;">'
         + (inStock
           ? '<span style="background:#e8f5e9;color:#27ae60;padding:2px 8px;border-radius:8px;font-size:10pt;font-weight:700;">In Stock</span>'
@@ -12532,7 +12730,7 @@ function printInvPriceList() {
     + '</head><body>'
     + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">'
       + '<div>' + logoImg + '<div style="font-family:\'Playfair Display\',serif;font-size:22pt;font-weight:700;color:#5c3d1e;">Vismaad Creations</div>'
-      + '<div style="font-size:10pt;color:#888;">' + (S.address || '') + (S.phone ? ' · ' + S.phone : '') + '</div></div>'
+      + '<div style="font-size:10pt;color:#888;">' + esc(S.address || '') + (S.phone ? ' · ' + esc(S.phone) : '') + '</div></div>'
       + '<div style="text-align:right;">'
         + '<div style="font-size:16pt;font-weight:700;color:#5c3d1e;">' + listTitle + '</div>'
         + '<div style="font-size:10pt;color:#888;">Date: ' + dateStr + '</div>'
@@ -12736,7 +12934,7 @@ function openAddBill(supId) {
   document.getElementById('bill-modal-id').value = '';
   const supSel = document.getElementById('bill-sup-sel');
   supSel.innerHTML = '<option value="">— select supplier —</option>'
-    + suppliers.map(s => '<option value="' + s.id + '" ' + (supId && String(s.id) === String(supId) ? 'selected' : '') + '>' + s.name + '</option>').join('');
+    + suppliers.map(s => '<option value="' + s.id + '" ' + (supId && String(s.id) === String(supId) ? 'selected' : '') + '>'+esc(s.name)+'</option>').join('');
   document.getElementById('bill-date').value = today();
   document.getElementById('bill-due').value = '';
   document.getElementById('bill-no').value = '';
@@ -12755,7 +12953,7 @@ function openEditBill(id) {
   document.getElementById('bill-modal-id').value = b.id;
   const supSel = document.getElementById('bill-sup-sel');
   supSel.innerHTML = '<option value="">— select supplier —</option>'
-    + suppliers.map(s => '<option value="' + s.id + '" ' + (String(s.id) === String(b.supId) ? 'selected' : '') + '>' + s.name + '</option>').join('');
+    + suppliers.map(s => '<option value="' + s.id + '" ' + (String(s.id) === String(b.supId) ? 'selected' : '') + '>'+esc(s.name)+'</option>').join('');
   document.getElementById('bill-date').value = b.date || '';
   document.getElementById('bill-due').value = b.dueDate || '';
   document.getElementById('bill-no').value = b.billNo || '';
@@ -13212,9 +13410,9 @@ function renderDSReport(){
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px;">
         <div style="font-size:13px;font-weight:600;">${cb.sup} — ${getCourierInfo(cb.courier).name||cb.courier} <span style="font-weight:400;color:#888;">(${cb.articles} article${cb.articles!==1?'s':''})</span></div>
         ${isMixed?'<span style="font-size:11px;color:#e67e22;font-weight:600;">⚠️ mixed invoice</span>':''}
-        <button class="btn btn-o btn-sm" onclick="exportDSTracking(${JSON.stringify(cb.trackingNos)},${JSON.stringify(cb.sup+'-'+cb.courier)})" style="padding:5px 10px;font-size:12px;">📋 Copy Tracking IDs</button>
+        <button class="btn btn-o btn-sm" onclick="exportDSTracking(${esc(JSON.stringify(cb.trackingNos))},${esc(JSON.stringify(cb.sup+'-'+cb.courier))})" style="padding:5px 10px;font-size:12px;">📋 Copy Tracking IDs</button>
       </div>
-      <div style="font-size:11px;color:#888;word-break:break-all;">${cb.trackingNos.join(', ')||'—'}</div>
+      <div style="font-size:11px;color:#888;word-break:break-all;">${esc(cb.trackingNos.join(', ')||'—')}</div>
     </div>`;
   });
 
@@ -13238,11 +13436,11 @@ function renderDSReport(){
         :'<span style="background:#fee2e2;color:#991b1b;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600;">Unpaid</span>';
     const shortfall=courierC!==null&&courierC>shipC?courierC-shipC:0;
     return `<tr style="border-bottom:1px solid #f0e8da;${isSelected?'background:#fff8ee;':''}">
-      ${_dsSelectMode?`<td style="padding:8px 6px;"><input type="checkbox" ${isSelected?'checked':''} onchange="toggleDSSelect('${key}',this.checked)" style="accent-color:#e67e22;width:16px;height:16px;"/></td>`:''}
+      ${_dsSelectMode?`<td style="padding:8px 6px;"><input type="checkbox" ${isSelected?'checked':''} onchange="toggleDSSelect('${_jsq(key)}',this.checked)" style="accent-color:#e67e22;width:16px;height:16px;"/></td>`:''}
       <td style="padding:8px 6px;font-size:12px;font-weight:600;color:var(--brown);white-space:nowrap;">${r.inv.invNo||r.inv.id}</td>
       <td style="padding:8px 6px;font-size:12px;white-space:nowrap;">${fmtDate(r.dsDate)}</td>
-      <td style="padding:8px 6px;font-size:12px;">${r.inv.custName||'—'}</td>
-      <td style="padding:8px 6px;font-size:12px;">${r.prodNo?'#'+r.prodNo+' ':''}<span style="color:#888;">${r.desc}</span></td>
+      <td style="padding:8px 6px;font-size:12px;">${esc(r.inv.custName||'—')}</td>
+      <td style="padding:8px 6px;font-size:12px;">${r.prodNo?'#'+r.prodNo+' ':''}<span style="color:#888;">${esc(r.desc)}</span></td>
       <td style="padding:8px 6px;font-size:12px;font-weight:600;">${r.dsSupName}</td>
       <td style="padding:8px 6px;font-size:12px;text-align:right;">${r.hasCost?f(r.costPrice*r.qty):'<span style="color:#e67e22;font-weight:600;">⚠️</span>'}</td>
       <td style="padding:8px 6px;font-size:12px;text-align:right;">${f(saleAmt)}</td>
@@ -13660,8 +13858,8 @@ function _buildSuppliersPageHTML() {
         const typeIco = e.type==='bill'?'🧾':e.type==='billpay'?'💸':e.type==='payment'?'💸':e.type==='credit'?'🏷️':'↩️';
         rows += '<tr>'
           + '<td style="padding:6px 8px;font-size:11px;color:#888;white-space:nowrap;">' + fmtDate(e.date) + '</td>'
-          + '<td style="padding:6px 8px;font-size:12px;font-weight:600;">' + typeIco + ' ' + e.label + '</td>'
-          + '<td style="padding:6px 8px;font-size:11px;color:#888;">' + e.detail + (e.note?'<br/>'+e.note:'') + '</td>'
+          + '<td style="padding:6px 8px;font-size:12px;font-weight:600;">' + typeIco + ' '+esc(e.label)+'</td>'
+          + '<td style="padding:6px 8px;font-size:11px;color:#888;">' + esc(e.detail) + (e.note?'<br/>'+esc(e.note):'') + '</td>'
           + '<td style="padding:6px 8px;font-size:12px;text-align:right;">' + (e.debit ?f(e.debit) :'—') + '</td>'
           + '<td style="padding:6px 8px;font-size:12px;text-align:right;color:#27ae60;">' + (e.credit?f(e.credit):'—') + '</td>'
           + '<td style="padding:6px 8px;font-size:12px;text-align:right;font-weight:700;color:'+(balance>0.01?'#c0392b':balance<-0.01?'#27ae60':'#888')+';">' + f(balance) + '</td>'
@@ -14364,7 +14562,7 @@ function generateCataloguePDF() {
     <script>window.onload=function(){setTimeout(function(){window.print();},1200);};<\/script>
     </head><body>
     <div style="display:flex;align-items:flex-start;justify-content:space-between;border-bottom:2px solid #e2d4bc;padding-bottom:12px;margin-bottom:4px;">
-      <div>${logoHtml}<div style="font-family:'Playfair Display',serif;font-size:22pt;font-weight:700;color:#5c3d1e;">${bizName}</div><div style="font-size:10pt;color:#888;">${tagline}</div>${S.phone?`<div style="font-size:10pt;color:#888;margin-top:2px;">📞 ${S.phone}</div>`:''}</div>
+      <div>${logoHtml}<div style="font-family:'Playfair Display',serif;font-size:22pt;font-weight:700;color:#5c3d1e;">${bizName}</div><div style="font-size:10pt;color:#888;">${tagline}</div>${S.phone?`<div style="font-size:10pt;color:#888;margin-top:2px;">📞 ${esc(S.phone)}</div>`:''}</div>
       <div style="text-align:right;"><div style="font-size:16pt;font-weight:700;color:#5c3d1e;">${esc(title)}</div><div style="font-size:10pt;color:#888;">${dateStr}</div></div>
     </div>
     <div class="grid">${productCards}</div>
@@ -14631,10 +14829,10 @@ function gsWriteToCatalogueSheet(sheetId, data) {
     const flat = {...data};
     const payload = JSON.stringify(flat);
     const cb = '_cat' + Date.now() + Math.floor(Math.random() * 9999);
-    const url = SCRIPT_URL + '?action=write&sheet=Catalogue&sheetId=' + encodeURIComponent(sheetId) + '&data=' + encodeURIComponent(payload) + '&callback=' + cb;
+    const url = SCRIPT_URL + '?action=write&sheet=Catalogue&sheetId=' + encodeURIComponent(sheetId) + '&data=' + encodeURIComponent(payload) + '&callback=' + cb + _gsT();
     const s = document.createElement('script');
     const timer = setTimeout(() => { delete window[cb]; try{document.head.removeChild(s);}catch{} resolve(false); }, 15000);
-    window[cb] = () => { clearTimeout(timer); delete window[cb]; try{document.head.removeChild(s);}catch{} resolve(true); };
+    window[cb] = (res) => { clearTimeout(timer); delete window[cb]; try{document.head.removeChild(s);}catch{} vcAuthCheck(res); resolve(!(res && res.error)); };
     s.onerror = () => { clearTimeout(timer); delete window[cb]; resolve(false); };
     s.src = url; document.head.appendChild(s);
   });
@@ -14671,7 +14869,7 @@ function openCleanupModal() {
       <div class="cat-sel-check" id="cls-${p.prodNo}" onclick="toggleCleanupSelect(${p.prodNo})"></div>
       <div style="flex:1;">
         <div style="font-size:14px;font-weight:600;">#${p.prodNo} — ${esc(p.name)}</div>
-        <div style="font-size:12px;color:#888;">${p.fabric||''} · Sold ${p.qtySold||0} unit${(p.qtySold||0)!==1?'s':''}${varCount?' · '+varCount+' variant'+(varCount!==1?'s':''):''}${photoCount?' · '+photoCount+' photo'+(photoCount!==1?'s':'')+'  on GitHub':''}</div>
+        <div style="font-size:12px;color:#888;">${esc(p.fabric||'')} · Sold ${p.qtySold||0} unit${(p.qtySold||0)!==1?'s':''}${varCount?' · '+varCount+' variant'+(varCount!==1?'s':''):''}${photoCount?' · '+photoCount+' photo'+(photoCount!==1?'s':'')+'  on GitHub':''}</div>
       </div>
     </div>`;
   }).join('');
@@ -14729,11 +14927,14 @@ function ensureQRLib(){
   });
 }
 
-function openUpiQrModal(inv){
+let _upiQrWhich='';
+function openUpiQrModal(inv,which){
+  _upiQrWhich=which||'';
+  if(!S.upiId){toast('⚠️ Add your UPI ID in Settings before making a payment QR.',5000);return;} // v14.49.0
   _upiQrInv=inv;
-  document.getElementById('upi-qr-id').value=S.upiId||'7719683825-2@ybl';
-  document.getElementById('upi-qr-name').value=S.upiName||'Ravinder Kaur';
-  document.getElementById('upi-qr-phone').value=S.upiPhone||'7719683825';
+  document.getElementById('upi-qr-id').value=S.upiId||'';
+  document.getElementById('upi-qr-name').value=S.upiName||'';
+  document.getElementById('upi-qr-phone').value=S.upiPhone||'';
   document.getElementById('upi-qr-amount').value=parseFloat(inv.grandTotal||0).toFixed(2);
   document.getElementById('upi-qr-tn').value=inv.invNo||'';
   document.getElementById('upi-qr-tr').value=inv.invNo||'';
@@ -14774,7 +14975,7 @@ async function previewUpiQr(){
     const name=document.getElementById('upi-qr-name').value.trim();
     const am=document.getElementById('upi-qr-amount').value.trim();
     prev.insertAdjacentHTML('beforeend','<div style="font-size:11px;color:#555;margin-top:6px;line-height:1.6;">'
-      +'<strong>'+name+'</strong>'+(ph?'<br/>'+ph:'')+'<br/>'+pa
+      +'<strong>'+esc(name)+'</strong>'+(ph?'<br/>'+esc(ph):'')+'<br/>'+esc(pa)
       +(am?'<br/><span style="font-weight:700;color:#5c3d1e;">₹'+parseFloat(am).toLocaleString('en-IN',{minimumFractionDigits:2})+'</span>':'')
       +'</div>');
   }catch(e){prev.innerHTML='<div style="color:#c0392b;font-size:12px;">QR generation failed. Check internet connection.</div>';}
@@ -14804,7 +15005,7 @@ async function doUpiQrPrint(){
     hideLoading();
     if(!qrDataUrl){toast('⚠️ QR generation failed');return;}
     closeUpiQrModal();
-    const upiName=document.getElementById('upi-qr-name')?.value.trim()||S.upiName||'Ravinder Kaur';
+    const upiName=document.getElementById('upi-qr-name')?.value.trim()||S.upiName||'';
     const upiPhone=document.getElementById('upi-qr-phone')?.value.trim()||S.upiPhone||'';
     const upiId=pa;
     const amount=document.getElementById('upi-qr-amount')?.value.trim()||'';
@@ -14812,9 +15013,9 @@ async function doUpiQrPrint(){
       +'<div><img src="'+qrDataUrl+'" style="width:110px;height:110px;display:block;"/></div>'
       +'<div style="font-size:11px;color:#1a1208;line-height:1.8;">'
       +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:4px;">Scan to Pay via UPI</div>'
-      +'<div><strong>'+upiName+'</strong></div>'
-      +(upiPhone?'<div>📱 '+upiPhone+'</div>':'')
-      +'<div style="color:#555;">UPI: '+upiId+'</div>'
+      +'<div><strong>'+esc(upiName)+'</strong></div>'
+      +(upiPhone?'<div>📱 '+esc(upiPhone)+'</div>':'')
+      +'<div style="color:#555;">UPI: '+esc(upiId)+'</div>'
       +(amount?'<div style="font-weight:700;color:#5c3d1e;font-size:13px;">₹'+parseFloat(amount).toLocaleString('en-IN',{minimumFractionDigits:2})+'</div>':'')
       +'<div style="font-size:10px;color:#888;margin-top:4px;">Pay using GPay, PhonePe, Paytm or any UPI app</div>'
       +'</div></div>';
@@ -14822,7 +15023,9 @@ async function doUpiQrPrint(){
     // Inject QR block just before closing div of invoice
     const injected=invHtml.replace(/(<div style="text-align:center;margin-top:14px[^"]*"[^>]*>[\s\S]*?<\/div>)\s*<\/div>\s*`?$/,
       (m,thankYou)=>thankYou+qrBlock+'</div>');
-    document.getElementById('print-area').innerHTML='<div class="print-page">'+(injected===invHtml?invHtml+qrBlock:injected)+'</div>';
+    const _rest=_upiQrWhich==='all'?['DUPLICATE FOR TRANSPORTER','TRIPLICATE FOR SUPPLIER'].map(l=>'<div class="print-page">'+getInvHtml(inv,l)+'</div>').join(''):''; // v14.49.1
+    _upiQrWhich='';
+    document.getElementById('print-area').innerHTML='<div class="print-page">'+(injected===invHtml?invHtml+qrBlock:injected)+'</div>'+_rest;
     window.print();
   }catch(e){hideLoading();toast('⚠️ Error: '+e.message);}
 }
@@ -15973,8 +16176,16 @@ function sbParsePaste(){
 function sbHasData(){return sbFilledLines().length>0||!!(document.getElementById('sb-invno')?.value||'').trim();}
 
 // (b) PDF — reads the text layer of a PDF made by billing software (pdf.js, lazy-loaded once)
-const SB_PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-const SB_PDFJS_WORKER='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const SB_PDFJS='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.min.mjs'; // v14.49.0: fixed version
+const SB_PDFJS_WORKER='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.worker.min.mjs';
+let _vcPdfLib=null;
+async function vcPdfDoc(data){
+  if(!_vcPdfLib){
+    _vcPdfLib=await import(SB_PDFJS);
+    _vcPdfLib.GlobalWorkerOptions.workerSrc=SB_PDFJS_WORKER;
+  }
+  return _vcPdfLib.getDocument({data,isEvalSupported:false}).promise;
+}
 function sbPickPdf(){
   const go=()=>{const i=document.getElementById('sb-pdf-input');if(i){i.value='';i.click();}};
   if(sbHasData()){showConfirmModal('📄 Read PDF','This replaces the bill currently on screen. Continue?',go,null);return;}
@@ -15997,11 +16208,9 @@ async function sbReadPdf(ev){
   const f=ev.target.files&&ev.target.files[0];if(!f)return;
   sbStatus('📄 Reading '+esc(f.name)+'…');
   try{
-    if(!window.pdfjsLib){sbStatus('📄 Loading the PDF reader (first time only)…');await _loadScript(SB_PDFJS);}
-    if(!window.pdfjsLib)throw new Error('PDF reader could not load — check your internet connection');
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc=SB_PDFJS_WORKER;
+    if(!_vcPdfLib)sbStatus('📄 Loading the PDF reader (first time only)…');
     const buf=await f.arrayBuffer();
-    const pdf=await window.pdfjsLib.getDocument({data:buf}).promise;
+    const pdf=await vcPdfDoc(new Uint8Array(buf));
     let text='',chars=0;
     for(let n=1;n<=pdf.numPages;n++){
       sbStatus('📄 Reading page '+n+' of '+pdf.numPages+'…');
@@ -16824,7 +17033,7 @@ async function scDoRestore(b,hits){
   finally{_scBusy=false;}
 }
 
-init();
+vcAuthBoot();
 </script>
 <script>
 'use strict';
@@ -16991,13 +17200,24 @@ function vcxNorm(kind,r){
   if(kind==='sb'&&!o.key)o.key=o.id;
   return o;
 }
+// v14.49.0: the phone keeps this and last financial year of printed lines (and anything not yet sent).
+// Older years stay in the SalesBook sheet and are read into memory when the Sales Book opens.
+let _vcxFullLoaded=false;
+function _vcxSave(kind,arr){
+  if(kind!=='sb'){lsSet(VCX[kind].ls,arr);return;}
+  const start=parseInt(String(getFY(today())).slice(0,4))||0,prev=(start-1)+'-'+String(start).slice(2);
+  const unsent=new Set((_vcxDirty().sb||[]).map(String));
+  const keep=arr.filter(r=>!r.fy||String(r.fy)>=prev||unsent.has(String(r.id)));
+  if(keep.length<arr.length)lsSet('vc_sb_trimmed',true);
+  lsSet(VCX.sb.ls,keep);
+}
 function _vcxDirty(){const d=lsGet('vc_x_dirty',{});return d&&typeof d==='object'?d:{};}
 function vcxStore(kind,rec){
   rec.updatedAt=new Date().toISOString();
   const c=VCX[kind],arr=c.get(),i=arr.findIndex(x=>String(x.id)===String(rec.id));
   if(i>=0)arr[i]=rec;else arr.push(rec);
-  lsSet(c.ls,arr);
   const d=_vcxDirty();d[kind]=d[kind]||[];if(!d[kind].includes(String(rec.id)))d[kind].push(String(rec.id));lsSet('vc_x_dirty',d);
+  _vcxSave(kind,arr);
 }
 let _vcxPushing=null;
 function vcxPush(){
@@ -17019,14 +17239,15 @@ function vcxPush(){
 }
 let _vcxLastPull=0;
 async function vcxPull(force){
+  if(!vcAuthToken())return false; // v14.49.0
   if(!force&&Date.now()-_vcxLastPull<300000)return true;
   try{
     for(const kind of Object.keys(VCX)){
       const rows=await gsRead(VCX[kind].sheet);
       const m=mergeById(VCX[kind].get(),rows.map(r=>vcxNorm(kind,r)));
-      VCX[kind].set(m);lsSet(VCX[kind].ls,m);
+      VCX[kind].set(m);_vcxSave(kind,m);
     }
-    _vcxLastPull=Date.now();
+    _vcxLastPull=Date.now();_vcxFullLoaded=true;
     return true;
   }catch(e){console.warn('Extra sheets sync failed:',e.message);return false;}
 }
@@ -17051,6 +17272,8 @@ function vcBillPages(list,which){
 }
 function vcPrintBills(list,which){
   if(list.length>1){_bulkPrintRun(list,which);return;}
+  const _i0=list[0]; // v14.49.1: a walk-in Original carries the payment QR; Duplicate and Triplicate never do
+  if(_i0&&S.upiId&&(_i0.channel==='walkin'||_i0.dispatchMethod==='walkin')&&isBillLocked(_i0)&&(which==='original'||which==='all')){openUpiQrModal(_i0,which);return;}
   document.getElementById('print-area').innerHTML=vcBillPages(list,which);
   window.print();
 }
@@ -17072,6 +17295,14 @@ function buildSalesBookPage(){return'<div id="vc-sb"></div>';}
 function _sbMoney(n){return Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function vcSbRender(){
   const el=document.getElementById('vc-sb');if(!el)return;
+  if(lsGet('vc_sb_trimmed',false)&&!_vcxFullLoaded){ // v14.49.0: older years must be read first, or they would look unprinted
+    el.innerHTML='<div class="card" style="font-size:14px;color:#636366;">Loading older Sales Book years from your sheet…</div>';
+    vcxPull(true).then(ok=>{
+      if(ok)vcSbRender();
+      else el.innerHTML='<div class="card" style="font-size:14px;color:#c0392b;">Older Sales Book years could not be loaded. Please check your internet connection and open this page again.</div>';
+    });
+    return;
+  }
   const entries=vcSbEntries(),pending=sbPending(entries,sbRows),iss=sbNumberIssues(invoices,gstEraStart()),bad=sbCheckPrinted(entries,sbRows);
   const legal=S.legalName||'';
   const box=(bg,bd,col,t)=>'<div style="background:'+bg+';border:1px solid '+bd+';border-radius:10px;padding:10px 12px;font-size:13px;color:'+col+';margin-bottom:12px;line-height:1.5;">'+t+'</div>';
@@ -17293,9 +17524,10 @@ async function vcMakeOrderSlip(){
   vcSlipsRender();
   let qr='';
   try{
+    if(!S.upiId){toast('⚠️ No payment QR on this slip. Add your UPI ID in Settings to include one.',5000);throw new Error('no UPI');} // v14.49.0
     await ensureQRLib();
     const tmp=document.createElement('div');tmp.style.cssText='position:fixed;left:-9999px;top:0;';document.body.appendChild(tmp);
-    new QRCode(tmp,{text:upiUrl(S.upiId||'7719683825-2@ybl',S.upiName||'Ravinder Kaur',t.total>0?t.total.toFixed(2):''),width:160,height:160,colorDark:'#1a1208',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+    new QRCode(tmp,{text:upiUrl(S.upiId,S.upiName||'',t.total>0?t.total.toFixed(2):''),width:160,height:160,colorDark:'#1a1208',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
     await new Promise(r=>setTimeout(r,300));
     const cv=tmp.querySelector('canvas'),im=tmp.querySelector('img');
     qr=cv?cv.toDataURL('image/png'):(im?im.src:'');
