@@ -3,10 +3,18 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.47.0
+APP: Vismaad Creations v14.48.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 18-Oct-2026 - v14.47.0: GST ERA FOR CA REPORTS (DASHBOARD STILL SHOWS PRE + POST). No Code.gs change.
+LAST_CHANGE: 04-Nov-2026 - v14.48.0: SALES BOOK, BILL COPIES, TAX INVOICE LOCKS, DEBIT NOTES, ORDER SLIP, TRIAL LABEL. No Code.gs change (new sheets are created on first use and read one by one).
+(B1) SALES BOOK. More → Reports → Sales Book. A4 landscape pages for the physical file: legal name, trade name, GSTIN, FY, volume, page, line per Tax Invoice / Credit Note / Debit Note / status change, taxable at 5% and 18%, CGST, SGST, IGST, brought and carried forward, signature line. No cost, phone, address or religion. Starts at the first Tax Invoice. Only entries not yet printed are printed; each print starts on a new page; unused space is crossed through. Printing needs a full sync first and is blocked by duplicate bill numbers. Entries join the book only after "Yes, add to book". A snapshot of every printed line is kept in the new SalesBook sheet, so reprints match the paper. Missing bill numbers and printed lines that later changed are shown. Month summary for the CA.
+(B2) BILL COPIES. Tax Invoice print asks Original for Recipient / Duplicate for Transporter / Triplicate for Supplier / All three (bulk too). PDF share and the walk-in QR print use the Original label. Screen preview and Bills of Supply carry no label.
+(B3) TAX INVOICE LOCKS. No delete (single or bulk; cancel through Status instead). Shipping charged, discount and state locked in Edit Invoice and the Bulk Invoice Editor, and totals are no longer recalculated. Other edits, status changes and renumbering go to the new InvoiceLog sheet. A name or number change after printing adds a correction line to the book. Bills of Supply behave as before.
+(B4) DEBIT NOTES. DN/YYYY-YY/NNN from the invoice menu or Edit Invoice, always linked to its Tax Invoice, new DebitNotes sheet, printable, shown on the Sales card and invoice view with credit notes, in the Sales Book, GST Summary and P&L.
+(B5) ORDER SLIP. For Walk-in invoices: unnumbered "Order Slip" with payment QR and "Tax invoice to follow". No stock or invoice number used. Open slips are listed on the Invoice page until billed or dropped (new OrderSlips sheet).
+(B6) TRIAL LABEL. "Label with order details (trial)" beside the existing options: items, prices, shipping, discount and total in small print, Prepaid or COD (new Payment field on the invoice), split across parcels with "Parcel 2 of 5" and values that add up to the bill; split saved on the invoice; extra bill copies per parcel. printLabel and bulkPrintLabels are not changed.
+NEW INVOICE FIELDS: payMode, parcels. Invoice sync merge now also carries invNo. NEW SETTING: legalName. NOT BUILT: stock and purchase pages; unique QR / payment confirmation (waits for the merchant QR and an Axis alert).
+PREV_CHANGE: 18-Oct-2026 - v14.47.0: GST ERA FOR CA REPORTS (DASHBOARD STILL SHOWS PRE + POST). No Code.gs change.
 (G1) BUG FIX: INVOICES FROM THE INVOICE PAGE NEVER RECORDED isGST. generateInvoice built the saved invoice without isGST (only Bulk Import set it), so with GST mode ON every invoice from the Invoice page still printed as a Bill of Supply (no GSTIN, HSN, tax split, Place of Supply) despite its INV/YYYY-YY/NNN number, was left out of the GST Summary export ("BOS excluded") and out of output GST in the P&L. It now stores isGST:isGSTEnabled(). Existing invoices are untouched (missing isGST already reads as Bill of Supply).
 (G2) GST START DATE = DATE OF THE FIRST TAX INVOICE. Switching GST on no longer stamps today. New updateGstStartFromInvoices(): when the first Tax Invoice ever is saved (Invoice page or Bulk Import) its date becomes S.gstStartDate, replacing any date stamped by older versions; after that the date only moves back if an earlier Tax Invoice appears (also checked after every sync, so other devices' invoices count). A date typed by hand that is earlier than the first invoice is kept. Synced via the Settings sheet as before. Settings label: "Date you started issuing GST bills".
 (G3) BUG FIX: GST SUMMARY EXPORT deducted every credit note dated in a month that had Tax Invoices, including credit notes against Bills of Supply, understating that month's taxable value and revenue. Only credit notes against Tax Invoices (cn.isGST) are deducted now.
@@ -1206,6 +1214,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
       <label>Courier Name</label>
       <input id="courier-name" placeholder="e.g. Delhivery, DTDC, BlueDart"/>
     </div>
+    <div class="fg"><label>Payment</label><select id="pay-mode"><option value="Prepaid">Prepaid</option><option value="COD">Cash on delivery</option></select></div>
     <div class="fg">
       <label>Sale Channel <span style="font-weight:400;color:#aaa;">(optional)</span></label>
       <div class="channel-chips">
@@ -1219,10 +1228,12 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     </div>
   </div>
 
+  <div class="card" id="vc-slips-card" style="display:none;"></div>
   <!-- Summary -->
   <div class="card">
     <div class="card-title">💰 Summary</div>
     <div id="summary-box"><div style="color:#aaa;text-align:center;padding:16px;">Add items above</div></div>
+    <button class="btn btn-o" id="order-slip-btn" onclick="vcMakeOrderSlip()" style="display:none;margin-top:14px;width:100%;">🧾 Print Order Slip (no bill yet)</button>
     <div class="btn-row" style="margin-top:14px;">
       <button class="btn btn-p" onclick="generateInvoice()">🧾 Generate Invoice</button>
       <button class="btn btn-o" onclick="resetInvoiceForm()" style="width:auto;padding:13px 16px;">↺</button>
@@ -1238,6 +1249,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <button class="btn btn-g" onclick="printCurrentInvoice()" style="margin-bottom:10px;">🖨️ Print Invoice</button>
     <button class="btn btn-p" onclick="openShareModal(currentInv)" style="margin-bottom:10px;">📤 Share Invoice</button>
     <button class="btn btn-o" onclick="goToLabel()" style="margin-bottom:10px;">📦 Create Shipping Label</button>
+    <button class="btn btn-o" onclick="vcOpenParcels(currentInv)" style="margin-bottom:10px;">🏷 Label with order details (trial)</button>
     <button id="new-invoice-btn" class="btn btn-p" onclick="resetInvoiceForm()" style="margin-bottom:4px;background:var(--green);border-color:var(--green);">+ New Invoice</button>
   </div>
 </div>
@@ -1487,6 +1499,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
   <!-- Quick actions (v14.45.0: grouped list) -->
   <div class="ui-group-h">Reports</div>
   <div class="ui-group">
+      <button type="button" class="ui-row" onclick="showSubPage('salesbook')"><span class="ui-ico" style="background:#A2845E;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.5h12a2 2 0 0 1 2 2v13H7a2 2 0 0 1-2-2zM5 17.5a2 2 0 0 1 2-2h12M9 8.5h6"/></svg></span><span class="ui-lbl">Sales Book</span><span class="ui-chev" aria-hidden="true">›</span></button>
       <button type="button" class="ui-row" onclick="showSubPage('pl')"><span class="ui-ico" style="background:#34C759;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5h16M7 16v-5M12 16V7M17 16v-8"/></svg></span><span class="ui-lbl">P&amp;L Report</span><span class="ui-chev" aria-hidden="true">›</span></button>
       <button type="button" class="ui-row" onclick="showSubPage('courierspend')"><span class="ui-ico" style="background:#FF9500;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 7h11v9h-11zM13.5 10h4l3 3v3h-7"/><circle cx="6.5" cy="17.5" r="1.6"/><circle cx="17" cy="17.5" r="1.6"/></svg></span><span class="ui-lbl">Courier Spend</span><span class="ui-chev" aria-hidden="true">›</span></button>
       <button type="button" class="ui-row" onclick="showSubPage('dsreport')"><span class="ui-ico" style="background:#AF52DE;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5 12 3.5l8.5 4v9L12 20.5l-8.5-4z"/><path d="M3.5 7.5 12 11.5l8.5-4M12 11.5v9"/></svg></span><span class="ui-lbl">DS Report</span><span class="ui-chev" aria-hidden="true">›</span></button>
@@ -1718,6 +1731,9 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <div style="background:#fff8ee;border-radius:8px;padding:8px 12px;font-size:12px;color:#888;margin-bottom:14px;line-height:1.6;">
       ℹ️ You can edit customer details, shipping, costs and notes. To correct items or prices, issue a <strong>Credit Note</strong> against this document.
     </div>
+    <div id="edit-lock-note" style="display:none;background:#fff3cd;border-radius:8px;padding:8px 12px;font-size:12px;color:#7a5200;margin-bottom:14px;line-height:1.6;">
+      🔒 Shipping charged, discount and state are locked on a Tax Invoice. Too high: issue a Credit Note. Too low: issue a Debit Note. Other edits are logged.
+    </div>
 
     <div class="fg"><label>Customer Name</label>
       <input id="edit-name" placeholder="Customer full name"/></div>
@@ -1775,6 +1791,8 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
         <option value="walkin">Walk-in / Collected in person (QR code needed)</option>
       </select></div>
 
+    <div class="fg"><label>Payment</label><select id="edit-paymode"><option value="Prepaid">Prepaid</option><option value="COD">Cash on delivery</option></select></div>
+
     <div class="fg"><label>Tracking Number <span style="font-weight:400;color:#aaa;">(comma-separate for multiple packages)</span></label>
       <div style="display:flex;gap:8px;align-items:stretch;"><input id="edit-tracking" placeholder="EE123456789IN or EE987654321IN" style="flex:1;"/><button type="button" class="btn btn-o" onclick="openTrackScanner('edit-tracking')" title="Scan the barcode or printed number on the receipt" style="flex:0 0 auto;min-height:48px;padding:0 14px;font-size:18px;">📷</button></div></div>
 
@@ -1804,6 +1822,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
       <div style="font-size:12px;color:#888;margin-bottom:8px;">Need to correct item prices or quantities?</div>
       <button class="btn btn-o" style="width:100%;" onclick="openCreditNoteFromEdit()">📝 Issue Credit Note Against This Document</button>
+      <button class="btn btn-o" style="width:100%;margin-top:8px;" onclick="(function(){const i=invoices.find(x=>String(x.id)===editingInvId);closeEditModal();vcOpenDN(i);})()">📝 Issue Debit Note Against This Document</button>
     </div>
   </div>
 </div>
@@ -2333,6 +2352,252 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
 <div class="toast" id="toast"></div>
 
 
+<script>
+// ── v14.48.0 CORE: plain calculations for the Sales Book, debit notes and parcels. No screen or sheet access here. ──
+var SB_LINES=26,SB_ITEMS_MAX=120,SB_CUST_MAX=40,SB_REMARK_MAX=90;
+function vcMoney(x){const n=parseFloat(x);if(!isFinite(n))return 0;return Math.round((n+(n>=0?1e-9:-1e-9))*100)/100;}
+function _vcCut(s,max){s=String(s==null?'':s).replace(/\s+/g,' ').trim();return s.length>max?s.slice(0,max-1)+'…':s;}
+function _vcBool(v){return v===true||v==='true'||v==='TRUE';}
+function _vcIntra(state,flag){return _vcBool(flag)||state==='Punjab';}
+function _vcIso(v){if(!v)return'';const s=String(v);if(/^\d{4}-\d{2}-\d{2}T/.test(s)){const d=new Date(s);if(!isNaN(d.getTime()))return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}return toISODate(s)||'';}
+function _vcTaxLine(gst,intra){gst=vcMoney(gst);if(intra){const c=vcMoney(gst/2);return{cgst:c,sgst:vcMoney(gst-c),igst:0};}return{cgst:0,sgst:0,igst:gst};}
+function _vcItems(a){if(Array.isArray(a))return a;if(typeof a==='string'&&a.trim()){try{const p=JSON.parse(a);return Array.isArray(p)?p:[];}catch(e){return[];}}return[];}
+function _vcItemNum(i,k,sk){const v=i[k]!==undefined?i[k]:i[sk];return parseFloat(v)||0;}
+function _vcPos(st){const c=typeof getStateCode==='function'?getStateCode(st||''):'';return _vcCut((st||'—')+(c?' ('+c+')':''),30);}
+function sbInvoiceEntry(inv){
+  const sp=gstSplit(inv.grandTotal,inv.shipping,inv.discount),intra=_vcIntra(inv.custState,inv.isIntra);
+  const arr=_vcItems(inv.itemsArr).filter(i=>_vcItemNum(i,'unitPrice','p')>0);
+  const qty=arr.reduce((s,i)=>s+(parseInt(i.qty!==undefined?i.qty:i.q)||1),0);
+  const parts=arr.map(i=>(i.desc||i.d||'Unstitched Suit')+' ×'+(parseInt(i.qty!==undefined?i.qty:i.q)||1)+' ('+(i.hsn||'540754')+')');
+  if(parseFloat(inv.shipping)>0)parts.push('Shipping (9965)');
+  const date=_vcIso(inv.invDate);
+  return{key:'INV:'+inv.id,type:'Invoice',rank:0,date,fy:inv.fy||getFY(date),docNo:String(inv.invNo||''),cust:_vcCut(inv.custName,SB_CUST_MAX),pos:_vcPos(inv.custState),
+    items:_vcCut(parts.join('; ')||String(inv.itemsSummary||''),SB_ITEMS_MAX),qty,tax5:sp.suitTaxable,tax18:sp.shipTaxable,..._vcTaxLine(sp.gst,intra),total:vcMoney(sp.grand),remarks:''};
+}
+function sbCreditEntry(cn,inv){
+  const amt=vcMoney(cn.creditAmount),gst=vcMoney(cn.gstReversed),taxable=vcMoney(amt-gst);
+  let tax18=0;
+  if(inv){const g=parseFloat(inv.grandTotal)||0;if(g>0)tax18=vcMoney(gstSplit(g,inv.shipping,inv.discount).shipTaxable*(amt/g));}
+  const intra=inv?_vcIntra(inv.custState,inv.isIntra):cn.custState==='Punjab',t=_vcTaxLine(-gst,intra),date=_vcIso(cn.cnDate);
+  return{key:'CN:'+cn.id,type:'Credit Note',rank:1,date,fy:getFY(date),docNo:String(cn.cnNo||''),cust:_vcCut(cn.custName,SB_CUST_MAX),pos:_vcPos(cn.custState),items:'Credit note',qty:0,
+    tax5:vcMoney(-(taxable-tax18)),tax18:vcMoney(-tax18),...t,total:-amt,remarks:_vcCut('Against '+(cn.refInvNo||'')+(cn.reason?' · '+cn.reason:''),SB_REMARK_MAX)};
+}
+function dnCompute(amt,kind,intra){
+  const a=parseFloat(amt);if(!isFinite(a)||a<=0)return null;
+  const v=vcMoney(a),rate=kind==='shipping'?1.18:1.05,taxable=vcMoney(v/rate),gst=vcMoney(v-taxable);
+  return{amount:v,taxable,gst,..._vcTaxLine(gst,!!intra)};
+}
+function sbDebitEntry(dn,inv){
+  const amt=vcMoney(dn.amount),taxable=vcMoney(dn.taxable),gst=vcMoney(dn.gst),intra=inv?_vcIntra(inv.custState,inv.isIntra):dn.custState==='Punjab',ship=dn.kind==='shipping',date=_vcIso(dn.dnDate);
+  return{key:'DN:'+dn.id,type:'Debit Note',rank:2,date,fy:getFY(date),docNo:String(dn.dnNo||''),cust:_vcCut(dn.custName,SB_CUST_MAX),pos:_vcPos(dn.custState),items:ship?'Debit note: shipping (9965)':'Debit note: goods',qty:0,
+    tax5:ship?0:taxable,tax18:ship?taxable:0,..._vcTaxLine(gst,intra),total:amt,remarks:_vcCut('Against '+(dn.refInvNo||'')+(dn.reason?' · '+dn.reason:''),SB_REMARK_MAX)};
+}
+function _sbNote(key,date,inv,text){
+  return{key,type:'Note',rank:3,date,fy:getFY(date),docNo:String(inv.invNo||''),cust:_vcCut(inv.custName,SB_CUST_MAX),pos:_vcPos(inv.custState),items:'No value',qty:0,tax5:0,tax18:0,cgst:0,sgst:0,igst:0,total:0,remarks:_vcCut(text,SB_REMARK_MAX)};
+}
+function sbLogEntry(log,inv){
+  const date=_vcIso(log.at)||_vcIso(inv.invDate);
+  if(log.field==='invoiceStatus')return _sbNote('LOG:'+log.id,date,inv,(log.newV==='Active'?'Reactivated: was '+log.oldV:'Marked '+log.newV));
+  if(log.field==='invNo')return _sbNote('LOG:'+log.id,date,inv,'Bill no. corrected from '+log.oldV+' to '+log.newV);
+  return _sbNote('LOG:'+log.id,date,inv,'Name corrected from '+log.oldV+' to '+log.newV);
+}
+function sbBuildEntries(d){
+  const era=d.eraStart||'',out=[],printed={};
+  (d.printed||[]).forEach(r=>{printed[r.key]=r;});
+  const inEra=dt=>!era||String(dt||'')>=era;
+  const taxInv={};
+  (d.invoices||[]).forEach(i=>{
+    if(!_vcBool(i.isGST))return;
+    if(!inEra(_vcIso(i.invDate)))return;
+    taxInv[String(i.id)]=i;out.push(sbInvoiceEntry(i));
+  });
+  const logs=d.logs||[];
+  logs.forEach(l=>{
+    const inv=taxInv[String(l.invId)];if(!inv)return;
+    if(l.field==='invoiceStatus'){out.push(sbLogEntry(l,inv));return;}
+    if(l.field==='custName'||l.field==='invNo'){
+      const p=printed['INV:'+inv.id];
+      if((p&&p.printedAt&&new Date(l.at)>new Date(p.printedAt))||printed['LOG:'+l.id])out.push(sbLogEntry(l,inv));
+    }
+  });
+  Object.keys(taxInv).forEach(id=>{
+    const inv=taxInv[id],st=inv.invoiceStatus||'Active',key='ST:'+id;
+    const hasLog=logs.some(l=>String(l.invId)===id&&l.field==='invoiceStatus');
+    if(printed[key]||((st==='Cancelled'||st==='Returned')&&!hasLog))out.push(_sbNote(key,_vcIso(inv.invUpdatedAt)||_vcIso(inv.invDate),inv,'Marked '+(st==='Active'?'Cancelled':st)));
+  });
+  (d.creditNotes||[]).forEach(c=>{if(_vcBool(c.isGST)&&inEra(_vcIso(c.cnDate)))out.push(sbCreditEntry(c,taxInv[String(c.refInvId)]));});
+  (d.debitNotes||[]).forEach(n=>{if(inEra(_vcIso(n.dnDate)))out.push(sbDebitEntry(n,taxInv[String(n.refInvId)]));});
+  return out.sort(_sbCompare);
+}
+function _sbDocNum(s){const m=String(s||'').match(/(\d+)\s*$/);return m?parseInt(m[1]):0;}
+function _sbCompare(a,b){
+  if(a.date!==b.date)return a.date>b.date?1:-1;
+  if(a.rank!==b.rank)return a.rank-b.rank;
+  const n=_sbDocNum(a.docNo)-_sbDocNum(b.docNo);if(n)return n;
+  return a.key>b.key?1:a.key<b.key?-1:0;
+}
+function sbPending(entries,printed){
+  const done={};(printed||[]).forEach(r=>{done[r.key]=1;});
+  return entries.filter(e=>!done[e.key]).slice().sort(_sbCompare);
+}
+function sbCheckPrinted(entries,printed){
+  const now={};entries.forEach(e=>{now[e.key]=e;});
+  const bad=[];
+  (printed||[]).forEach(r=>{
+    const e=now[r.key];
+    if(!e){bad.push({key:r.key,docNo:r.docNo,reason:'This printed line no longer exists in the app'});return;}
+    if(vcMoney(e.total)!==vcMoney(r.total)||vcMoney(e.tax5)!==vcMoney(r.tax5)||vcMoney(e.tax18)!==vcMoney(r.tax18))bad.push({key:r.key,docNo:r.docNo,reason:'Amount now ₹'+vcMoney(e.total)+', printed as ₹'+vcMoney(r.total)});
+  });
+  return bad;
+}
+function sbNumberIssues(invoices,era){
+  const seen={},dups=[],byFy={};
+  (invoices||[]).forEach(i=>{
+    if(!_vcBool(i.isGST))return;
+    if(era&&_vcIso(i.invDate)<era)return;
+    const no=String(i.invNo||'').trim();
+    if(seen[no]&&!dups.includes(no))dups.push(no);
+    seen[no]=1;
+    const m=no.match(/^INV\/([\d-]+)\/(\d+)$/);
+    if(m){(byFy[m[1]]=byFy[m[1]]||{w:m[2].length,n:[]}).n.push(parseInt(m[2]));}
+  });
+  const gaps=[];
+  Object.keys(byFy).sort().forEach(fy=>{
+    const f=byFy[fy],set={};f.n.forEach(x=>{set[x]=1;});
+    for(let x=Math.min(...f.n);x<=Math.max(...f.n);x++)if(!set[x])gaps.push('INV/'+fy+'/'+String(x).padStart(f.w,'0'));
+  });
+  return{gaps,dups};
+}
+function sbRowLines(r){
+  const l=(s,w)=>Math.max(1,Math.ceil(String(s||'').length/w));
+  return Math.max(l(r.items,28),l(r.cust,19),l(r.remarks,24),l(r.docNo,17),l(r.pos,13));
+}
+function _sbZero(){return{qty:0,tax5:0,tax18:0,cgst:0,sgst:0,igst:0,total:0};}
+function _sbAdd(t,r){['qty','tax5','tax18','cgst','sgst','igst','total'].forEach(k=>{t[k]=vcMoney(t[k]+(parseFloat(r[k])||0));});return t;}
+function sbVolume(fy,firstFy){return Math.max(1,(parseInt(fy)||0)-(parseInt(firstFy||fy)||0)+1);}
+function sbPaginate(entries,printed,firstFy){
+  const fys=[...new Set(entries.map(e=>e.fy))].sort();
+  const pages=[];
+  fys.forEach(fy=>{
+    const old=(printed||[]).filter(r=>r.fy===fy);
+    let page=old.reduce((m,r)=>Math.max(m,parseInt(r.page)||0),0),serial=old.reduce((m,r)=>Math.max(m,parseInt(r.serial)||0),0);
+    let bf=old.reduce((t,r)=>_sbAdd(t,r),_sbZero());
+    let cur=null,used=0;
+    const close=()=>{if(!cur)return;cur.cf=_sbAdd({...cur.bf},cur.pageTotal);bf=cur.cf;pages.push(cur);cur=null;used=0;};
+    entries.filter(e=>e.fy===fy).forEach(e=>{
+      const need=sbRowLines(e);
+      if(cur&&used+need>SB_LINES)close();
+      if(!cur){page++;cur={fy,vol:sbVolume(fy,firstFy||fys[0]),page,rows:[],bf:{...bf},pageTotal:_sbZero(),cf:null};}
+      serial++;
+      cur.rows.push({...e,serial,page,vol:cur.vol,fy});_sbAdd(cur.pageTotal,e);used+=need;
+    });
+    close();
+  });
+  return pages;
+}
+function sbPageFromRows(rows,allRows,fy,page){
+  const before=allRows.filter(r=>r.fy===fy&&(parseInt(r.page)||0)<page).reduce((t,r)=>_sbAdd(t,r),_sbZero());
+  const pageTotal=rows.reduce((t,r)=>_sbAdd(t,r),_sbZero());
+  return{fy,vol:parseInt(rows[0]&&rows[0].vol)||1,page,rows:rows.slice().sort((a,b)=>(parseInt(a.serial)||0)-(parseInt(b.serial)||0)),bf:before,pageTotal,cf:_sbAdd({...before},pageTotal)};
+}
+function sbMonthSummary(rows,ym){
+  const t=_sbZero();let count=0;
+  (rows||[]).forEach(r=>{if(String(r.date||'').slice(0,7)===ym){_sbAdd(t,r);count++;}});
+  return{...t,count};
+}
+function billCopyLabels(which){
+  const m={original:'ORIGINAL FOR RECIPIENT',duplicate:'DUPLICATE FOR TRANSPORTER',triplicate:'TRIPLICATE FOR SUPPLIER'};
+  return which==='all'?[m.original,m.duplicate,m.triplicate]:(m[which]?[m[which]]:[]);
+}
+function isBillLocked(inv){return !!inv&&_vcBool(inv.isGST);}
+const VC_LOG_FIELDS=['custName','custPhone','custWhatsapp','custAddress','custPin','dispatchMethod','tracking','channel','shippingCost','costPrice','payMode'];
+function invoiceEditDiff(before,after){
+  return VC_LOG_FIELDS.filter(k=>String(before[k]==null?'':before[k])!==String(after[k]==null?'':after[k])).map(k=>({field:k,oldV:before[k]==null?'':before[k],newV:after[k]==null?'':after[k]}));
+}
+function mergeById(local,remote){
+  const m={};
+  (local||[]).forEach(x=>{if(x&&x.id!==undefined&&x.id!=='')m[String(x.id)]=x;});
+  (remote||[]).forEach(r=>{
+    if(!r||r.id===undefined||r.id==='')return;
+    const k=String(r.id),l=m[k];
+    if(!l){m[k]=r;return;}
+    const rt=r.updatedAt?new Date(r.updatedAt).getTime():0,lt=l.updatedAt?new Date(l.updatedAt).getTime():0;
+    if(rt>lt)m[k]=r;
+  });
+  return Object.values(m);
+}
+function parcelUnits(inv){
+  const u=[];
+  _vcItems(inv.itemsArr).forEach(i=>{
+    const p=_vcItemNum(i,'unitPrice','p');if(p<=0)return;
+    const q=parseInt(i.qty!==undefined?i.qty:i.q)||1;
+    for(let k=0;k<q&&u.length<500;k++)u.push({prodNo:i.prodNo||i.n||'',desc:i.desc||i.d||'Unstitched Suit',price:vcMoney(p)});
+  });
+  return u;
+}
+function parcelCount(inv,n){const c=parcelUnits(inv).length||1,v=parseInt(n);if(!isFinite(v)||v<1)return 1;return Math.min(v,c);}
+function parcelDefault(inv,n){
+  const c=parcelUnits(inv).length||1,k=parcelCount(inv,n),a=[];
+  for(let i=0;i<c;i++)a.push(Math.min(k-1,Math.floor(i*k/c)));
+  return a;
+}
+function parcelRead(v){
+  if(!v)return null;
+  let o=v;
+  if(typeof v==='string'){try{o=JSON.parse(v);}catch(e){return null;}}
+  if(!o||!Array.isArray(o.a)||!(parseInt(o.n)>=1))return null;
+  return{n:parseInt(o.n),a:o.a.map(x=>parseInt(x)||0)};
+}
+function parcelSplit(inv,assign,n){
+  const units=parcelUnits(inv),k=parcelCount(inv,n);
+  const count=units.length||1;
+  let a=Array.isArray(assign)&&assign.length===count?assign.map(x=>Math.max(0,Math.min(k-1,parseInt(x)||0))):parcelDefault(inv,k);
+  const ps=[];for(let i=0;i<k;i++)ps.push({no:i+1,of:k,units:[],goods:0,discount:0,shipping:0,value:0});
+  units.forEach((u,i)=>{ps[a[i]].units.push(u);ps[a[i]].goods+=Math.round(u.price*100);});
+  const goods=ps.reduce((s,p)=>s+p.goods,0),disc=Math.round((parseFloat(inv.discount)||0)*100),ship=Math.round((parseFloat(inv.shipping)||0)*100);
+  let dLeft=disc,sLeft=ship;
+  const lastGoods=ps.map(p=>p.goods>0).lastIndexOf(true);
+  ps.forEach((p,i)=>{
+    const d=i===lastGoods?dLeft:(goods>0?Math.floor(disc*p.goods/goods):0);dLeft-=d;
+    const s=i===k-1?sLeft:Math.floor(ship/k);sLeft-=s;
+    p.discPaise=d;p.shipPaise=s;
+  });
+  const grand=Math.round((parseFloat(inv.grandTotal)||0)*100);
+  let sum=0;
+  ps.forEach(p=>{p.valuePaise=p.goods-p.discPaise+p.shipPaise;sum+=p.valuePaise;});
+  if(grand>0&&sum!==grand)ps[k-1].valuePaise+=grand-sum;
+  ps.forEach(p=>{p.value=p.valuePaise/100;p.discount=p.discPaise/100;p.shipping=p.shipPaise/100;p.goods=p.goods/100;});
+  return ps;
+}
+function labelLines(parcel,max){
+  const g=[],idx={};
+  (parcel.units||[]).forEach(u=>{
+    const k=u.prodNo+'|'+u.desc+'|'+u.price;
+    if(idx[k]===undefined){idx[k]=g.length;g.push({prodNo:u.prodNo,desc:u.desc,price:u.price,qty:0});}
+    g[idx[k]].qty++;
+  });
+  const lines=g.slice(0,max),more=g.slice(max).reduce((s,x)=>s+x.qty,0);
+  return{lines,more};
+}
+function _vcRs(n){return'₹'+Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function payLine(inv,value){return inv&&inv.payMode==='COD'?'COD: collect '+_vcRs(value):'Prepaid';}
+function slipTotals(items,ship,disc){
+  const lines=(items||[]).filter(i=>(parseFloat(i.unitPrice)||0)>0).map(i=>{const q=parseInt(i.qty)||1,p=parseFloat(i.unitPrice)||0;return{desc:i.desc||'Unstitched Suit',prodNo:i.prodNo||'',qty:q,price:p,amount:vcMoney(q*p)};});
+  if(!lines.length)return null;
+  const goods=lines.reduce((s,l)=>s+l.amount,0),s=Math.max(0,parseFloat(ship)||0),d=Math.max(0,parseFloat(disc)||0);
+  return{lines,goods:vcMoney(goods),shipping:s,discount:d,total:vcMoney(Math.max(0,goods-d)+s)};
+}
+function upiUrl(pa,pn,am){
+  let u='upi://pay?pa='+encodeURIComponent(pa)+'&pn='+encodeURIComponent(pn)+'&cu=INR';
+  if(am)u+='&am='+encodeURIComponent(am);
+  return u+'&mc=5691';
+}
+function nextDocNo(list,field,prefix,fy){
+  const head=prefix+'/'+fy+'/';
+  const max=(list||[]).reduce((m,x)=>{const s=String(x[field]||'');return s.startsWith(head)?Math.max(m,parseInt(s.slice(head.length))||0):m;},0);
+  return head+String(max+1).padStart(3,'0');
+}
+</script>
 <script>
 'use strict';
 // ═══════════════════════════════════════════
@@ -2905,7 +3170,7 @@ function flattenInvoice(inv){
 function settingsForSheet(){
   return{id:'settings',gstin:S.gstin||'',address:S.address||'',phone:S.phone||'',email:S.email||'',
     gstEnabled:S.gstEnabled===true||S.gstEnabled==='true',calKey:S.calKey||'',
-    gstStartDate:S.gstStartDate||'',
+    gstStartDate:S.gstStartDate||'',legalName:S.legalName||'', // v14.48.0
     fuPaused:S.fuPaused===true||S.fuPaused==='true',
     fuResumeDate:S.fuResumeDate||'',
     updatedAt:S.updatedAt||''};
@@ -3118,6 +3383,9 @@ async function syncAll(manual){
             local.deliveredManual=remDeliveredManual;
             local.deliveredManualOn=remDeliveredManual?(r.deliveredManualOn||local.deliveredManualOn||''):'';
             if(r.custName)local.custName=r.custName;
+            if(r.payMode)local.payMode=r.payMode; // v14.48.0
+            if(r.parcels)local.parcels=r.parcels; // v14.48.0
+            if(r.invNo)local.invNo=r.invNo; // v14.48.0: a renumbered bill reached other devices only through a duplicate check
             if(r.custWhatsapp)local.custWhatsapp=r.custWhatsapp;
             if(r.custPin)local.custPin=r.custPin;
             if(r.custState)local.custState=r.custState;
@@ -3291,7 +3559,7 @@ async function syncAll(manual){
             gstEnabled:rs.gstEnabled==='true'||rs.gstEnabled===true,calKey:rs.calKey||'',
             gstStartDate:toISODate(rs.gstStartDate)||'', // v14.39.1: sheet hands dates back as long strings
             fuPaused:rs.fuPaused==='true'||rs.fuPaused===true,
-            fuResumeDate:toISODate(rs.fuResumeDate)||'',updatedAt:rs.updatedAt};
+            fuResumeDate:toISODate(rs.fuResumeDate)||'',legalName:rs.legalName||'',updatedAt:rs.updatedAt};
         }
         // else local is newer — keep local; push-back below updates the sheet
       }else{
@@ -3306,7 +3574,7 @@ async function syncAll(manual){
           calKey:rs.calKey||S.calKey||'',
           gstStartDate:toISODate(rs.gstStartDate)||S.gstStartDate||'',
           fuPaused:rs.fuPaused!==undefined?(rs.fuPaused==='true'||rs.fuPaused===true):(S.fuPaused===true||S.fuPaused==='true'),
-          fuResumeDate:toISODate(rs.fuResumeDate)||S.fuResumeDate||''};
+          fuResumeDate:toISODate(rs.fuResumeDate)||S.fuResumeDate||'',legalName:rs.legalName||S.legalName||''};
         if(rs.updatedAt&&!S.updatedAt)S.updatedAt=rs.updatedAt;
       }
       lsSet('vc_s',S);
@@ -3620,7 +3888,8 @@ function showSubPage(id){
     suppliers:'🏭 Suppliers & Bills',
     dsreport:'📦 Dropship Report',
     courierspend:'🚚 Courier Spend',
-    stockcount:'📦 Stock Reconciliation'
+    stockcount:'📦 Stock Reconciliation',
+    salesbook:'📒 Sales Book'
   };
   if(titleEl)titleEl.textContent=titles[id]||id;
   content.innerHTML=buildSubPage(id);
@@ -4620,6 +4889,7 @@ async function generateInvoice(){
     shipping:ship,shippingCost,discount:disc,tracking,dispatchDate,
     dispatchMethod,courierName,channel,
     courierOverride:_courierOverride,
+    payMode:document.getElementById('pay-mode')?.value==='COD'?'COD':'Prepaid', // v14.48.0
     grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
     itemCount:validItems.length,
     itemsSummary:validItems.map(i=>`${i.desc}${i.variantLabel?' ('+i.variantLabel+')':''} x${i.qty} @₹${i.unitPrice}`).join(' | '),
@@ -4633,6 +4903,7 @@ async function generateInvoice(){
   };
   const _firstTaxInv=saved.isGST&&!invoices.some(isTaxInv); // v14.47.0
   invoices.push(saved);save();
+  vcSlipBilled(saved); // v14.48.0
   if(saved.isGST)updateGstStartFromInvoices(_firstTaxInv); // v14.47.0: GST era starts at the first Tax Invoice
   saveStk(); // stock already deducted above (pool-aware) — persist it
   gsWriteConfirmed(SHEETS.invoices,flattenInvoice(saved)).then(ok=>{if(!ok)toast('⚠️ Invoice saved locally but sheet sync failed — tap sync to retry');});
@@ -4671,14 +4942,15 @@ async function generateInvoice(){
   // Scroll to "+ New Invoice" button so it's easy to start another
   setTimeout(()=>{const nb=document.getElementById('new-invoice-btn');if(nb)nb.scrollIntoView({behavior:'smooth',block:'center'});},600);
 }
-function getInvHtml(inv){
-  return buildInvoiceHTML({...inv,itemsArr:expandItems(inv.itemsArr),logoB64});
+function getInvHtml(inv,copyLabel){
+  return buildInvoiceHTML({...inv,itemsArr:expandItems(inv.itemsArr),logoB64,copyLabel:copyLabel||''});
 }
 function printCurrentInvoice(){
   if(!currentInv)return;
   if((currentInv.channel==='walkin'||currentInv.dispatchMethod==='walkin')&&(S.upiId||'7719683825-2@ybl')){
     openUpiQrModal(currentInv);return;
   }
+  if(isBillLocked(currentInv)){vcBillCopyMenu([currentInv]);return;} // v14.48.0
   document.getElementById('print-area').innerHTML=`<div class="print-page">${getInvHtml(currentInv)}</div>`;
   window.print();
 }
@@ -4823,7 +5095,7 @@ function buildInvoiceHTML(data){
         <div style="font-size:11px;color:#555;">${data.bizPhone||S.phone||''}${(data.bizEmail||S.email)?' | '+(data.bizEmail||S.email):''}</div>
       </div>
       <div style="text-align:right;">
-        <div style="font-size:16px;font-weight:700;color:#5c3d1e;text-transform:uppercase;letter-spacing:1.5px;">${gstMode?'Tax Invoice':'Bill of Supply'}</div>
+        <div style="font-size:16px;font-weight:700;color:#5c3d1e;text-transform:uppercase;letter-spacing:1.5px;">${gstMode?'Tax Invoice':'Bill of Supply'}</div>${gstMode&&data.copyLabel?'<div style="font-size:10px;font-weight:700;letter-spacing:.5px;margin-top:2px;">'+esc(data.copyLabel)+'</div>':''}
         <div style="font-size:12px;color:#555;margin-top:3px;"><strong>${gstMode?'Invoice No.':'Bill No.'}:</strong> ${data.invNo}</div>
         <div style="font-size:12px;color:#555;"><strong>Date:</strong> ${fd(data.invDate)}</div>
         <div style="font-size:12px;color:#555;"><strong>FY:</strong> ${data.fy||''}</div>
@@ -5020,7 +5292,7 @@ function renderSales(){
             <button class="btn btn-o btn-sm" onclick="editInvoiceByIdx(${idx})">✏️ Edit</button>
             <button type="button" class="ui-morebtn" aria-label="More actions" title="More actions" data-shipped="${shipped?1:0}" data-mdel="${manualDelivered?1:0}" data-st="${esc(_invSt)}" onclick="uiInvMenu(${idx},this)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18" cy="12" r="1.3" fill="currentColor"/></svg></button>
           </div>
-          ${(()=>{const invCNs=creditNotes.filter(cn=>String(cn.refInvId)===String(inv.id));if(!invCNs.length)return'';return'<div style="margin-top:8px;border-top:1px solid #e8dcc8;padding-top:8px;">'+invCNs.map(cn=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;"><div><span style="font-size:11px;font-weight:700;color:#c0392b;">'+cn.cnNo+'</span> <span style="font-size:11px;color:#888;">'+fmtDate(cn.cnDate)+' · '+cn.reason+'</span></div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:12px;font-weight:700;color:#c0392b;">−₹'+parseFloat(cn.creditAmount||0).toLocaleString('en-IN')+'</span><button class="btn btn-o btn-sm" style="padding:4px 8px;font-size:10px;min-height:0;" onclick="printCreditNote('+JSON.stringify(cn).replace(/"/g,'&quot;')+')">🖨️</button></div></div>').join('')+'</div>'})()}
+          ${vcDnBlock(inv)}${(()=>{const invCNs=creditNotes.filter(cn=>String(cn.refInvId)===String(inv.id));if(!invCNs.length)return'';return'<div style="margin-top:8px;border-top:1px solid #e8dcc8;padding-top:8px;">'+invCNs.map(cn=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;"><div><span style="font-size:11px;font-weight:700;color:#c0392b;">'+cn.cnNo+'</span> <span style="font-size:11px;color:#888;">'+fmtDate(cn.cnDate)+' · '+cn.reason+'</span></div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:12px;font-weight:700;color:#c0392b;">−₹'+parseFloat(cn.creditAmount||0).toLocaleString('en-IN')+'</span><button class="btn btn-o btn-sm" style="padding:4px 8px;font-size:10px;min-height:0;" onclick="printCreditNote('+JSON.stringify(cn).replace(/"/g,'&quot;')+')">🖨️</button></div></div>').join('')+'</div>'})()}
         </div>
       </div>
     </div>`;
@@ -5149,10 +5421,14 @@ function _bulkDSRun(sel,supName,preBack){
 function bulkPrint(){
   const sel=getSelectedInvoices();
   if(!sel.length){toast('⚠️ Select invoices first');return;}
+  if(sel.some(isBillLocked)){vcBillCopyMenu(sel);return;} // v14.48.0
+  _bulkPrintRun(sel,'');
+}
+function _bulkPrintRun(sel,which){
   toast('🖨️ Preparing '+sel.length+' invoice(s)…',4000);
   // Build full HTML document and open in new window — avoids DOM overflow for 100+ invoices
   setTimeout(()=>{
-    const pages=sel.map(inv=>'<div class="print-page">'+getInvHtml(inv)+'</div>').join('');
+    const pages=vcBillPages(sel,which);
     const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
       +'<style>'
       +'@page{margin:0;}'
@@ -5178,13 +5454,15 @@ function bulkPrint(){
   },100);
 }
 function bulkDelete(){
-  const sel=getSelectedInvoices();if(!sel.length){toast('⚠️ Select invoices first');return;}
-  showConfirmModal('🗑 Delete Records','Delete '+sel.length+' selected record(s)? This cannot be undone.',function(){
+  const _all=getSelectedInvoices();if(!_all.length){toast('⚠️ Select invoices first');return;}
+  const sel=_all.filter(i=>!isBillLocked(i)); // v14.48.0: Tax Invoices are never deleted
+  if(!sel.length){toast('⚠️ Tax Invoices cannot be deleted. Use Status to cancel them.',5000);return;}
+  showConfirmModal('🗑 Delete Records','Delete '+sel.length+' selected record(s)? This cannot be undone.'+(_all.length>sel.length?'<br/><br/>'+(_all.length-sel.length)+' Tax Invoice(s) will be skipped.':''),function(){
     _doBulkDelete();
   },null);return;}
 function _doBulkDelete(){
   const cbs=document.querySelectorAll('.sale-cb:checked');
-  const sel=Array.from(cbs).map(cb=>salesFiltered[parseInt(cb.dataset.idx)]).filter(Boolean);
+  const sel=Array.from(cbs).map(cb=>salesFiltered[parseInt(cb.dataset.idx)]).filter(Boolean).filter(i=>!isBillLocked(i)); // v14.48.0
   if(!sel.length)return;
   // v14.46.0 BUG FIX: bulk delete never put stock back or unlinked the invoices from their products
   // (single delete always did). Invoices dated on or before the stock count ask once for the batch.
@@ -5261,7 +5539,7 @@ function checkDupInvNos(){
   const sorted=[...arr].sort((a,b)=>new Date(a.invUpdatedAt||a.invDate||0)-new Date(b.invUpdatedAt||b.invDate||0));
   const newer=sorted[sorted.length-1];
   showConfirmModal('⚠️ Duplicate Invoice Number',
-    'Two invoices share number <strong>'+esc(no)+'</strong> (created on different devices before syncing).<br/><br/>Renumber the newer one — '+esc(newer.custName||'')+', '+fmtDate(newer.invDate)+' — to the next free number?',
+    'Two invoices share number <strong>'+esc(no)+'</strong> (created on different devices before syncing).'+(vcSbIsPrinted(newer)?'<br/><br/><strong>This bill is already in the printed Sales Book.</strong> Renumbering adds a correction line to the book.':'')+'<br/><br/>Renumber the newer one — '+esc(newer.custName||'')+', '+fmtDate(newer.invDate)+' — to the next free number?',
     function(){renumberInvoice(newer);},null);
 }
 function renumberInvoice(inv){
@@ -5280,6 +5558,7 @@ function renumberInvoice(inv){
   }
   const old=inv.invNo;
   inv.invNo=newNo;
+  if(isBillLocked(inv))vcLogField(inv,'invNo',old,newNo); // v14.48.0
   inv.invUpdatedAt=new Date().toISOString();
   save();
   gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{if(!ok)toast('⚠️ Renumber saved locally but sheet sync failed — tap sync to retry');});
@@ -5296,6 +5575,7 @@ function addDeletedId(id){
 
 function deleteInvoiceByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
+  if(isBillLocked(inv)){toast('⚠️ A Tax Invoice cannot be deleted. Use Status to cancel it, so its number stays in the book.',5000);return;} // v14.48.0
   showConfirmModal('🗑 Delete Invoice','Delete '+(inv.invNo||'this record')+'?<br/><br/>This removes it from your device and Google Sheet. Issue a Credit Note for legal record of cancellation.',function(){
     // v14.46.0: an invoice dated on or before the stock count asks whether its pieces really came back
     if(_invNeedsStockAsk(inv)){setTimeout(()=>_askStockBack(inv.invNo||'This invoice',function(back){_doDeleteInvoice(inv,{noRestore:!back});}),50);return;}
@@ -5599,7 +5879,7 @@ function shareInvoicePDF(){
   }
   // Print the invoice — on iPhone Safari this gives Share → Save to Files / WhatsApp
   document.getElementById('print-area').innerHTML=
-    '<div class="print-page">'+getInvHtml(inv)+'</div>';
+    '<div class="print-page">'+getInvHtml(inv,isBillLocked(inv)?'ORIGINAL FOR RECIPIENT':'')+'</div>'; // v14.48.0
   window.print();
 }
 
@@ -6137,8 +6417,9 @@ function debouncedRenderSales(){
 }
 async function saveInvoiceEdit(){
   const inv=invoices.find(i=>String(i.id)===editingInvId);if(!inv)return;
-  const sc=parseFloat(document.getElementById('edit-ship-charged').value)||0;
-  const di=parseFloat(document.getElementById('edit-discount').value)||0;
+  const _locked=isBillLocked(inv),_before={...inv}; // v14.48.0
+  const sc=_locked?(parseFloat(inv.shipping)||0):(parseFloat(document.getElementById('edit-ship-charged').value)||0);
+  const di=_locked?(parseFloat(inv.discount)||0):(parseFloat(document.getElementById('edit-discount').value)||0);
   const items2=expandItems(inv.itemsArr);
   const{grandIncl,gstAmt,taxableExcl}=calcTotals(items2,sc,di);
 
@@ -6153,7 +6434,7 @@ async function saveInvoiceEdit(){
   inv.custPin=document.getElementById('edit-pin').value;
   // State — changing state changes intra/inter GST type
   const newState=document.getElementById('edit-state').value;
-  if(newState){
+  if(newState&&!_locked){
     inv.custState=newState;
     inv.isIntra=newState==='Punjab';
   }
@@ -6162,9 +6443,8 @@ async function saveInvoiceEdit(){
   inv.shippingCost=parseFloat(document.getElementById('edit-ship-cost').value)||0;
   inv.discount=di;
   inv.costPrice=parseFloat(document.getElementById('edit-cost').value)||0;
-  inv.grandTotal=grandIncl;
-  inv.gstAmt=gstAmt;
-  inv.taxableExcl=taxableExcl;
+  if(!_locked){inv.grandTotal=grandIncl;inv.gstAmt=gstAmt;inv.taxableExcl=taxableExcl;} // v14.48.0
+  {const _pm=document.getElementById('edit-paymode')?.value==='COD'?'COD':'Prepaid';if(inv.payMode||_pm==='COD')inv.payMode=_pm;}
   // Dispatch
   inv.dispatchMethod=document.getElementById('edit-dispatch').value;
   inv.tracking=newTracking;
@@ -6183,6 +6463,7 @@ async function saveInvoiceEdit(){
 
   // Stamp update time so sync can resolve conflicts with newer-wins logic
   inv.invUpdatedAt=new Date().toISOString();
+  vcLogEdit(_before,inv); // v14.48.0
 
   delete inv.html;
   save();
@@ -7469,6 +7750,7 @@ function buildSubPage(id){
   if(id==='dsreport')return buildDSReportPage();
   if(id==='courierspend')return buildCourierSpendPage();
   if(id==='stockcount')return buildStockCountPage(); // v14.46.0
+  if(id==='salesbook')return buildSalesBookPage(); // v14.48.0
   return '<p>Coming soon</p>';
 }
 // ═══════════════════════════════════════════
@@ -7513,7 +7795,7 @@ function buildBulkEditPage(){
           <div class="fg"><label>Customer Name</label>
             <input id="be-name-${i}" value="${(inv.custName||'').replace(/"/g,'&quot;')}"/></div>
           <div class="fg"><label>State</label>
-            <select id="be-state-${i}">${stateOptions.replace('value="'+(inv.custState||'')+'"','value="'+(inv.custState||'')+'" selected')}</select></div>
+            <select id="be-state-${i}" ${isBillLocked(inv)?'disabled':''}>${stateOptions.replace('value="'+(inv.custState||'')+'"','value="'+(inv.custState||'')+'" selected')}</select></div>
         </div>
         <div class="row2">
           <div class="fg"><label>Shipping Phone</label>
@@ -7525,9 +7807,9 @@ function buildBulkEditPage(){
           <textarea id="be-address-${i}" rows="2">${inv.custAddress||''}</textarea></div>
         <div class="row2">
           <div class="fg"><label>Shipping Charged (₹)</label>
-            <input id="be-ship-${i}" type="number" value="${inv.shipping||0}"/></div>
+            <input id="be-ship-${i}" type="number" value="${inv.shipping||0}" ${isBillLocked(inv)?'disabled':''}/></div>
           <div class="fg"><label>Discount (₹)</label>
-            <input id="be-disc-${i}" type="number" value="${inv.discount||0}"/></div>
+            <input id="be-disc-${i}" type="number" value="${inv.discount||0}" ${isBillLocked(inv)?'disabled':''}/></div>
         </div>
         <div class="row2">
           <div class="fg"><label>Cost Paid (₹)</label>
@@ -7611,12 +7893,13 @@ function saveBulkEdits(){
     if(!stored)return;
 
     const name=(document.getElementById('be-name-'+i)?.value||'').trim();
-    const state=document.getElementById('be-state-'+i)?.value||'';
+    const _lk=isBillLocked(stored),_b4={...stored}; // v14.48.0
+    const state=_lk?stored.custState:(document.getElementById('be-state-'+i)?.value||'');
     const phone=document.getElementById('be-phone-'+i)?.value||'';
     const whatsapp=document.getElementById('be-whatsapp-'+i)?.value||'';
     const address=document.getElementById('be-address-'+i)?.value||'';
-    const ship=parseFloat(document.getElementById('be-ship-'+i)?.value)||0;
-    const disc=parseFloat(document.getElementById('be-disc-'+i)?.value)||0;
+    const ship=_lk?stored.shipping:(parseFloat(document.getElementById('be-ship-'+i)?.value)||0);
+    const disc=_lk?(stored.discount||0):(parseFloat(document.getElementById('be-disc-'+i)?.value)||0);
     const cost=parseFloat(document.getElementById('be-cost-'+i)?.value)||0;
     const shipcost=parseFloat(document.getElementById('be-shipcost-'+i)?.value)||0;
     const dispatch=document.getElementById('be-dispatch-'+i)?.value||'';
@@ -7650,7 +7933,8 @@ function saveBulkEdits(){
     stored.notes=notes;
 
     // Recalculate grand total if shipping or discount changed
-    if(ship!==stored.shipping||disc!==stored.discount){
+    vcLogEdit(_b4,stored); // v14.48.0
+    if(!_lk&&(ship!==stored.shipping||disc!==stored.discount)){
       const items=expandItems(stored.itemsArr);
       const{grandIncl,gstAmt,taxableExcl}=calcTotals(items,ship,disc);
       stored.shipping=ship;stored.discount=disc;
@@ -7901,9 +8185,18 @@ function renderPLContent(filtInv,filtPur,plOpts){
   const totalCreditAmt=parseFloat(filtCNs.reduce((s,cn)=>s+(parseFloat(cn.creditAmount)||0),0).toFixed(2));
   const totalCreditGST=parseFloat(filtCNs.reduce((s,cn)=>s+(parseFloat(cn.gstReversed)||0),0).toFixed(2));
 
+ // v14.48.0: debit notes follow the same rules as credit notes
+  const filtDNs=debitNotes.filter(dn=>{
+    if(_voidIds.has(String(dn.refInvId)))return false;
+    if(plOpts.era!=='all'&&_cnEra(dn)!==plOpts.era)return false;
+    const d=String(toISODate(dn.dnDate)||'');
+    return _cnFrom?d>=_cnFrom&&d<=_cnTo:true;
+  });
+  const totalDebitAmt=parseFloat(filtDNs.reduce((s,dn)=>s+(parseFloat(dn.amount)||0),0).toFixed(2));
+  const totalDebitGST=parseFloat(filtDNs.reduce((s,dn)=>s+(parseFloat(dn.gst)||0),0).toFixed(2));
   // ── REVENUE ──
   const grossRevRaw   = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0).toFixed(2));
-  const grossRev      = parseFloat((grossRevRaw - totalCreditAmt).toFixed(2));
+  const grossRev      = parseFloat((grossRevRaw - totalCreditAmt + totalDebitAmt).toFixed(2));
   // Only calculate GST on Tax Invoices (isGST:true)
   const gstInvs       = filtInv.filter(i=>i.isGST===true||i.isGST==='true');
   const nonGstInvs    = filtInv.filter(i=>!(i.isGST===true||i.isGST==='true'));
@@ -7912,7 +8205,7 @@ function renderPLContent(filtInv,filtPur,plOpts){
     // v14.31.0: via gstSplit — the old form divided the WHOLE grand (shipping included)
     // by 1.05 and then subtracted shipping tax, which mis-stated the suit component.
     return s+gstSplit(i.grandTotal,i.shipping,i.discount).suitGST;
-  },0).toFixed(2));
+  },totalDebitGST).toFixed(2));
   const shipCharged   = parseFloat(filtInv.reduce((s,i)=>s+(parseFloat(i.shipping)||0),0).toFixed(2));
   const gstOnShip     = parseFloat(gstInvs.reduce((s,i)=>{const sh=parseFloat(i.shipping||0);return s+(sh-sh/1.18);},0).toFixed(2));
   const totalOutGST   = parseFloat((gstOnSuits+gstOnShip).toFixed(2));
@@ -8165,7 +8458,8 @@ function buildLabelPage(){
     <div style="font-size:12px;color:#888;margin-bottom:10px;">Brand name "Vismaad Creations" is printed automatically — enter address only below.</div>
     <div class="fg"><label>Address</label><textarea id="lbl-from-addr" placeholder="Street, City, Punjab, Pincode" rows="3"></textarea></div>
     <div class="fg"><label>Phone</label><input id="lbl-from-ph" placeholder="+91 XXXXX XXXXX"/></div></div>
-    <button class="btn btn-g" style="margin-bottom:24px;" onclick="printLabel()">🖨️ Print Label (Half A4)</button>
+    <button class="btn btn-g" style="margin-bottom:10px;" onclick="printLabel()">🖨️ Print Label (Half A4)</button>
+    <button class="btn btn-o" id="vc-trial-label-btn" style="margin-bottom:24px;" onclick="vcTrialFromLabelPage()">🏷 Label with order details (trial)</button>
     <div style="height:env(safe-area-inset-bottom);"></div>`;
 }
 
@@ -8434,6 +8728,14 @@ function _doExport(type,from,to,label){
       const intra=cn.custState==='Punjab';
       if(intra){g.cgst-=cGST/2;g.sgst-=cGST/2;}
       else{g.igst-=cGST;}
+    });
+
+    // v14.48.0: debit notes add to the month they were issued
+    debitNotes.forEach(dn=>{
+      const iso=toISODate(dn.dnDate)||'';const g=byMonth[iso.slice(0,7)];if(!g)return;
+      const a=parseFloat(dn.amount)||0,t=parseFloat(dn.gst)||0;
+      g.grossRev+=a;g.taxable+=(a-t);g.totalGST+=t;
+      if(dn.custState==='Punjab'){g.cgst+=t/2;g.sgst+=t/2;}else{g.igst+=t;}
     });
 
     // Readable month label: Mar-2026
@@ -14516,7 +14818,7 @@ async function doUpiQrPrint(){
       +(amount?'<div style="font-weight:700;color:#5c3d1e;font-size:13px;">₹'+parseFloat(amount).toLocaleString('en-IN',{minimumFractionDigits:2})+'</div>':'')
       +'<div style="font-size:10px;color:#888;margin-top:4px;">Pay using GPay, PhonePe, Paytm or any UPI app</div>'
       +'</div></div>';
-    const invHtml=getInvHtml(inv);
+    const invHtml=getInvHtml(inv,isBillLocked(inv)?'ORIGINAL FOR RECIPIENT':''); // v14.48.0
     // Inject QR block just before closing div of invoice
     const injected=invHtml.replace(/(<div style="text-align:center;margin-top:14px[^"]*"[^>]*>[\s\S]*?<\/div>)\s*<\/div>\s*`?$/,
       (m,thankYou)=>thankYou+qrBlock+'</div>');
@@ -16667,4 +16969,548 @@ function uiMoneyIcon(){
   uiSyncBars();
 })();
 
+</script>
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// v14.48.0: SALES BOOK · BILL COPIES · DEBIT NOTES · ORDER SLIP · TRIAL LABEL
+// ═══════════════════════════════════════════════════════════════════════
+function _vcIdArg(id){return String(id==null?'':id).replace(/[^\w:-]/g,'');}
+function _vcList(k){const v=lsGet(k,[]);return Array.isArray(v)?v.filter(x=>x&&typeof x==='object'&&x.id!==undefined):[];}
+let debitNotes=_vcList('vc_dn'),invoiceLog=_vcList('vc_inv_log'),orderSlips=_vcList('vc_order_slips');
+let sbRows=(function(){const v=lsGet('vc_sb_rows',[]);return Array.isArray(v)?v.filter(x=>x&&typeof x==='object'&&x.key):[];})();
+const VCX={dn:{sheet:'DebitNotes',ls:'vc_dn',get:()=>debitNotes,set:v=>{debitNotes=v;}},
+  log:{sheet:'InvoiceLog',ls:'vc_inv_log',get:()=>invoiceLog,set:v=>{invoiceLog=v;}},
+  sb:{sheet:'SalesBook',ls:'vc_sb_rows',get:()=>sbRows,set:v=>{sbRows=v;}},
+  slip:{sheet:'OrderSlips',ls:'vc_order_slips',get:()=>orderSlips,set:v=>{orderSlips=v;}}};
+const _VC_NUM={dn:['amount','taxable','gst'],log:[],slip:['total','shipping','discount'],sb:['serial','page','vol','qty','tax5','tax18','cgst','sgst','igst','total','rank']};
+const _VC_DATE={dn:['dnDate','refInvDate'],log:[],slip:['date'],sb:['date']};
+function vcxNorm(kind,r){
+  const o={...r};
+  _VC_NUM[kind].forEach(k=>{if(o[k]!==undefined)o[k]=parseFloat(o[k])||0;});
+  _VC_DATE[kind].forEach(k=>{if(o[k])o[k]=toISODate(o[k])||o[k];});
+  if(kind==='sb'&&!o.key)o.key=o.id;
+  return o;
+}
+function _vcxDirty(){const d=lsGet('vc_x_dirty',{});return d&&typeof d==='object'?d:{};}
+function vcxStore(kind,rec){
+  rec.updatedAt=new Date().toISOString();
+  const c=VCX[kind],arr=c.get(),i=arr.findIndex(x=>String(x.id)===String(rec.id));
+  if(i>=0)arr[i]=rec;else arr.push(rec);
+  lsSet(c.ls,arr);
+  const d=_vcxDirty();d[kind]=d[kind]||[];if(!d[kind].includes(String(rec.id)))d[kind].push(String(rec.id));lsSet('vc_x_dirty',d);
+}
+let _vcxPushing=null;
+function vcxPush(){
+  if(_vcxPushing)return _vcxPushing;
+  _vcxPushing=(async()=>{
+    let allOk=true;
+    for(const kind of Object.keys(VCX)){
+      const d=_vcxDirty(),ids=d[kind]||[];if(!ids.length)continue;
+      const recs=VCX[kind].get().filter(x=>ids.includes(String(x.id)));
+      if(recs.length){
+        const r=await gsWriteBatch(VCX[kind].sheet,recs);
+        if(r.failed){allOk=false;continue;}
+      }
+      const d2=_vcxDirty();d2[kind]=(d2[kind]||[]).filter(x=>!ids.includes(x));lsSet('vc_x_dirty',d2);
+    }
+    return allOk;
+  })().catch(()=>false).finally(()=>{_vcxPushing=null;});
+  return _vcxPushing;
+}
+let _vcxLastPull=0;
+async function vcxPull(force){
+  if(!force&&Date.now()-_vcxLastPull<300000)return true;
+  try{
+    for(const kind of Object.keys(VCX)){
+      const rows=await gsRead(VCX[kind].sheet);
+      const m=mergeById(VCX[kind].get(),rows.map(r=>vcxNorm(kind,r)));
+      VCX[kind].set(m);lsSet(VCX[kind].ls,m);
+    }
+    _vcxLastPull=Date.now();
+    return true;
+  }catch(e){console.warn('Extra sheets sync failed:',e.message);return false;}
+}
+// ── Invoice log (Rule 56(8): a log of every edited entry) ──
+function vcLogField(inv,field,oldV,newV){
+  const at=new Date().toISOString();
+  vcxStore('log',{id:uid(),invId:String(inv.id),invNo:inv.invNo||'',field,oldV:String(oldV==null?'':oldV),newV:String(newV==null?'':newV),at});
+  vcxPush();
+}
+function vcLogEdit(before,after){
+  invoiceEditDiff(before,after).forEach(c=>vcLogField(after,c.field,c.oldV,c.newV));
+}
+function vcSbIsPrinted(inv){return !!inv&&sbRows.some(r=>r.key==='INV:'+inv.id);}
+
+// ── Bill copies ──
+function vcBillPages(list,which){
+  const labels=billCopyLabels(which||'');
+  return list.map(inv=>{
+    if(!isBillLocked(inv)||!labels.length)return'<div class="print-page">'+getInvHtml(inv)+'</div>';
+    return labels.map(l=>'<div class="print-page">'+getInvHtml(inv,l)+'</div>').join('');
+  }).join('');
+}
+function vcPrintBills(list,which){
+  if(list.length>1){_bulkPrintRun(list,which);return;}
+  document.getElementById('print-area').innerHTML=vcBillPages(list,which);
+  window.print();
+}
+function vcBillCopyMenu(list,anchor){
+  const go=w=>()=>vcPrintBills(list,w);
+  uiSheet('Which copy to print?',[
+    {label:'Original for Recipient',fn:go('original')},
+    {label:'Duplicate for Transporter',fn:go('duplicate')},
+    {label:'Triplicate for Supplier',fn:go('triplicate')},
+    {label:'All three',fn:go('all')}
+  ],anchor);
+}
+
+// ── Sales Book ──
+function vcSbEntries(){return sbBuildEntries({invoices,creditNotes,debitNotes,logs:invoiceLog,printed:sbRows,eraStart:gstEraStart()});}
+function _vcFirstFy(){const e=gstEraStart();return e?getFY(e):'';}
+let _sbBatch=null,_sbReady=false;
+function buildSalesBookPage(){return'<div id="vc-sb"></div>';}
+function _sbMoney(n){return Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function vcSbRender(){
+  const el=document.getElementById('vc-sb');if(!el)return;
+  const entries=vcSbEntries(),pending=sbPending(entries,sbRows),iss=sbNumberIssues(invoices,gstEraStart()),bad=sbCheckPrinted(entries,sbRows);
+  const legal=S.legalName||'';
+  const box=(bg,bd,col,t)=>'<div style="background:'+bg+';border:1px solid '+bd+';border-radius:10px;padding:10px 12px;font-size:13px;color:'+col+';margin-bottom:12px;line-height:1.5;">'+t+'</div>';
+  let h='';
+  h+='<div class="card"><div class="card-title">📒 Sales Book</div>';
+  if(!gstEraStart())h+=box('#fff8e1','#f5c26b','#7a5200','The book starts from your first Tax Invoice. None has been issued yet.');
+  h+='<div class="fg"><label>Legal name as on your GST certificate *</label><input id="vc-sb-legal" value="'+esc(legal)+'" placeholder="Name exactly as printed on the certificate" maxlength="120"/></div>';
+  h+='<button class="btn btn-o btn-sm" onclick="vcSbSaveLegal()">Save name</button>';
+  h+='<div style="font-size:15px;font-weight:600;margin:14px 0 4px;" id="vc-sb-count">'+(pending.length?pending.length+(pending.length===1?' entry':' entries')+' not printed':'All entries are printed')+'</div>';
+  h+='<div style="font-size:12px;color:#888;margin-bottom:12px;">Printed pages so far: '+esc(_sbPageSummary())+'</div>';
+  if(iss.dups.length)h+=box('#fde8e8','#e6b0aa','#c0392b','<strong>Printing is blocked.</strong> These bills share one number: '+esc(iss.dups.join(', '))+'. Sort this out first.');
+  if(iss.gaps.length)h+=box('#fff8e1','#f5c26b','#7a5200','Missing bill numbers: '+esc(iss.gaps.join(', '))+'. Keep a note of why each is missing.');
+  if(bad.length)h+=box('#fde8e8','#e6b0aa','#c0392b','<strong>Changed after printing:</strong><br/>'+bad.slice(0,20).map(b=>esc(b.docNo)+': '+esc(b.reason)).join('<br/>')+'<br/>Printed pages stay as they are. Use a credit or debit note if the amount really changed.');
+  if(_sbBatch){
+    h+=box('#f0f7ff','#c8dff5','#1F5F8B','<strong>Did all '+_sbBatch.pages.length+' page(s) print properly?</strong><br/>Entries are added to the book only after you say yes.')
+      +'<div class="btn-row"><button class="btn btn-p" id="vc-sb-yes" onclick="vcSbConfirm(true)">Yes, add to book</button><button class="btn btn-o" id="vc-sb-no" onclick="vcSbConfirm(false)">No, not printed</button></div>';
+  }else if(_sbReady&&pending.length&&!iss.dups.length){
+    const pages=sbPaginate(pending,sbRows,_vcFirstFy());
+    if(!legal.trim())h+=box('#fff8e1','#f5c26b','#7a5200','Enter the legal name above and save it before printing.');
+    else h+=box('#dff0d8','#b7ddb0','#1A6E37','Synced. '+pending.length+(pending.length===1?' entry':' entries')+' on '+pages.length+' page(s), starting at page '+pages[0].page+'.')
+      +'<button class="btn btn-p" id="vc-sb-print" onclick="vcSbPrint()">🖨️ Print '+pages.length+' page(s)</button>';
+  }else if(pending.length&&!iss.dups.length){
+    h+='<button class="btn btn-p" id="vc-sb-prepare" onclick="vcSbPrepare()">🔄 Sync and prepare pages</button>';
+  }
+  h+='</div>';
+  h+='<div class="card"><div class="card-title">Reprint a lost page</div><div class="row2"><div class="fg"><label>Financial year</label><input id="vc-sb-rp-fy" value="'+esc(_vcFirstFy()&&getFY(today()))+'" placeholder="2026-27"/></div><div class="fg"><label>Page no.</label><input id="vc-sb-rp-page" type="number" min="1" inputmode="numeric"/></div></div><button class="btn btn-o" id="vc-sb-reprint" onclick="vcSbReprint()">🖨️ Reprint page</button></div>';
+  h+='<div class="card"><div class="card-title">Month summary</div><div class="fg"><label>Month</label><input id="vc-sb-month" type="month" value="'+today().slice(0,7)+'"/></div><button class="btn btn-o" onclick="vcSbMonthPrint()">🖨️ Print summary</button><div style="font-size:12px;color:#888;margin-top:8px;">Not a numbered page. It totals every entry of that month, printed or not, for your CA to compare with the return.</div></div>';
+  el.innerHTML=h;
+}
+function _sbPageSummary(){
+  const by={};sbRows.forEach(r=>{by[r.fy]=Math.max(by[r.fy]||0,parseInt(r.page)||0);});
+  const k=Object.keys(by).sort();
+  return k.length?k.map(f=>'FY '+f+': '+by[f]).join(', '):'none';
+}
+function vcSbSaveLegal(){
+  const v=(document.getElementById('vc-sb-legal')?.value||'').trim().slice(0,120);
+  S.legalName=v;S.updatedAt=new Date().toISOString();lsSet('vc_s',S);
+  gsWriteConfirmed(SHEETS.settings,settingsForSheet()).then(ok=>{if(!ok)toast('⚠️ Saved here, sheet sync pending');});
+  toast('✅ Name saved');vcSbRender();
+}
+async function vcSbPrepare(){
+  showLoading('Syncing before printing…');
+  let ok=false;
+  try{
+    ok=await scSyncFirst();
+    if(ok)ok=await vcxPush();
+    if(ok)ok=await vcxPull(true);
+  }catch(e){ok=false;}
+  hideLoading();
+  _sbReady=!!ok;
+  if(!ok)toast('⚠️ Sync did not finish. Nothing can be printed until it does, so the book stays correct on every device.',6000);
+  vcSbRender();
+}
+const _SB_CSS='*{box-sizing:border-box;margin:0;padding:0;}@page{size:A4 landscape;margin:8mm;}'
+  +'body{font-family:Arial,Helvetica,sans-serif;color:#111;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+  +'.sb-page{width:281mm;height:194mm;display:flex;flex-direction:column;page-break-after:always;break-after:page;overflow:hidden;}.sb-page:last-child{page-break-after:auto;break-after:auto;}'
+  +'.h{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1.5px solid #111;padding-bottom:1.5mm;margin-bottom:1.5mm;font-size:8.5pt;line-height:1.35;}'
+  +'.h1{font-size:13pt;font-weight:700;}.ttl{font-size:12pt;font-weight:700;text-transform:uppercase;letter-spacing:.5px;}.rt{text-align:right;}.rp{color:#c0392b;font-weight:700;}'
+  +'table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:7.6pt;line-height:1.25;}th,td{border:.5px solid #666;padding:.7mm 1mm;vertical-align:top;word-wrap:break-word;overflow-wrap:anywhere;}th{background:#eee;font-weight:700;text-align:left;}th.n{white-space:normal;text-align:right;}'
+  +'.n{text-align:right;white-space:nowrap;overflow:hidden;}.t td{font-weight:700;background:#f6f6f6;}'
+  +'.fill{flex:1;min-height:0;position:relative;}.fill svg{position:absolute;inset:0;width:100%;height:100%;}'
+  +'.f{display:flex;justify-content:space-between;font-size:8.5pt;padding-top:3mm;flex-shrink:0;}';
+const _SB_COLS='<colgroup><col style="width:9mm"><col style="width:16mm"><col style="width:27mm"><col style="width:31mm"><col style="width:20mm"><col style="width:44mm"><col style="width:8mm"><col style="width:19mm"><col style="width:16mm"><col style="width:15mm"><col style="width:15mm"><col style="width:15mm"><col style="width:20mm"><col></colgroup>';
+function _sbTotalRow(label,t){
+  return'<tr class="t"><td colspan="6" class="n">'+esc(label)+'</td><td class="n">'+(parseInt(t.qty)||0)+'</td>'
+    +['tax5','tax18','cgst','sgst','igst','total'].map(k=>'<td class="n">'+_sbMoney(t[k])+'</td>').join('')+'<td></td></tr>';
+}
+function sbPageHtml(p,opt){
+  const o=opt||{};
+  const used=p.rows.reduce((s,r)=>s+sbRowLines(r),0);
+  const rows=p.rows.map(r=>'<tr><td>'+esc(r.serial)+'</td><td>'+esc(fmtDate(r.date))+'</td><td>'+esc(r.docNo)+'</td><td>'+esc(r.cust)+'</td><td>'+esc(r.pos)+'</td><td>'+esc(r.items)+'</td><td class="n">'+(parseInt(r.qty)||'')+'</td>'
+    +['tax5','tax18','cgst','sgst','igst','total'].map(k=>'<td class="n">'+_sbMoney(r[k])+'</td>').join('')+'<td>'+esc(r.remarks)+'</td></tr>').join('');
+  const cross=used<SB_LINES-1?'<div class="fill"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><line x1="1" y1="99" x2="99" y2="1" stroke="#888" stroke-width="1" vector-effect="non-scaling-stroke"/></svg></div>':'<div class="fill"></div>';
+  return'<div class="sb-page"><div class="h"><div><div class="h1">'+esc(o.legal)+'</div><div>Trade name: Vismaad Creations · GSTIN: '+esc(S.gstin||'')+'</div><div>'+esc(S.address||'')+'</div></div>'
+    +'<div class="rt"><div class="ttl">Sales Book</div>'+(o.reprint?'<div class="rp">Reprint</div>':'')+'<div>FY '+esc(p.fy)+' · Volume '+esc(p.vol)+' · Page '+esc(p.page)+'</div></div></div>'
+    +'<table>'+_SB_COLS+'<thead><tr><th>S.No</th><th>Date</th><th>Bill / Note No.</th><th>Customer</th><th>Place of Supply</th><th>Goods and HSN</th><th>Qty</th><th class="n">Taxable 5%</th><th class="n">Taxable 18%</th><th class="n">CGST</th><th class="n">SGST</th><th class="n">IGST</th><th class="n">Total</th><th>Remarks</th></tr></thead><tbody>'
+    +_sbTotalRow('Brought forward',p.bf)+rows+_sbTotalRow('Page total',p.pageTotal)+_sbTotalRow('Carried forward',p.cf)+'</tbody></table>'
+    +cross+'<div class="f"><div>All amounts in ₹. Credit notes are shown as minus figures.</div><div>Signature: ____________________ &nbsp; Date: ______________</div></div></div>';
+}
+function vcOpenPrintDoc(title,css,body){
+  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>'+esc(title)+'</title><style>'+css+'</style><script>window.onload=function(){setTimeout(function(){window.print();},400);};<\/script></head><body>'+body+'</body></html>';
+  const url=URL.createObjectURL(new Blob([html],{type:'text/html'}));
+  const w=window.open(url,'_blank');
+  if(!w){toast('⚠️ Popup blocked. Allow popups for this app and try again.',5000);URL.revokeObjectURL(url);return false;}
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  return true;
+}
+function vcSbPrint(){
+  const legal=(S.legalName||'').trim();if(!legal){toast('⚠️ Enter the legal name first');return;}
+  const pending=sbPending(vcSbEntries(),sbRows);
+  if(!pending.length)return;
+  const pages=sbPaginate(pending,sbRows,_vcFirstFy());
+  if(!vcOpenPrintDoc('Sales Book',_SB_CSS,pages.map(p=>sbPageHtml(p,{legal})).join('')))return;
+  _sbBatch={pages,id:uid()};
+  vcSbRender();
+}
+async function vcSbConfirm(yes){
+  const b=_sbBatch;_sbBatch=null;_sbReady=false;
+  if(!yes||!b){vcSbRender();return;}
+  showLoading('Adding to the book…');
+  await vcxPull(true);
+  const clash=b.pages.flatMap(p=>p.rows).filter(r=>sbRows.some(x=>x.key===r.key));
+  if(clash.length){
+    hideLoading();
+    toast('⚠️ Another device printed these entries first. Discard these pages and prepare again.',7000);
+    vcSbRender();return;
+  }
+  const at=new Date().toISOString();
+  b.pages.forEach(p=>p.rows.forEach(r=>{
+    vcxStore('sb',{id:r.key,key:r.key,type:r.type,rank:r.rank,date:r.date,fy:p.fy,vol:p.vol,page:p.page,serial:r.serial,docNo:r.docNo,cust:r.cust,pos:r.pos,items:r.items,qty:r.qty,tax5:r.tax5,tax18:r.tax18,cgst:r.cgst,sgst:r.sgst,igst:r.igst,total:r.total,remarks:r.remarks,printedAt:at,batch:b.id});
+  }));
+  const ok=await vcxPush();
+  hideLoading();
+  toast(ok?'✅ Added to the book. File the pages and sign the last one.':'⚠️ Added here, sheet upload will retry on the next sync.',5000);
+  vcSbRender();
+}
+function vcSbReprint(){
+  const fy=(document.getElementById('vc-sb-rp-fy')?.value||'').trim(),pg=parseInt(document.getElementById('vc-sb-rp-page')?.value);
+  const rows=sbRows.filter(r=>r.fy===fy&&parseInt(r.page)===pg);
+  if(!rows.length){toast('⚠️ That page has not been printed yet');return;}
+  vcOpenPrintDoc('Sales Book reprint',_SB_CSS,sbPageHtml(sbPageFromRows(rows,sbRows,fy,pg),{legal:S.legalName||'',reprint:true}));
+}
+function vcSbMonthPrint(){
+  const ym=document.getElementById('vc-sb-month')?.value||'';
+  if(!/^\d{4}-\d{2}$/.test(ym)){toast('⚠️ Pick a month');return;}
+  const s=sbMonthSummary(vcSbEntries(),ym);
+  const line=(a,b)=>'<tr><td>'+esc(a)+'</td><td class="n">'+b+'</td></tr>';
+  vcOpenPrintDoc('Month summary',_SB_CSS+'.s{width:130mm;font-size:10pt;}.s td{padding:1.5mm 2mm;}',
+    '<div class="h"><div><div class="h1">'+esc(S.legalName||'')+'</div><div>Trade name: Vismaad Creations · GSTIN: '+esc(S.gstin||'')+'</div></div><div class="rt"><div class="ttl">Month Summary</div><div>'+esc(ym)+' · Not a numbered book page</div></div></div>'
+    +'<table class="s"><tbody>'+line('Entries',s.count)+line('Taxable value at 5%',_sbMoney(s.tax5))+line('Taxable value at 18%',_sbMoney(s.tax18))+line('CGST',_sbMoney(s.cgst))+line('SGST',_sbMoney(s.sgst))+line('IGST',_sbMoney(s.igst))+line('Total',_sbMoney(s.total))+'</tbody></table>');
+}
+
+// ── Debit notes ──
+function _vcEnsureModal(id,html){
+  let m=document.getElementById(id);
+  if(!m){m=document.createElement('div');m.className='modal-bg';m.id=id;document.body.appendChild(m);}
+  m.innerHTML=html;return m;
+}
+let _dnInv=null;
+function vcOpenDN(inv){
+  if(!inv)return;
+  if(!isBillLocked(inv)){toast('⚠️ Debit notes are only for Tax Invoices');return;}
+  if(invStatusOf(inv)!=='Active'){toast('⚠️ This bill is '+invStatusOf(inv)+'. Reactivate it first.');return;}
+  _dnInv=inv;
+  const m=_vcEnsureModal('dn-modal','<div class="modal"><button class="modal-close" onclick="document.getElementById(\'dn-modal\').classList.remove(\'open\')">✕</button>'
+    +'<div class="modal-title">📝 Issue Debit Note</div><div style="font-size:13px;color:#888;margin-bottom:12px;">Against: Tax Invoice '+esc(inv.invNo)+' · '+esc(inv.custName)+'</div>'
+    +'<div style="background:#fff8ee;border-radius:8px;padding:10px 12px;font-size:12px;margin-bottom:14px;line-height:1.6;">Use this only when the customer really owes more than the bill says. The bill itself stays unchanged.</div>'
+    +'<div class="fg"><label>Reason *</label><select id="dn-reason" onchange="document.getElementById(\'dn-other-row\').style.display=this.value===\'Other\'?\'block\':\'none\'"><option value="">— Select reason —</option><option value="Undercharged">Price undercharged on bill</option><option value="Shipping undercharged">Shipping undercharged on bill</option><option value="Other">Other</option></select></div>'
+    +'<div class="fg" id="dn-other-row" style="display:none;"><label>Specify reason</label><input id="dn-other" maxlength="80"/></div>'
+    +'<div class="fg"><label>Extra amount is for *</label><select id="dn-kind"><option value="goods">Goods (5% GST)</option><option value="shipping">Shipping (18% GST)</option></select></div>'
+    +'<div class="fg"><label>Extra amount including GST (₹) *</label><input id="dn-amount" type="number" inputmode="decimal" min="0" step="0.01"/></div>'
+    +'<div class="btn-row"><button class="btn btn-p" onclick="vcSaveDN()">📝 Issue Debit Note</button><button class="btn btn-o" onclick="document.getElementById(\'dn-modal\').classList.remove(\'open\')" style="width:auto;">Cancel</button></div></div>');
+  m.classList.add('open');
+}
+function vcSaveDN(){
+  const inv=_dnInv;if(!inv)return;
+  const rs=document.getElementById('dn-reason')?.value||'';
+  if(!rs){toast('⚠️ Select a reason');return;}
+  const reason=rs==='Other'?((document.getElementById('dn-other')?.value||'').trim().slice(0,80)||'Other'):rs;
+  const kind=document.getElementById('dn-kind')?.value==='shipping'?'shipping':'goods';
+  const intra=inv.isIntra===true||inv.isIntra==='true'||inv.custState==='Punjab';
+  const c=dnCompute(document.getElementById('dn-amount')?.value,kind,intra);
+  if(!c||c.amount>9999999){toast('⚠️ Enter a valid amount');return;}
+  const fy=getFY(today());
+  const dn={id:uid(),dnNo:nextDocNo(debitNotes,'dnNo','DN',fy),dnDate:today(),fy,refInvId:String(inv.id),refInvNo:inv.invNo,refInvDate:inv.invDate,custName:inv.custName,custState:inv.custState,kind,reason,amount:c.amount,taxable:c.taxable,gst:c.gst};
+  vcxStore('dn',dn);vcxPush();
+  document.getElementById('dn-modal').classList.remove('open');
+  toast('✅ Debit Note '+dn.dnNo+' issued');
+  try{renderSales();}catch(e){}
+}
+function vcDnBlock(inv){
+  const list=debitNotes.filter(d=>String(d.refInvId)===String(inv.id));
+  if(!list.length)return'';
+  return'<div style="margin-top:8px;border-top:1px solid #e8dcc8;padding-top:8px;">'+list.map(d=>'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;"><span>📝 '+esc(d.dnNo)+' · ₹'+esc(_sbMoney(d.amount))+' · '+esc(d.reason)+'</span><button class="btn btn-o btn-sm" onclick="vcPrintDN(\''+_vcIdArg(d.id)+'\')">🖨️</button></div>').join('')+'</div>';
+}
+function vcPrintDN(id){
+  const d=debitNotes.find(x=>_vcIdArg(x.id)===String(id));if(!d)return;
+  const ref=invoices.find(i=>String(i.id)===String(d.refInvId));
+  const intra=ref?(ref.isIntra===true||ref.isIntra==='true'||ref.custState==='Punjab'):d.custState==='Punjab';
+  const t=dnCompute(d.amount,d.kind,intra)||{cgst:0,sgst:0,igst:0};
+  const m=_sbMoney,c=[['Taxable value',d.taxable]].concat(intra?[['CGST',t.cgst],['SGST',t.sgst]]:[['IGST',t.igst]],[['Total',d.amount]]);
+  const code=typeof getStateCode==='function'?getStateCode(d.custState||''):'';
+  document.getElementById('print-area').innerHTML='<div class="print-page"><div style="font-family:Arial,sans-serif;font-size:12px;color:#1a1208;background:#fff;padding:20px;">'
+    +'<div style="display:flex;justify-content:space-between;"><div><div style="font-size:20px;font-weight:700;color:#5c3d1e;">Vismaad Creations</div><div><strong>GSTIN:</strong> '+esc(S.gstin||'')+' | State Code: 03 (Punjab)</div><div>'+esc(S.address||'')+'</div><div>'+esc(S.phone||'')+'</div></div>'
+    +'<div style="text-align:right;"><div style="font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;">Debit Note</div><div><strong>No:</strong> '+esc(d.dnNo)+'</div><div><strong>Date:</strong> '+esc(fmtDate(d.dnDate))+'</div><div><strong>Against:</strong> '+esc(d.refInvNo)+' dt. '+esc(fmtDate(d.refInvDate))+'</div><div><strong>Reverse Charge:</strong> No</div></div></div>'
+    +'<hr style="border:none;border-top:2px solid #5c3d1e;margin:12px 0;"/><div style="font-size:13px;font-weight:700;">'+esc(d.custName)+'</div><div>Place of Supply: '+esc(d.custState||'')+(code?' ('+esc(code)+')':'')+'</div>'
+    +'<table style="width:100%;border-collapse:collapse;margin:14px 0;"><tr style="background:#5c3d1e;color:#fff;"><th style="padding:7px 8px;text-align:left;">Description</th><th style="padding:7px 8px;">HSN / SAC</th><th style="padding:7px 8px;text-align:right;">Amount</th></tr><tr><td style="padding:6px 8px;">Additional amount: '+esc(d.reason)+'</td><td style="padding:6px 8px;text-align:center;">'+(d.kind==='shipping'?'9965':esc((ref&&expandItems(ref.itemsArr)[0]&&expandItems(ref.itemsArr)[0].hsn)||'540754'))+'</td><td style="padding:6px 8px;text-align:right;">₹'+m(d.taxable)+'</td></tr>'
+    +c.slice(1).map(x=>'<tr><td colspan="2" style="padding:4px 8px;text-align:right;'+(x[0]==='Total'?'font-weight:700;':'')+'">'+x[0]+'</td><td style="padding:4px 8px;text-align:right;'+(x[0]==='Total'?'font-weight:700;':'')+'">₹'+m(x[1])+'</td></tr>').join('')+'</table>'
+    +'<div style="font-size:10px;color:#888;font-style:italic;">This is a computer-generated document and does not require a physical signature.</div></div></div>';
+  window.print();
+}
+function vcInvNotesHtml(inv){
+  const cns=creditNotes.filter(c=>String(c.refInvId)===String(inv.id)).map(c=>'Credit Note '+esc(c.cnNo)+' · ₹'+esc(_sbMoney(c.creditAmount)));
+  const dns=debitNotes.filter(d=>String(d.refInvId)===String(inv.id)).map(d=>'Debit Note '+esc(d.dnNo)+' · ₹'+esc(_sbMoney(d.amount)));
+  const all=cns.concat(dns);
+  return all.length?'<div style="margin-top:12px;background:#f2f2f7;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.7;"><strong>Linked notes</strong><br/>'+all.join('<br/>')+'</div>':'';
+}
+
+// ── Order Slip (walk-in only) ──
+let _vcActiveSlip=null;
+function vcSlipBtn(){
+  const b=document.getElementById('order-slip-btn');
+  if(b)b.style.display=document.getElementById('dispatch-method')?.value==='walkin'?'':'none';
+}
+function vcSlipsRender(){
+  const c=document.getElementById('vc-slips-card');if(!c)return;
+  const open=orderSlips.filter(s=>s.status==='open');
+  c.style.display=open.length?'block':'none';
+  c.innerHTML='<div class="card-title">🧾 Open Order Slips ('+open.length+')</div>'+open.map(s=>'<div class="list-row"><div><div class="list-main">₹'+esc(_sbMoney(s.total))+(s.custName?' · '+esc(s.custName):'')+'</div><div class="list-sub">'+esc(fmtDate(s.date))+' · no bill yet</div></div><div style="display:flex;gap:6px;"><button class="btn btn-o btn-sm" onclick="vcSlipLoad(\''+_vcIdArg(s.id)+'\')">Bill</button><button class="btn btn-d btn-sm" onclick="vcSlipDrop(\''+_vcIdArg(s.id)+'\')">Drop</button></div></div>').join('');
+}
+async function vcMakeOrderSlip(){
+  const ship=parseFloat(document.getElementById('shipping')?.value)||0,disc=parseFloat(document.getElementById('discount')?.value)||0;
+  const t=slipTotals(items,ship,disc);
+  if(!t){toast('⚠️ Add at least one suit with price');return;}
+  const custName=(document.getElementById('c-name')?.value||'').trim().slice(0,80);
+  const rec={id:uid(),date:today(),custName,status:'open',invNo:'',shipping:ship,discount:disc,total:t.total,itemsArr:items.filter(i=>(parseFloat(i.unitPrice)||0)>0).map(i=>({...i}))};
+  vcxStore('slip',rec);vcxPush();
+  _vcActiveSlip=rec.id;
+  vcSlipsRender();
+  let qr='';
+  try{
+    await ensureQRLib();
+    const tmp=document.createElement('div');tmp.style.cssText='position:fixed;left:-9999px;top:0;';document.body.appendChild(tmp);
+    new QRCode(tmp,{text:upiUrl(S.upiId||'7719683825-2@ybl',S.upiName||'Ravinder Kaur',t.total>0?t.total.toFixed(2):''),width:160,height:160,colorDark:'#1a1208',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+    await new Promise(r=>setTimeout(r,300));
+    const cv=tmp.querySelector('canvas'),im=tmp.querySelector('img');
+    qr=cv?cv.toDataURL('image/png'):(im?im.src:'');
+    tmp.remove();
+  }catch(e){qr='';}
+  const row=(a,b,bold)=>'<tr><td colspan="3" style="padding:4px 8px;text-align:right;'+(bold?'font-weight:700;font-size:14px;':'')+'">'+a+'</td><td style="padding:4px 8px;text-align:right;'+(bold?'font-weight:700;font-size:14px;':'')+'">'+b+'</td></tr>';
+  document.getElementById('print-area').innerHTML='<div class="print-page"><div style="font-family:Arial,sans-serif;font-size:12px;color:#1a1208;background:#fff;padding:20px;max-width:150mm;margin:0 auto;">'
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;"><div><div style="font-size:18px;font-weight:700;color:#5c3d1e;">Vismaad Creations</div><div>'+esc(S.address||'')+'</div><div>'+esc(S.phone||'')+'</div></div><div style="text-align:right;"><div style="font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Order Slip</div><div>'+esc(fmtDate(rec.date))+'</div></div></div>'
+    +(custName?'<div style="margin-top:10px;font-weight:700;">'+esc(custName)+'</div>':'')
+    +'<table style="width:100%;border-collapse:collapse;margin:12px 0;"><tr style="border-bottom:1.5px solid #5c3d1e;"><th style="padding:5px 8px;text-align:left;">Item</th><th style="padding:5px 8px;">Qty</th><th style="padding:5px 8px;text-align:right;">Price</th><th style="padding:5px 8px;text-align:right;">Amount</th></tr>'
+    +t.lines.map(l=>'<tr><td style="padding:4px 8px;">'+esc(l.desc)+(l.prodNo?' #'+esc(l.prodNo):'')+'</td><td style="padding:4px 8px;text-align:center;">'+esc(l.qty)+'</td><td style="padding:4px 8px;text-align:right;">₹'+_sbMoney(l.price)+'</td><td style="padding:4px 8px;text-align:right;">₹'+_sbMoney(l.amount)+'</td></tr>').join('')
+    +(t.shipping>0?row('Shipping','₹'+_sbMoney(t.shipping)):'')+(t.discount>0?row('Less: Discount','-₹'+_sbMoney(t.discount)):'')+row('Total','₹'+_sbMoney(t.total),true)+'</table>'
+    +(qr?'<div style="text-align:center;margin:10px 0;"><img src="'+esc(qr)+'" style="width:110px;height:110px;"/><div style="font-size:10px;color:#555;">Scan to pay ₹'+_sbMoney(t.total)+'</div></div>':'')
+    +'<div style="text-align:center;font-size:12px;font-weight:600;margin-top:10px;">Tax invoice to follow</div></div></div>';
+  window.print();
+}
+function vcSlipLoad(id){
+  const s=orderSlips.find(x=>_vcIdArg(x.id)===String(id));if(!s)return;
+  const arr=expandItems(s.itemsArr);
+  if(!arr.length){toast('⚠️ This slip has no items saved');return;}
+  items=arr.map(i=>{itemId++;return{...i,id:itemId};});
+  renderItems();
+  const set=(k,v)=>{const e=document.getElementById(k);if(e)e.value=v;};
+  set('shipping',s.shipping||0);set('discount',s.discount||0);set('c-name',s.custName||'');set('dispatch-method','walkin');
+  _shipManual=true;
+  updateDispatchFields();set('shipping',s.shipping||0);recalc();
+  _vcActiveSlip=s.id;
+  toast('🧾 Order Slip loaded. Fill in the customer and generate the bill.');
+}
+function vcSlipDrop(id){
+  const s=orderSlips.find(x=>_vcIdArg(x.id)===String(id));if(!s)return;
+  vcxStore('slip',{...s,status:'dropped'});vcxPush();
+  if(String(_vcActiveSlip)===String(s.id))_vcActiveSlip=null;
+  vcSlipsRender();
+}
+function vcSlipBilled(inv){
+  if(!_vcActiveSlip)return;
+  const s=orderSlips.find(x=>String(x.id)===String(_vcActiveSlip));
+  _vcActiveSlip=null;
+  if(s){vcxStore('slip',{...s,status:'billed',invNo:inv.invNo});vcxPush();}
+  vcSlipsRender();
+}
+
+// ── Trial label with order details. The existing label code is not used or changed. ──
+const _VL_CSS='*{box-sizing:border-box;margin:0;padding:0;}@page{margin:0;size:A4 portrait;}'
+  +'body{font-family:Arial,Helvetica,sans-serif;background:#fff;padding:8mm 10mm;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+  +'.page{page-break-after:always;}.page:last-child{page-break-after:auto;}'
+  +'.box{width:170mm;max-height:128mm;overflow:hidden;border:1.5px solid #444;border-radius:2mm;padding:3.5mm 5mm;display:flex;flex-direction:column;gap:1.5mm;}'
+  +'.ref{font-size:8pt;color:#777;display:flex;justify-content:space-between;flex-shrink:0;}.pn{font-weight:700;color:#111;font-size:9.5pt;}'
+  +'.mid{display:flex;gap:4mm;align-items:flex-start;min-height:0;overflow:hidden;border-bottom:.5px solid #ddd;padding-bottom:1.5mm;}'
+  +'.to{flex:1;min-width:0;overflow:hidden;}.tolbl{font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:.5mm;}'
+  +'.toname{font-size:14pt;font-weight:700;line-height:1.2;margin-bottom:1mm;word-break:break-word;}.toaddr{font-size:12pt;font-weight:700;color:#111;line-height:1.35;word-break:break-word;overflow:hidden;}.toph{font-size:11pt;font-weight:700;margin-top:.5mm;}'
+  +'.ord{font-size:8.5pt;color:#555;line-height:1.35;flex-shrink:0;border-bottom:.5px solid #ddd;padding-bottom:1.5mm;}.ord table{width:100%;border-collapse:collapse;}.ord td{padding:0 0 .3mm 0;}.ord .r{text-align:right;white-space:nowrap;}.ordertotal td{border-top:.5px solid #bbb;padding-top:.5mm;}'
+  +'.cod{font-size:13pt;font-weight:700;color:#111;}'
+  +'.ty{text-align:center;flex-shrink:0;}.tytext{font-family:"Great Vibes","Brush Script MT",cursive;font-size:16pt;color:#7B3F00;line-height:1.05;}'
+  +'.bot{display:flex;align-items:center;flex-shrink:0;border-top:.5px solid #ddd;padding-top:1mm;}.botm{flex:1;text-align:center;}.botr{flex:1;text-align:right;}.frlbl{font-size:7pt;font-weight:700;text-transform:uppercase;color:#888;}.frname{font-size:9.5pt;font-weight:700;}.frdet{font-size:9pt;font-weight:700;line-height:1.3;word-break:break-word;}'
+  +'.cut{width:170mm;margin-top:3mm;padding-top:2mm;border-top:1px dashed #bbb;text-align:center;font-size:7.5pt;color:#bbb;letter-spacing:2px;}';
+const _VL_SCRIPT='window.onload=function(){var M=3.7795276*128;[].forEach.call(document.querySelectorAll(".box"),function(b){function s(e,min){if(!e)return;var px=parseFloat(getComputedStyle(e).fontSize);while(b.scrollHeight>M&&px>min){px-=.5;e.style.fontSize=px+"px";}}s(b.querySelector(".toaddr"),10.7);s(b.querySelector(".toname"),13);s(b.querySelector(".frdet"),10);var a=b.querySelector(".toaddr");if(a&&b.scrollHeight>M){var h=a.offsetHeight-(b.scrollHeight-M)-1;if(h>20){a.style.maxHeight=h+"px";}}});setTimeout(function(){window.print();},500);};';
+function _vlBox(d,parcel,inv){
+  const m=_sbMoney;
+  let ord='';
+  if(parcel&&parcel.units.length){
+    const L=labelLines(parcel,4);
+    ord='<div class="ord"><table>'+L.lines.map(l=>'<tr><td>'+(l.prodNo?'#'+esc(l.prodNo)+' ':'')+esc(String(l.desc).slice(0,60))+' × '+l.qty+'</td><td class="r">₹'+m(l.price*l.qty)+'</td></tr>').join('')
+      +(L.more?'<tr><td colspan="2">+ '+L.more+' more item'+(L.more>1?'s':'')+', see invoice</td></tr>':'')
+      +(parcel.shipping>0?'<tr><td>Shipping</td><td class="r">₹'+m(parcel.shipping)+'</td></tr>':'')
+      +(parcel.discount>0?'<tr><td>Discount</td><td class="r">-₹'+m(parcel.discount)+'</td></tr>':'')
+      +'<tr class="ordertotal"><td>'+(parcel.of>1?'Value of this parcel':'Total')+'</td><td class="r">₹'+m(parcel.value)+'</td></tr></table>'
+      +(inv.payMode==='COD'?'<div class="cod">'+esc(payLine(inv,parcel.value))+'</div>':'<div>'+esc(payLine(inv,parcel.value))+'</div>')+'</div>';
+  }
+  const qr=(typeof qrB64!=='undefined'&&qrB64)?'<img src="'+esc(qrB64)+'" style="width:30mm;height:30mm;object-fit:contain;flex-shrink:0;"/>':'';
+  const logo=(typeof logoB64!=='undefined'&&logoB64)?'<img src="'+esc(logoB64)+'" style="max-height:14mm;max-width:45mm;object-fit:contain;"/>':'<span style="font-size:10pt;font-weight:700;color:#5c3d1e;">Vismaad Creations</span>';
+  const ph=d.phone&&d.wa&&d.phone!==d.wa?'&#9990; '+esc(d.phone)+' &nbsp;|&nbsp; 💬 '+esc(d.wa):d.phone?'&#9990; '+esc(d.phone):d.wa?'💬 '+esc(d.wa):'';
+  return'<div class="page"><div class="box"><div class="ref"><span class="pn">'+(parcel&&parcel.of>1?'Parcel '+parcel.no+' of '+parcel.of:'')+'</span><span>'+[d.invNo?'Inv: '+esc(d.invNo):'',d.invDate?esc(fmtDate(d.invDate)):'',d.track?esc(d.track):''].filter(Boolean).join(' · ')+'</span></div>'
+    +'<div class="mid"><div class="to"><div class="tolbl">To</div><div class="toname">'+esc(d.name)+'</div><div class="toaddr">'+esc(d.addr).replace(/\n/g,'<br/>')+(d.pin?'<br/>PIN: '+esc(d.pin):'')+'</div>'+(ph?'<div class="toph">'+ph+'</div>':'')+'</div>'+qr+'</div>'
+    +ord+'<div class="ty"><span class="tytext">Thank you for shopping with us!</span></div>'
+    +'<div class="bot"><div class="botm">'+logo+'</div><div class="botr"><div class="frlbl">From</div><div class="frname">Vismaad Creations</div><div class="frdet">'+esc(d.fromAddr||'').replace(/\n/g,'<br/>')+(d.fromPh?'<br/>&#9990; '+esc(d.fromPh):'')+'</div></div></div></div><div class="cut">✂ cut here</div></div>';
+}
+function _vlOpen(body){
+  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/><link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet"/><style>'+_VL_CSS+'</style><script>'+_VL_SCRIPT+'<\/script></head><body>'+body+'</body></html>';
+  const url=URL.createObjectURL(new Blob([html],{type:'text/html'}));
+  const w=window.open(url,'_blank');
+  if(!w){toast('⚠️ Popup blocked. Allow popups for this app and try again.',5000);URL.revokeObjectURL(url);return false;}
+  setTimeout(()=>URL.revokeObjectURL(url),60000);return true;
+}
+function _vlInvData(inv,i){
+  const tr=String(inv.tracking||'').split(',').map(x=>x.trim()).filter(Boolean);
+  return{name:inv.custName||'',addr:inv.custAddress||'',pin:inv.custPin||'',phone:inv.custPhone||'',wa:inv.custWhatsapp||'',invNo:inv.invNo||'',invDate:inv.invDate||'',track:tr[i]||'',fromAddr:S.address||'',fromPh:S.phone||''};
+}
+function _vlInvBoxes(inv,split){
+  const s=split||parcelRead(inv.parcels)||{n:_vcDefaultParcels(inv),a:null};
+  return parcelSplit(inv,s.a,s.n).map((p,i)=>_vlBox(_vlInvData(inv,i),p,inv)).join('');
+}
+function _vcDefaultParcels(inv){
+  const trk=String(inv.tracking||'').split(',').filter(x=>x.trim()).length;
+  return parcelCount(inv,trk>1?trk:Math.ceil((parcelUnits(inv).length||1)/3));
+}
+let _vcParcelInv=null,_vcParcelState=null;
+function vcOpenParcels(inv){
+  if(!inv)return;
+  if(invStatusOf(inv)!=='Active'){toast('⚠️ This bill is '+invStatusOf(inv));return;}
+  _vcParcelInv=inv;
+  const saved=parcelRead(inv.parcels);
+  const count=parcelUnits(inv).length||1;
+  if(saved&&saved.a.length===count)_vcParcelState={n:parcelCount(inv,saved.n),a:saved.a};
+  else{const n=_vcDefaultParcels(inv);_vcParcelState={n,a:parcelDefault(inv,n)};}
+  _vcParcelDraw();
+  document.getElementById('vc-parcel-modal').classList.add('open');
+}
+function _vcParcelDraw(){
+  const inv=_vcParcelInv,st=_vcParcelState,units=parcelUnits(inv);
+  const ps=parcelSplit(inv,st.a,st.n);
+  const opts=v=>Array.from({length:st.n},(_,i)=>'<option value="'+i+'"'+(i===v?' selected':'')+'>Parcel '+(i+1)+'</option>').join('');
+  _vcEnsureModal('vc-parcel-modal','<div class="modal"><button class="modal-close" onclick="document.getElementById(\'vc-parcel-modal\').classList.remove(\'open\')">✕</button>'
+    +'<div class="modal-title">🏷 Label with order details (trial)</div><div style="font-size:13px;color:#888;margin-bottom:12px;">'+esc(inv.invNo)+' · '+esc(inv.custName)+' · '+units.length+' piece(s)</div>'
+    +'<div class="fg"><label>Number of parcels</label><input id="vc-parcel-n" type="number" min="1" max="'+(units.length||1)+'" value="'+st.n+'" inputmode="numeric" onchange="vcParcelN()"/></div>'
+    +units.map((u,i)=>'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:.5px solid var(--sep);font-size:13px;"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(u.prodNo?'#'+esc(u.prodNo)+' ':'')+esc(u.desc)+'</span><select onchange="vcParcelSet('+i+',this.value)" style="width:auto;flex-shrink:0;">'+opts(st.a[i])+'</select></div>').join('')
+    +'<div style="background:var(--goldp);border-radius:8px;padding:10px 12px;font-size:13px;margin:12px 0;line-height:1.6;">'+ps.map(p=>'Parcel '+p.no+': '+p.units.length+' piece(s), ₹'+_sbMoney(p.value)).join('<br/>')+'</div>'
+    +'<div class="btn-row"><button class="btn btn-p" id="vc-parcel-print" onclick="vcParcelPrint()">🖨️ Print labels</button>'+(st.n>1?'<button class="btn btn-o" onclick="vcParcelBillCopies()">Extra bill copies</button>':'')+'</div></div>').classList.add('open');
+}
+function vcParcelN(){
+  const st=_vcParcelState,n=parcelCount(_vcParcelInv,document.getElementById('vc-parcel-n')?.value);
+  _vcParcelState={n,a:parcelDefault(_vcParcelInv,n)};void st;_vcParcelDraw();
+}
+function vcParcelSet(i,v){_vcParcelState.a[i]=parseInt(v)||0;_vcParcelDraw();}
+function _vcParcelSave(){
+  const inv=_vcParcelInv,v=JSON.stringify({n:_vcParcelState.n,a:_vcParcelState.a});
+  if(inv.parcels===v)return;
+  inv.parcels=v;inv.invUpdatedAt=new Date().toISOString();save();
+  gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{if(!ok)toast('⚠️ Parcel split saved here, sheet sync pending');});
+}
+function vcParcelPrint(){
+  if(_vlOpen(_vlInvBoxes(_vcParcelInv,_vcParcelState)))_vcParcelSave();
+}
+function vcParcelBillCopies(){
+  const inv=_vcParcelInv,n=_vcParcelState.n;
+  _vcParcelSave();
+  let h='';for(let i=2;i<=n;i++)h+='<div class="print-page">'+getInvHtml(inv,'COPY FOR PARCEL '+i+' OF '+n)+'</div>';
+  document.getElementById('print-area').innerHTML=h;window.print();
+}
+function vcTrialBulk(){
+  const sel=getSelectedInvoices().filter(i=>invStatusOf(i)==='Active');
+  if(!sel.length){toast('⚠️ Select at least one active invoice');return;}
+  _vlOpen(sel.map(i=>_vlInvBoxes(i)).join(''));
+}
+function vcTrialFromLabelPage(){
+  const g=k=>document.getElementById(k)?.value||'';
+  const name=g('lbl-to-name').trim();if(!name){toast('⚠️ Enter customer name');return;}
+  const invNo=g('lbl-inv-no').trim(),inv=invNo?invoices.find(i=>String(i.invNo).trim()===invNo):null;
+  const d={name,addr:g('lbl-to-addr'),pin:g('lbl-to-pin'),phone:g('lbl-to-ph'),wa:g('lbl-to-wa'),invNo,invDate:inv?inv.invDate:'',track:g('lbl-tracking2'),fromAddr:g('lbl-from-addr'),fromPh:g('lbl-from-ph')};
+  _vlOpen(_vlBox(d,inv?parcelSplit(inv,null,1)[0]:null,inv||{}));
+}
+
+// ── Hook up to the existing screens ──
+(function vc48Init(){
+  function after(name,fn){
+    const f=window[name];if(typeof f!=='function')return;
+    window[name]=function(){const r=f.apply(this,arguments);try{fn.apply(this,arguments);}catch(e){console.warn('v14.48 '+name+':',e);}return r;};
+  }
+  after('updateDispatchFields',vcSlipBtn);
+  after('resetInvoiceForm',()=>{const p=document.getElementById('pay-mode');if(p)p.value='Prepaid';_vcActiveSlip=null;vcSlipBtn();});
+  after('showPage',p=>{if(p==='invoice')vcSlipsRender();});
+  after('showSubPage',id=>{if(id==='salesbook'){_sbBatch=null;_sbReady=false;vcSbRender();}});
+  after('editInvoiceByIdx',idx=>{
+    const inv=salesFiltered[idx];if(!inv)return;
+    const lock=isBillLocked(inv);
+    ['edit-ship-charged','edit-discount','edit-state'].forEach(k=>{const e=document.getElementById(k);if(e){e.disabled=lock;e.style.opacity=lock?'.55':'';}});
+    const n=document.getElementById('edit-lock-note');if(n)n.style.display=lock?'block':'none';
+    const p=document.getElementById('edit-paymode');if(p)p.value=inv.payMode==='COD'?'COD':'Prepaid';
+  });
+  after('viewInvoiceByIdx',idx=>{
+    const inv=salesFiltered[idx],ph=document.getElementById('inv-preview-html');
+    if(inv&&ph)ph.insertAdjacentHTML('beforeend',vcInvNotesHtml(inv));
+  });
+  const st=window._applyInvoiceStatus;
+  window._applyInvoiceStatus=function(inv,ns){
+    const old=invStatusOf(inv),r=st.apply(this,arguments),now=invStatusOf(inv);
+    if(old!==now)try{vcLogField(inv,'invoiceStatus',old,now);}catch(e){console.warn(e);}
+    return r;
+  };
+  const sy=window.syncAll;
+  window.syncAll=async function(m){
+    const r=await sy.apply(this,arguments);
+    vcxPush().then(()=>vcxPull(!!m)).then(()=>{if(document.getElementById('vc-sb')&&!_sbBatch)vcSbRender();}).catch(()=>{});
+    return r;
+  };
+  const prev=window.uiInvMenu;
+  window.uiInvMenu=function(idx,btn){
+    const inv=salesFiltered[idx];
+    if(!inv)return;
+    const shipped=btn.dataset.shipped==='1',mdel=btn.dataset.mdel==='1',s=btn.dataset.st||'Active',lock=isBillLocked(inv);
+    const items2=[
+      {label:shipped?'↩ Mark as Pending':'🚚 Mark as Shipped',fn:()=>toggleShippedByIdx(idx)},
+      {label:mdel?'↩ Undo Delivered':'✅ Mark Delivered',fn:()=>toggleDeliveredByIdx(idx)},
+      {label:'🏷 Label with details (trial)',fn:()=>vcOpenParcels(salesFiltered[idx])},
+      s==='Active'?{label:'📋 Status (Cancel / Return)',fn:()=>openInvStatusModal(salesFiltered[idx])}:{label:'↺ Reactivate',fn:()=>_applyInvoiceStatus(salesFiltered[idx],'Active')}
+    ];
+    if(lock&&s==='Active')items2.splice(3,0,{label:'📝 Issue Debit Note',fn:()=>vcOpenDN(salesFiltered[idx])});
+    if(!lock)items2.push({label:'🗑 Delete',danger:true,fn:()=>deleteInvoiceByIdx(idx)});
+    uiSheet((inv.invNo||'Invoice')+(inv.custName?' · '+inv.custName:''),items2,btn);
+  };
+  void prev;
+  const pm=window.uiBulkMore;void pm;
+  window.uiBulkMore=function(btn){
+    const n=document.querySelectorAll('.sale-cb:checked').length;
+    uiSheet(n+' selected',[
+      {label:'↩ Mark as Pending',fn:()=>bulkMarkShipped(false)},
+      {label:'📦 Dropship',fn:()=>bulkMarkDropshipped()},
+      {label:'💰 Batch Ship Cost',fn:()=>showBatchShipping()},
+      {label:'📤 Partner Report',fn:()=>showPartnerReport()},
+      {label:'🏷 Labels with details (trial)',fn:()=>vcTrialBulk()},
+      {label:'🗑 Delete (bills of supply only)',danger:true,fn:()=>bulkDelete()}
+    ],btn);
+  };
+  vcSlipBtn();vcSlipsRender();
+  vcxPush();
+})();
 </script>
