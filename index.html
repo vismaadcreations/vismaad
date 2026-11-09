@@ -3,10 +3,16 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.50.1
+APP: Vismaad Creations v14.51.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 09-Nov-2026 - v14.50.1: PAYMENTS SECURITY FIXES, MARK PAID WITHOUT UTR, ONE-TAP PASTE, QR LIBRARY BUILT IN. Same Code.gs v7.
+LAST_CHANGE: 10-Nov-2026 - v14.51.0: SEND QR ON WHATSAPP TO THE CUSTOMER'S NUMBER. No Code.gs change (the new phone column is added to PayClaims on first save).
+(W1) TAKE PAYMENT has a "Customer WhatsApp number (optional)" box. Paste the number copied from the customer's WhatsApp chat (any country). The app keeps digits only (spaces, dashes, brackets and + removed, country code kept). A number that is too short or too long is refused with a message. The number is saved with that sale and syncs to the other phone.
+(W2) 💬 SEND ON WHATSAPP (new main button under the QR): one tap copies the QR image and opens that customer's chat in a new tab with the usual "Please pay exactly ..." message typed in. In WhatsApp, long-press the message box, Paste, send. The app stays open in its own tab. Share QR and Copy amount are still there. The paise reduction is unchanged, so auto-matching works as before.
+(W3) WAITING FOR BANK and RECEIVED, NOT BILLED show the customer's number. 💬 Confirm opens that customer's chat directly (it used to ask which chat). The … menu has Open chat, for sending the bill PDF later.
+(W4) COPY ₹: received payments with no saved number get a Copy ₹ button. It copies the amount exactly as the payment message writes it (e.g. ₹1,994.37), to paste into WhatsApp's search bar and find the chat.
+NEW SALE FIELD: phone.
+PREV_CHANGE: 09-Nov-2026 - v14.50.1: PAYMENTS SECURITY FIXES, MARK PAID WITHOUT UTR, ONE-TAP PASTE, QR LIBRARY BUILT IN. Same Code.gs v7.
 (F7) A sale or payment ID read from the sheet could carry code into a button on the Payments page and run when tapped. Every key and ID on those buttons is now cleaned to letters, digits, - and : (payKeyArg, _vcIdArg).
 (F8) The bill used to absorb up to ₹10 of underpayment silently. Now only the paise the app itself took off that sale's QR are adjusted without asking; anything more asks "Show ₹x as UPI payment adjustment?" first. The Invoice summary warns before you generate.
 (F10) Two waiting sales with the same amount (both phones making a QR at the same moment) show a warning on the Payments page. Such a payment is never linked automatically; link it by hand.
@@ -2811,6 +2817,18 @@ function _payDmy(d){const m=String(d||'').match(/^(\d{4})-(\d{2})-(\d{2})/);retu
 function payWaMsg(amount,date,utrs){
   const ref=(utrs||[]).map(payCleanUtr).filter(Boolean).join(', ');
   return 'Payment of '+_payInr(amount)+' received'+(date?' on '+_payDmy(date):'')+(ref?', Ref '+ref:'')+'. Thank you! Your bill will follow. - Vismaad Creations';
+}
+// v14.51.0: a WhatsApp number as copied from WhatsApp, any country. Digits only, 8 to 15 long, otherwise ''.
+// When the text has a +, the number is read from the first + on, so stray text before it is ignored.
+function payWaPhone(v){
+  let t=String(v==null?'':v).slice(0,200);
+  const i=t.indexOf('+');if(i>=0)t=t.slice(i);
+  const d=t.replace(/\D/g,'');
+  return d.length>=8&&d.length<=15&&!/^0+$/.test(d)?d:'';
+}
+function payWaLink(phone,text){return'https://wa.me/'+payWaPhone(phone)+'?text='+encodeURIComponent(text||'');}
+function payQrMsg(amount,upiName,upiId){
+  return'Please pay exactly '+_payInr(amount)+' by UPI to '+(upiName||'')+' ('+(upiId||'')+'). Scan the QR, or pay to the UPI ID with this exact amount. - Vismaad Creations';
 }
 function payRefLine(refs){
   const u=String(refs||'').split(',').map(payCleanUtr).filter(Boolean);
@@ -18022,13 +18040,14 @@ function vcPayOpenTake(){
   const m=_vcEnsureModal('vc-take-modal','<div class="modal" style="max-width:440px;"><button class="modal-close" onclick="vcPayCloseTake()">✕</button>'
     +'<div class="modal-title">💳 Take payment</div>'
     +'<div class="fg"><label for="vc-take-price">Price agreed with the customer (₹)</label><input id="vc-take-price" type="number" inputmode="decimal" min="2" step="0.01" placeholder="e.g. 1995" onkeydown="if(event.key===\'Enter\')vcPayMakeQr()"/></div>'
+    +'<div class="fg"><label for="vc-take-phone">Customer WhatsApp number (optional)</label><input id="vc-take-phone" type="tel" inputmode="tel" maxlength="40" autocomplete="off" placeholder="Paste from WhatsApp, e.g. +91 98765 43210"/></div>'
     +'<button class="btn btn-p" style="width:100%;" onclick="vcPayMakeQr()">Show QR</button>'
     +'<div id="vc-take-out" style="display:none;text-align:center;margin-top:16px;">'
     +'<div style="font-size:13px;color:#636366;">Customer pays exactly</div>'
     +'<div id="vc-take-amount" style="font-size:34px;font-weight:700;letter-spacing:-.5px;margin:2px 0 10px;"></div>'
     +'<div id="vc-take-qr" style="display:inline-block;background:#fff;padding:10px;border-radius:12px;"></div>'
     +'<div id="vc-take-payee" style="font-size:13px;color:#636366;margin:6px 0 12px;word-break:break-all;"></div>'
-    +'<div class="btn-row" style="justify-content:center;flex-wrap:wrap;"><button class="btn btn-p" onclick="vcPayShare()">📤 Share QR</button><button class="btn btn-o" onclick="vcPayCopyAmt()">Copy amount</button></div>'
+    +'<div class="btn-row" style="justify-content:center;flex-wrap:wrap;"><button class="btn btn-p" onclick="vcPaySendWa()">💬 Send on WhatsApp</button><button class="btn btn-o" onclick="vcPayShare()">📤 Share QR</button><button class="btn btn-o" onclick="vcPayCopyAmt()">Copy amount</button></div>'
     +'<div id="vc-take-status" role="status" style="margin-top:12px;font-size:14px;font-weight:600;"></div>'
     +'<div style="font-size:12px;color:#636366;margin-top:8px;line-height:1.5;">The amount is a few paise below the price so the bank alert can be matched to this sale. The paise go on the bill as a separate adjustment.</div>'
     +'</div></div>');
@@ -18040,10 +18059,12 @@ async function vcPayMakeQr(){
   if(!S.upiId){toast('⚠️ Add your UPI ID in Settings first',5000);return;}
   const price=parseFloat(document.getElementById('vc-take-price')?.value);
   if(!(price>1)||price>1000000){toast('⚠️ Enter the price');return;}
+  const rawPh=String(document.getElementById('vc-take-phone')?.value||'').trim(),phone=payWaPhone(rawPh); // v14.51.0
+  if(rawPh&&!phone){toast('⚠️ This WhatsApp number does not look right. Copy it again from WhatsApp, or leave it empty.',6000);return;}
   const amount=payPickAmount(price,payUsedAmounts(payClaims,bankAlerts,Date.now(),PAY_DAYS),Math.random);
   if(amount===null){toast('⚠️ No free amount left below this price. Try again tomorrow or change the price slightly.',6000);return;}
   const a=_vcAuthGet()||{};
-  const c={id:'C'+uid(),price:Math.round(price*100)/100,amount,createdAt:new Date().toISOString(),by:String(a.e||'').slice(0,80),status:'open'};
+  const c={id:'C'+uid(),price:Math.round(price*100)/100,amount,createdAt:new Date().toISOString(),by:String(a.e||'').slice(0,80),status:'open',phone};
   vcxStore('payc',c);vcxPush();
   _vcTakeId=c.id;
   await vcPayShowQr(c);
@@ -18053,6 +18074,7 @@ function vcPayReopen(id){
   const c=_payClaim(id);if(!c)return;
   vcPayOpenTake();
   const i=document.getElementById('vc-take-price');if(i)i.value=c.price||'';
+  const ph=document.getElementById('vc-take-phone'),pn=payWaPhone(c.phone);if(ph)ph.value=pn?'+'+pn:'';
   _vcTakeId=c.id;vcPayShowQr(c);
 }
 async function vcPayShowQr(c){
@@ -18094,7 +18116,7 @@ function vcPayShareImage(c){
 }
 function vcPayShare(){
   const c=_payClaim(_vcTakeId);if(!c)return;
-  const text='Please pay exactly '+_payInr(c.amount)+' by UPI to '+(S.upiName||'')+' ('+S.upiId+'). Scan the QR, or pay to the UPI ID with this exact amount. - Vismaad Creations';
+  const text=payQrMsg(c.amount,S.upiName,S.upiId);
   const cv=vcPayShareImage(c);
   const fallback=()=>{
     if(cv){const a=document.createElement('a');a.href=cv.toDataURL('image/png');a.download='pay-'+String(c.amount).replace('.','-')+'.png';document.body.appendChild(a);a.click();a.remove();}
@@ -18109,6 +18131,33 @@ function vcPayShare(){
       else navigator.share({text}).catch(()=>{});
     }catch(e){fallback();}
   },'image/png');
+}
+// v14.51.0: one tap copies the QR image and opens the customer's chat with the message typed in.
+// The copy starts inside the tap (iPhone rule); the chat opens in a new tab so the app stays as it was.
+function vcPaySendWa(){
+  const c=_payClaim(_vcTakeId);if(!c)return;
+  const el=document.getElementById('vc-take-phone'),raw=String(el&&el.value||'').trim(),phone=payWaPhone(raw);
+  if(!phone){toast(raw?'⚠️ This WhatsApp number does not look right. Copy it again from WhatsApp.':'⚠️ Paste the customer\'s WhatsApp number first',6000);if(el)el.focus();return;}
+  if(payWaPhone(c.phone)!==phone){_paySetClaim(c.id,{phone});vcxPush();vcPayRefresh();}
+  let copying=false;
+  try{
+    const cv=vcPayShareImage(c);
+    if(cv&&navigator.clipboard&&navigator.clipboard.write&&typeof ClipboardItem!=='undefined'){
+      const blob=new Promise((res,rej)=>cv.toBlob(b=>b?res(b):rej(new Error('no image')),'image/png'));
+      navigator.clipboard.write([new ClipboardItem({'image/png':blob})]).catch(()=>toast('⚠️ The QR could not be copied. Use Share QR instead.',6000));
+      copying=true;
+    }
+  }catch(e){copying=false;}
+  const url=payWaLink(phone,payQrMsg(c.amount,S.upiName,S.upiId));
+  const w=window.open(url,'_blank');
+  if(!w)location.href=url;
+  toast(copying?'QR copied. In WhatsApp, long-press the message box, tap Paste, then send.':'⚠️ This browser cannot copy images. Use Share QR instead.',6000);
+}
+// v14.51.0: for a payment with no saved number. Copies the amount as the payment message wrote it, for WhatsApp search.
+function vcPayCopyRupee(key){
+  const r=_payRowByKey(key);if(!r)return;
+  const t=_payInr(r.claim?r.claim.amount:r.paid);
+  try{navigator.clipboard.writeText(t).then(()=>toast('Copied '+t+'. Paste it in WhatsApp search to find the chat.',5000),()=>toast(t,6000));}catch(e){toast(t,6000);}
 }
 function vcPayCopyAmt(){
   const c=_payClaim(_vcTakeId);if(!c)return;
@@ -18250,7 +18299,7 @@ function vcPayCancelClaim(id){
 function _payRowByKey(key){const k=payKeyArg(key);return vcPayViewNow().toBill.find(x=>payKeyArg(x.key)===k)||null;}
 function vcPayConfirm(key){
   const r=_payRowByKey(key);if(!r)return;
-  window.open('https://wa.me/?text='+encodeURIComponent(payWaMsg(r.paid,r.date,r.utrs)),'_blank');
+  window.open(payWaLink(r.claim?r.claim.phone:'',payWaMsg(r.paid,r.date,r.utrs)),'_blank'); // v14.51.0: straight to the customer when the number is saved
   const at=new Date().toISOString();
   if(r.claim)_paySetClaim(r.claim.id,{confirmedAt:at});else r.utrs.forEach(u=>_paySetRec(u,{confirmedAt:at}));
   vcxPush();vcPayRefresh();
@@ -18267,20 +18316,23 @@ function _payRowHtml(r){
   if(r.confirmed)tags.push('<span class="badge b-green">Confirmed</span>');
   const k=payKeyArg(r.key); // v14.50.1 fix 7: only letters, digits, - and : can reach a button
   const u=payCleanUtr(r.utrs[0]||'');
+  const ph=r.claim?payWaPhone(r.claim.phone):''; // v14.51.0
   const btns=['<button class="btn btn-p btn-sm" onclick="vcPayStartBill(\''+k+'\')">Bill</button>',
     '<button class="btn btn-o btn-sm" onclick="vcPayConfirm(\''+k+'\')">💬 Confirm</button>'];
+  if(!ph)btns.push('<button class="btn btn-o btn-sm" onclick="vcPayCopyRupee(\''+k+'\')">Copy ₹</button>');
   if(r.claim&&r.check==='none')btns.push('<button class="btn btn-o btn-sm" onclick="vcPayMarkPaid(\''+_vcIdArg(r.claim.id)+'\',\'bank\',\'\')">Seen in bank app</button>');
   if(!r.claim&&u){btns.push('<button class="btn btn-o btn-sm" onclick="vcPayLinkMenu(\''+u+'\',this)">Link</button>');btns.push('<button class="btn btn-o btn-sm" onclick="vcPayNotSale(\''+u+'\')">Not a sale</button>');}
   else if(r.claim)btns.push('<button class="btn btn-o btn-sm" aria-label="More" onclick="vcPayRowMenu(\''+k+'\',this)">…</button>');
   const when=(r.pays[0]&&r.pays[0].txnAt)||(r.claim&&(r.claim.paidAt||r.claim.createdAt))||'';
   return'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="min-width:0;flex:1 1 220px;"><div class="list-main">'+esc(_payInr(r.paid))+(r.claim&&_payCents(r.claim.price)!==_payCents(r.paid)?' <span style="font-weight:400;color:#636366;font-size:12px;">price '+esc(_payInr(r.claim.price))+'</span>':'')+'</div>'
-    +'<div class="list-sub">'+esc(_payTimeTxt(when))+(r.utrs.length?' · Ref '+esc(r.utrs.join(', ')):'')+(r.pays[0]&&r.pays[0].payer?' · '+esc(r.pays[0].payer):'')+'</div>'
+    +'<div class="list-sub">'+esc(_payTimeTxt(when))+(r.utrs.length?' · Ref '+esc(r.utrs.join(', ')):'')+(r.pays[0]&&r.pays[0].payer?' · '+esc(r.pays[0].payer):'')+(ph?' · +'+esc(ph):'')+'</div>'
     +(tags.length?'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">'+tags.join('')+'</div>':'')+'</div>'
     +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+btns.join('')+'</div></div>';
 }
 function vcPayRowMenu(key,btn){
   const r=_payRowByKey(key);if(!r)return;
   const opts=r.utrs.map(u=>({label:'Unlink Ref '+u,fn:()=>vcPayUnlink(u)}));
+  const ph=r.claim?payWaPhone(r.claim.phone):'';if(ph)opts.unshift({label:'Open chat +'+ph,fn:()=>window.open(payWaLink(ph,''),'_blank')}); // v14.51.0
   if(r.claim&&!r.pays.length)opts.push({label:'Undo Mark paid',fn:()=>vcPayUnmark(r.claim.id)});
   if(!opts.length)return;
   uiSheet('Payment',opts,btn);
@@ -18299,7 +18351,7 @@ function vcPayRender(){
     +'<div id="vc-pay-paste-box" style="display:none;margin-top:10px;"><div class="fg" style="margin-bottom:8px;"><textarea id="vc-pay-paste" rows="4" maxlength="1000" placeholder="INR … credited A/c no. XX'+esc(vcPayAcct())+' …" aria-label="Bank SMS"></textarea></div><button class="btn btn-o btn-sm" onclick="vcPayPaste()">Add</button></div></div>';
   const dup=payDupAmounts(v); // v14.50.1 fix 10
   if(dup.length)h+='<div class="card" style="background:#fff8e1;border:1px solid #f5c26b;font-size:13px;color:#7a5200;line-height:1.5;">⚠️ Two waiting sales have the same amount: '+dup.map(x=>esc(_payInr(x))).join(', ')+'. This can happen when both phones make a QR at the same moment. When it is paid, link it by hand, or cancel one sale and make a new QR.</div>';
-  h+='<div class="card">'+head('⏳ Waiting for bank',v.waiting.length)+(v.waiting.length?v.waiting.slice().reverse().map(c=>'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="flex:1 1 200px;"><div class="list-main">'+esc(_payInr(c.amount))+'</div><div class="list-sub">'+esc(_payTimeTxt(c.createdAt))+' · price '+esc(_payInr(c.price))+'</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-o btn-sm" onclick="vcPayReopen(\''+_vcIdArg(c.id)+'\')">QR</button><button class="btn btn-o btn-sm" onclick="vcPayMarkModal(\''+_vcIdArg(c.id)+'\')">Mark paid</button><button class="btn btn-d btn-sm" onclick="vcPayCancelClaim(\''+_vcIdArg(c.id)+'\')">Cancel</button></div></div>').join(''):'<div class="list-sub" style="padding:8px 0;">Nothing waiting.</div>')+'</div>';
+  h+='<div class="card">'+head('⏳ Waiting for bank',v.waiting.length)+(v.waiting.length?v.waiting.slice().reverse().map(c=>'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="flex:1 1 200px;"><div class="list-main">'+esc(_payInr(c.amount))+'</div><div class="list-sub">'+esc(_payTimeTxt(c.createdAt))+' · price '+esc(_payInr(c.price))+(payWaPhone(c.phone)?' · +'+esc(payWaPhone(c.phone)):'')+'</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-o btn-sm" onclick="vcPayReopen(\''+_vcIdArg(c.id)+'\')">QR</button><button class="btn btn-o btn-sm" onclick="vcPayMarkModal(\''+_vcIdArg(c.id)+'\')">Mark paid</button><button class="btn btn-d btn-sm" onclick="vcPayCancelClaim(\''+_vcIdArg(c.id)+'\')">Cancel</button></div></div>').join(''):'<div class="list-sub" style="padding:8px 0;">Nothing waiting.</div>')+'</div>';
   h+='<div class="card">'+head('✅ Received, not billed',v.toBill.length)+(v.toBill.length?v.toBill.slice().reverse().map(_payRowHtml).join(''):'<div class="list-sub" style="padding:8px 0;">Everything received is billed.</div>')+'</div>';
   if(v.notSale.length)h+='<details class="card collapse-card"><summary class="collapse-summary"><span class="card-title" style="margin:0;display:inline;">Not a sale ('+v.notSale.length+')</span><span class="collapse-chevron">▾</span></summary><div style="margin-top:8px;">'+v.notSale.slice().reverse().map(p=>'<div class="list-row"><div><div class="list-main">'+esc(_payInr(p.amount))+'</div><div class="list-sub">'+esc(_payTimeTxt(p.txnAt))+' · Ref '+esc(p.utr)+' · '+esc(PAY_NS[p.nsReason]||'Other')+(p.nsNote?': '+esc(p.nsNote):'')+'</div></div><button class="btn btn-o btn-sm" onclick="vcPayNotSaleUndo(\''+p.utr+'\')">Undo</button></div>').join('')+'</div></details>';
   const recent=v.done.filter(r=>r.date>=new Date(Date.now()-30*86400000).toISOString().slice(0,10));
