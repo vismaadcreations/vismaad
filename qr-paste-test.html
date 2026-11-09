@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!--
+  SPEC
+  APP: qr-paste-test v1.0.0
+  PURPOSE: Throwaway test page for Vismaad Creations. Checks whether one tap can
+           copy a QR image to the clipboard and open a WhatsApp chat with a message,
+           so the QR can be pasted in the chat. Dummy QR only, not a payment QR.
+  LAST_CHANGE: 10-11-2026 - First version. Two methods (A: copy then open, B: open and copy together),
+               plus copy-only and open-only buttons, and an on-screen log.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR Paste Test</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+  :root{--bg:#f5f5f7;--card:#fff;--text:#1d1d1f;--muted:#6e6e73;--blue:#0071e3;--green:#1a8f3c;--red:#c62828;--line:#d2d2d7}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 -apple-system,Segoe UI,Roboto,sans-serif}
+  main{max-width:520px;margin:0 auto;padding:16px}
+  h1{font-size:20px;margin:8px 0 4px}
+  p.note{color:var(--muted);font-size:14px;margin:0 0 16px}
+  .card{background:var(--card);border-radius:14px;padding:16px;margin-bottom:14px;border:1px solid var(--line)}
+  label{display:block;font-weight:600;margin-bottom:6px}
+  input,textarea{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+  textarea{min-height:90px;resize:vertical}
+  .err{color:var(--red);font-size:14px;min-height:18px;margin-top:6px}
+  #qrWrap{display:flex;justify-content:center}
+  #qrCanvas{width:200px;height:auto;border:1px solid var(--line);border-radius:8px}
+  button{display:block;width:100%;font:inherit;font-weight:600;padding:14px;margin-top:10px;border:0;border-radius:12px;cursor:pointer;background:var(--blue);color:#fff}
+  button.sec{background:#e8e8ed;color:var(--text)}
+  button:active{opacity:.8}
+  #log{font:13px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto;background:#fafafa;border:1px solid var(--line);border-radius:10px;padding:10px}
+  .ok{color:var(--green)} .bad{color:var(--red)}
+</style>
+</head>
+<body>
+<main>
+  <h1>QR paste test</h1>
+  <p class="note">Test only. The QR below is a dummy, not a payment QR. Use your own or your wife's number.</p>
+
+  <div class="card">
+    <label for="phone">WhatsApp number</label>
+    <input id="phone" type="tel" inputmode="tel" placeholder="Paste number, e.g. +91 98xxx xxxxx" autocomplete="off">
+    <div class="err" id="phoneErr"></div>
+    <label for="msg" style="margin-top:10px">Message</label>
+    <textarea id="msg">TEST, please ignore: Please pay exactly ₹1.95 by UPI to Dilbag Singh (9417072136@axisbank). Scan the QR, or pay to the UPI ID with this exact amount. - Vismaad Creations</textarea>
+  </div>
+
+  <div class="card">
+    <div id="qrWrap"><canvas id="qrCanvas"></canvas></div>
+    <button id="btnA">Method A: Copy QR, then open chat</button>
+    <button id="btnB">Method B: Open chat and copy QR together</button>
+    <button id="btnCopy" class="sec">Copy QR only</button>
+    <button id="btnOpen" class="sec">Open chat only</button>
+  </div>
+
+  <div class="card">
+    <label>Log (screenshot this if something fails)</label>
+    <div id="log"></div>
+  </div>
+</main>
+
+<script>
+/* ---------- pure helpers (unit tested) ---------- */
+function normalizeIndianPhone(raw){
+  if (raw == null) return null;
+  var d = String(raw).replace(/\D/g, '');
+  if (d.length === 10 && /^[6-9]/.test(d)) return '91' + d;
+  if (d.length === 11 && d[0] === '0' && /^[6-9]/.test(d[1])) return '91' + d.slice(1);
+  if (d.length === 12 && d.slice(0,2) === '91' && /^[6-9]/.test(d[2])) return d;
+  if (d.length === 13 && d.slice(0,3) === '091' && /^[6-9]/.test(d[3])) return d.slice(1);
+  return null;
+}
+function buildWaUrl(phone91, message){
+  return 'https://wa.me/' + phone91 + '?text=' + encodeURIComponent(message || '');
+}
+if (typeof module !== 'undefined') { module.exports = { normalizeIndianPhone: normalizeIndianPhone, buildWaUrl: buildWaUrl }; }
+
+/* ---------- page ---------- */
+if (typeof document !== 'undefined') (function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var logEl = $('log');
+  function log(text, cls){
+    var line = document.createElement('div');
+    if (cls) line.className = cls;
+    line.textContent = new Date().toLocaleTimeString() + '  ' + text;
+    logEl.prepend(line);
+  }
+
+  log('Browser: ' + navigator.userAgent);
+  log('Clipboard write: ' + (!!(navigator.clipboard && navigator.clipboard.write)) +
+      ', ClipboardItem: ' + (typeof ClipboardItem !== 'undefined') +
+      ', Secure page: ' + window.isSecureContext);
+
+  // Draw dummy QR onto canvas with white margin and a label
+  var canvas = $('qrCanvas'), ctx = canvas.getContext('2d');
+  var qrBlob = null;
+  try {
+    var qr = qrcode(0, 'M');
+    qr.addData('VISMAAD TEST QR - NOT FOR PAYMENT');
+    qr.make();
+    var n = qr.getModuleCount(), cell = 10, pad = 40, label = 50;
+    canvas.width = n * cell + pad * 2;
+    canvas.height = n * cell + pad * 2 + label;
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000';
+    for (var r = 0; r < n; r++) for (var c = 0; c < n; c++)
+      if (qr.isDark(r, c)) ctx.fillRect(pad + c * cell, pad + r * cell, cell, cell);
+    ctx.font = 'bold 26px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('TEST QR  ₹1.95', canvas.width / 2, canvas.height - 25);
+    canvas.toBlob(function(b){ qrBlob = b; log('QR image ready (' + Math.round(b.size/1024) + ' KB)'); }, 'image/png');
+  } catch (e) { log('QR draw failed: ' + e.message, 'bad'); }
+
+  function getUrl(){
+    var p = normalizeIndianPhone($('phone').value);
+    if (!p) { $('phoneErr').textContent = 'Please enter a valid 10-digit Indian mobile number.'; return null; }
+    $('phoneErr').textContent = '';
+    return buildWaUrl(p, $('msg').value);
+  }
+
+  // Must be called directly inside the tap (iPhone requires this)
+  function startCopy(){
+    if (!(navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== 'undefined')) {
+      log('This browser cannot copy images.', 'bad');
+      return Promise.reject(new Error('unsupported'));
+    }
+    var blobPromise = qrBlob ? Promise.resolve(qrBlob)
+      : new Promise(function(res){ canvas.toBlob(res, 'image/png'); });
+    return navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })])
+      .then(function(){ log('QR copied to clipboard', 'ok'); },
+            function(e){ log('Copy failed: ' + e.name + ' ' + e.message, 'bad'); throw e; });
+  }
+
+  $('btnA').addEventListener('click', function(){
+    var url = getUrl(); if (!url) return;
+    log('Method A started');
+    startCopy().then(function(){
+      log('Opening chat...');
+      window.location.href = url;
+    }).catch(function(){ log('Method A stopped, chat not opened', 'bad'); });
+  });
+
+  $('btnB').addEventListener('click', function(){
+    var url = getUrl(); if (!url) return;
+    log('Method B started');
+    startCopy().catch(function(){});
+    var w = window.open(url, '_blank');
+    log(w ? 'Chat opened in new tab/app' : 'New tab blocked, opening here', w ? 'ok' : 'bad');
+    if (!w) setTimeout(function(){ window.location.href = url; }, 300);
+  });
+
+  $('btnCopy').addEventListener('click', function(){ startCopy().catch(function(){}); });
+
+  $('btnOpen').addEventListener('click', function(){
+    var url = getUrl(); if (!url) return;
+    window.location.href = url;
+  });
+})();
+</script>
+</body>
+</html>
