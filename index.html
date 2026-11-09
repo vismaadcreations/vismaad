@@ -3,10 +3,20 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.50.0
+APP: Vismaad Creations v14.50.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 09-Nov-2026 - v14.50.0: UPI PAYMENT CONFIRMATION + LABEL VALUE IN WORDS. Needs Code.gs v7 deployed on the same link, then setupPayments() run once.
+LAST_CHANGE: 09-Nov-2026 - v14.50.1: PAYMENTS SECURITY FIXES, MARK PAID WITHOUT UTR, ONE-TAP PASTE, QR LIBRARY BUILT IN. Same Code.gs v7.
+(F7) A sale or payment ID read from the sheet could carry code into a button on the Payments page and run when tapped. Every key and ID on those buttons is now cleaned to letters, digits, - and : (payKeyArg, _vcIdArg).
+(F8) The bill used to absorb up to ₹10 of underpayment silently. Now only the paise the app itself took off that sale's QR are adjusted without asking; anything more asks "Show ₹x as UPI payment adjustment?" first. The Invoice summary warns before you generate.
+(F10) Two waiting sales with the same amount (both phones making a QR at the same moment) show a warning on the Payments page. Such a payment is never linked automatically; link it by hand.
+(F12) The QR code library (qrcodejs, MIT) is built into this file instead of being downloaded from cdnjs each time: nothing to tamper with in transit, and QRs work with weak internet. Used by Take Payment, the walk-in QR and the Order Slip.
+(M1) MARK PAID replaces "Received": one tap, no UTR needed. It asks "Seen in bank app" (Checked by you) or "Customer's screenshot only" (Not checked with bank). A screenshot-only sale becomes checked when the bank SMS for that exact amount arrives, or by tapping Seen in bank app later. The UTR box is optional. Undo Mark paid is in the row's … menu.
+(M2) ADD PAYMENT (no SMS): amount, optional UTR, for money seen in the bank with no SMS and no waiting sale. Marked Checked by you and Added by hand.
+(M3) ONE-TAP PASTE: copy the SMS in Messages, tap 📋 Paste bank SMS. If the browser will not share the clipboard, a box opens to paste into.
+(M4) Dashboard payments card also lists sales "Not checked with bank" with a reminder to check them in the Axis app before shipping.
+NEW SALE FIELDS: paidMark, paidBy, paidAt, added.
+PREV_CHANGE: 09-Nov-2026 - v14.50.0: UPI PAYMENT CONFIRMATION + LABEL VALUE IN WORDS. Needs Code.gs v7 deployed on the same link, then setupPayments() run once.
 (P1) TAKE PAYMENT (Dashboard card, More → Payments). Type the agreed price; the app picks an amount a few paise BELOW it (never above) that no sale or bank credit has used in the last 5 days, and shows the QR (UPI ID from Settings, exact amount, no merchant code). Share QR sends an image with the amount, or saves it and copies a message. No customer name. Saved as a sale "Waiting for bank" (new PayClaims sheet).
 (P2) BANK SMS IN. The iPhone Shortcut posts each Axis SMS containing XX1045 to Code.gs (action smsIn, secret key kept only in the Shortcut). Code.gs keeps only credits to the business account (last 4 digits), needs a UPI reference, stores each reference once (new BankAlerts sheet). Paste bank SMS box on the Payments page as the backup, same checks. Reads P2A and P2M lines.
 (P3) MATCHING. A credit whose amount equals exactly one waiting sale made before it is linked to that sale (Received). Anything else is "Received, not linked": Link it to a sale (several references can go on one sale for split payments), or mark Not a sale (own transfer, refund, other with a note), which can be undone. Mark received by hand needs the 12-digit reference from the screenshot and stays tagged Manual until the bank alert with that reference arrives. Cancel a waiting sale. Link and Not a sale states are in the new PayRecs sheet.
@@ -2652,6 +2662,10 @@ function nextDocNo(list,field,prefix,fy){
 }
 </script>
 <script>
+// v14.50.1: QR code library built in (qrcodejs by davidshimjs, MIT licence, github.com/davidshimjs/qrcodejs, same library the app used to download from cdnjs). No download, works offline.
+var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this.parsedData=[];for(var b=[],d=0,e=this.data.length;e>d;d++){var f=this.data.charCodeAt(d);f>65536?(b[0]=240|(1835008&f)>>>18,b[1]=128|(258048&f)>>>12,b[2]=128|(4032&f)>>>6,b[3]=128|63&f):f>2048?(b[0]=224|(61440&f)>>>12,b[1]=128|(4032&f)>>>6,b[2]=128|63&f):f>128?(b[0]=192|(1984&f)>>>6,b[1]=128|63&f):b[0]=f,this.parsedData=this.parsedData.concat(b)}this.parsedData.length!=this.data.length&&(this.parsedData.unshift(191),this.parsedData.unshift(187),this.parsedData.unshift(239))}function b(a,b){this.typeNumber=a,this.errorCorrectLevel=b,this.modules=null,this.moduleCount=0,this.dataCache=null,this.dataList=[]}function i(a,b){if(void 0==a.length)throw new Error(a.length+"/"+b);for(var c=0;c<a.length&&0==a[c];)c++;this.num=new Array(a.length-c+b);for(var d=0;d<a.length-c;d++)this.num[d]=a[d+c]}function j(a,b){this.totalCount=a,this.dataCount=b}function k(){this.buffer=[],this.length=0}function m(){return"undefined"!=typeof CanvasRenderingContext2D}function n(){var a=!1,b=navigator.userAgent;return/android/i.test(b)&&(a=!0,aMat=b.toString().match(/android ([0-9]\.[0-9])/i),aMat&&aMat[1]&&(a=parseFloat(aMat[1]))),a}function r(a,b){for(var c=1,e=s(a),f=0,g=l.length;g>=f;f++){var h=0;switch(b){case d.L:h=l[f][0];break;case d.M:h=l[f][1];break;case d.Q:h=l[f][2];break;case d.H:h=l[f][3]}if(h>=e)break;c++}if(c>l.length)throw new Error("Too long data");return c}function s(a){var b=encodeURI(a).toString().replace(/\%[0-9a-fA-F]{2}/g,"a");return b.length+(b.length!=a?3:0)}a.prototype={getLength:function(){return this.parsedData.length},write:function(a){for(var b=0,c=this.parsedData.length;c>b;b++)a.put(this.parsedData[b],8)}},b.prototype={addData:function(b){var c=new a(b);this.dataList.push(c),this.dataCache=null},isDark:function(a,b){if(0>a||this.moduleCount<=a||0>b||this.moduleCount<=b)throw new Error(a+","+b);return this.modules[a][b]},getModuleCount:function(){return this.moduleCount},make:function(){this.makeImpl(!1,this.getBestMaskPattern())},makeImpl:function(a,c){this.moduleCount=4*this.typeNumber+17,this.modules=new Array(this.moduleCount);for(var d=0;d<this.moduleCount;d++){this.modules[d]=new Array(this.moduleCount);for(var e=0;e<this.moduleCount;e++)this.modules[d][e]=null}this.setupPositionProbePattern(0,0),this.setupPositionProbePattern(this.moduleCount-7,0),this.setupPositionProbePattern(0,this.moduleCount-7),this.setupPositionAdjustPattern(),this.setupTimingPattern(),this.setupTypeInfo(a,c),this.typeNumber>=7&&this.setupTypeNumber(a),null==this.dataCache&&(this.dataCache=b.createData(this.typeNumber,this.errorCorrectLevel,this.dataList)),this.mapData(this.dataCache,c)},setupPositionProbePattern:function(a,b){for(var c=-1;7>=c;c++)if(!(-1>=a+c||this.moduleCount<=a+c))for(var d=-1;7>=d;d++)-1>=b+d||this.moduleCount<=b+d||(this.modules[a+c][b+d]=c>=0&&6>=c&&(0==d||6==d)||d>=0&&6>=d&&(0==c||6==c)||c>=2&&4>=c&&d>=2&&4>=d?!0:!1)},getBestMaskPattern:function(){for(var a=0,b=0,c=0;8>c;c++){this.makeImpl(!0,c);var d=f.getLostPoint(this);(0==c||a>d)&&(a=d,b=c)}return b},createMovieClip:function(a,b,c){var d=a.createEmptyMovieClip(b,c),e=1;this.make();for(var f=0;f<this.modules.length;f++)for(var g=f*e,h=0;h<this.modules[f].length;h++){var i=h*e,j=this.modules[f][h];j&&(d.beginFill(0,100),d.moveTo(i,g),d.lineTo(i+e,g),d.lineTo(i+e,g+e),d.lineTo(i,g+e),d.endFill())}return d},setupTimingPattern:function(){for(var a=8;a<this.moduleCount-8;a++)null==this.modules[a][6]&&(this.modules[a][6]=0==a%2);for(var b=8;b<this.moduleCount-8;b++)null==this.modules[6][b]&&(this.modules[6][b]=0==b%2)},setupPositionAdjustPattern:function(){for(var a=f.getPatternPosition(this.typeNumber),b=0;b<a.length;b++)for(var c=0;c<a.length;c++){var d=a[b],e=a[c];if(null==this.modules[d][e])for(var g=-2;2>=g;g++)for(var h=-2;2>=h;h++)this.modules[d+g][e+h]=-2==g||2==g||-2==h||2==h||0==g&&0==h?!0:!1}},setupTypeNumber:function(a){for(var b=f.getBCHTypeNumber(this.typeNumber),c=0;18>c;c++){var d=!a&&1==(1&b>>c);this.modules[Math.floor(c/3)][c%3+this.moduleCount-8-3]=d}for(var c=0;18>c;c++){var d=!a&&1==(1&b>>c);this.modules[c%3+this.moduleCount-8-3][Math.floor(c/3)]=d}},setupTypeInfo:function(a,b){for(var c=this.errorCorrectLevel<<3|b,d=f.getBCHTypeInfo(c),e=0;15>e;e++){var g=!a&&1==(1&d>>e);6>e?this.modules[e][8]=g:8>e?this.modules[e+1][8]=g:this.modules[this.moduleCount-15+e][8]=g}for(var e=0;15>e;e++){var g=!a&&1==(1&d>>e);8>e?this.modules[8][this.moduleCount-e-1]=g:9>e?this.modules[8][15-e-1+1]=g:this.modules[8][15-e-1]=g}this.modules[this.moduleCount-8][8]=!a},mapData:function(a,b){for(var c=-1,d=this.moduleCount-1,e=7,g=0,h=this.moduleCount-1;h>0;h-=2)for(6==h&&h--;;){for(var i=0;2>i;i++)if(null==this.modules[d][h-i]){var j=!1;g<a.length&&(j=1==(1&a[g]>>>e));var k=f.getMask(b,d,h-i);k&&(j=!j),this.modules[d][h-i]=j,e--,-1==e&&(g++,e=7)}if(d+=c,0>d||this.moduleCount<=d){d-=c,c=-c;break}}}},b.PAD0=236,b.PAD1=17,b.createData=function(a,c,d){for(var e=j.getRSBlocks(a,c),g=new k,h=0;h<d.length;h++){var i=d[h];g.put(i.mode,4),g.put(i.getLength(),f.getLengthInBits(i.mode,a)),i.write(g)}for(var l=0,h=0;h<e.length;h++)l+=e[h].dataCount;if(g.getLengthInBits()>8*l)throw new Error("code length overflow. ("+g.getLengthInBits()+">"+8*l+")");for(g.getLengthInBits()+4<=8*l&&g.put(0,4);0!=g.getLengthInBits()%8;)g.putBit(!1);for(;;){if(g.getLengthInBits()>=8*l)break;if(g.put(b.PAD0,8),g.getLengthInBits()>=8*l)break;g.put(b.PAD1,8)}return b.createBytes(g,e)},b.createBytes=function(a,b){for(var c=0,d=0,e=0,g=new Array(b.length),h=new Array(b.length),j=0;j<b.length;j++){var k=b[j].dataCount,l=b[j].totalCount-k;d=Math.max(d,k),e=Math.max(e,l),g[j]=new Array(k);for(var m=0;m<g[j].length;m++)g[j][m]=255&a.buffer[m+c];c+=k;var n=f.getErrorCorrectPolynomial(l),o=new i(g[j],n.getLength()-1),p=o.mod(n);h[j]=new Array(n.getLength()-1);for(var m=0;m<h[j].length;m++){var q=m+p.getLength()-h[j].length;h[j][m]=q>=0?p.get(q):0}}for(var r=0,m=0;m<b.length;m++)r+=b[m].totalCount;for(var s=new Array(r),t=0,m=0;d>m;m++)for(var j=0;j<b.length;j++)m<g[j].length&&(s[t++]=g[j][m]);for(var m=0;e>m;m++)for(var j=0;j<b.length;j++)m<h[j].length&&(s[t++]=h[j][m]);return s};for(var c={MODE_NUMBER:1,MODE_ALPHA_NUM:2,MODE_8BIT_BYTE:4,MODE_KANJI:8},d={L:1,M:0,Q:3,H:2},e={PATTERN000:0,PATTERN001:1,PATTERN010:2,PATTERN011:3,PATTERN100:4,PATTERN101:5,PATTERN110:6,PATTERN111:7},f={PATTERN_POSITION_TABLE:[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]],G15:1335,G18:7973,G15_MASK:21522,getBCHTypeInfo:function(a){for(var b=a<<10;f.getBCHDigit(b)-f.getBCHDigit(f.G15)>=0;)b^=f.G15<<f.getBCHDigit(b)-f.getBCHDigit(f.G15);return(a<<10|b)^f.G15_MASK},getBCHTypeNumber:function(a){for(var b=a<<12;f.getBCHDigit(b)-f.getBCHDigit(f.G18)>=0;)b^=f.G18<<f.getBCHDigit(b)-f.getBCHDigit(f.G18);return a<<12|b},getBCHDigit:function(a){for(var b=0;0!=a;)b++,a>>>=1;return b},getPatternPosition:function(a){return f.PATTERN_POSITION_TABLE[a-1]},getMask:function(a,b,c){switch(a){case e.PATTERN000:return 0==(b+c)%2;case e.PATTERN001:return 0==b%2;case e.PATTERN010:return 0==c%3;case e.PATTERN011:return 0==(b+c)%3;case e.PATTERN100:return 0==(Math.floor(b/2)+Math.floor(c/3))%2;case e.PATTERN101:return 0==b*c%2+b*c%3;case e.PATTERN110:return 0==(b*c%2+b*c%3)%2;case e.PATTERN111:return 0==(b*c%3+(b+c)%2)%2;default:throw new Error("bad maskPattern:"+a)}},getErrorCorrectPolynomial:function(a){for(var b=new i([1],0),c=0;a>c;c++)b=b.multiply(new i([1,g.gexp(c)],0));return b},getLengthInBits:function(a,b){if(b>=1&&10>b)switch(a){case c.MODE_NUMBER:return 10;case c.MODE_ALPHA_NUM:return 9;case c.MODE_8BIT_BYTE:return 8;case c.MODE_KANJI:return 8;default:throw new Error("mode:"+a)}else if(27>b)switch(a){case c.MODE_NUMBER:return 12;case c.MODE_ALPHA_NUM:return 11;case c.MODE_8BIT_BYTE:return 16;case c.MODE_KANJI:return 10;default:throw new Error("mode:"+a)}else{if(!(41>b))throw new Error("type:"+b);switch(a){case c.MODE_NUMBER:return 14;case c.MODE_ALPHA_NUM:return 13;case c.MODE_8BIT_BYTE:return 16;case c.MODE_KANJI:return 12;default:throw new Error("mode:"+a)}}},getLostPoint:function(a){for(var b=a.getModuleCount(),c=0,d=0;b>d;d++)for(var e=0;b>e;e++){for(var f=0,g=a.isDark(d,e),h=-1;1>=h;h++)if(!(0>d+h||d+h>=b))for(var i=-1;1>=i;i++)0>e+i||e+i>=b||(0!=h||0!=i)&&g==a.isDark(d+h,e+i)&&f++;f>5&&(c+=3+f-5)}for(var d=0;b-1>d;d++)for(var e=0;b-1>e;e++){var j=0;a.isDark(d,e)&&j++,a.isDark(d+1,e)&&j++,a.isDark(d,e+1)&&j++,a.isDark(d+1,e+1)&&j++,(0==j||4==j)&&(c+=3)}for(var d=0;b>d;d++)for(var e=0;b-6>e;e++)a.isDark(d,e)&&!a.isDark(d,e+1)&&a.isDark(d,e+2)&&a.isDark(d,e+3)&&a.isDark(d,e+4)&&!a.isDark(d,e+5)&&a.isDark(d,e+6)&&(c+=40);for(var e=0;b>e;e++)for(var d=0;b-6>d;d++)a.isDark(d,e)&&!a.isDark(d+1,e)&&a.isDark(d+2,e)&&a.isDark(d+3,e)&&a.isDark(d+4,e)&&!a.isDark(d+5,e)&&a.isDark(d+6,e)&&(c+=40);for(var k=0,e=0;b>e;e++)for(var d=0;b>d;d++)a.isDark(d,e)&&k++;var l=Math.abs(100*k/b/b-50)/5;return c+=10*l}},g={glog:function(a){if(1>a)throw new Error("glog("+a+")");return g.LOG_TABLE[a]},gexp:function(a){for(;0>a;)a+=255;for(;a>=256;)a-=255;return g.EXP_TABLE[a]},EXP_TABLE:new Array(256),LOG_TABLE:new Array(256)},h=0;8>h;h++)g.EXP_TABLE[h]=1<<h;for(var h=8;256>h;h++)g.EXP_TABLE[h]=g.EXP_TABLE[h-4]^g.EXP_TABLE[h-5]^g.EXP_TABLE[h-6]^g.EXP_TABLE[h-8];for(var h=0;255>h;h++)g.LOG_TABLE[g.EXP_TABLE[h]]=h;i.prototype={get:function(a){return this.num[a]},getLength:function(){return this.num.length},multiply:function(a){for(var b=new Array(this.getLength()+a.getLength()-1),c=0;c<this.getLength();c++)for(var d=0;d<a.getLength();d++)b[c+d]^=g.gexp(g.glog(this.get(c))+g.glog(a.get(d)));return new i(b,0)},mod:function(a){if(this.getLength()-a.getLength()<0)return this;for(var b=g.glog(this.get(0))-g.glog(a.get(0)),c=new Array(this.getLength()),d=0;d<this.getLength();d++)c[d]=this.get(d);for(var d=0;d<a.getLength();d++)c[d]^=g.gexp(g.glog(a.get(d))+b);return new i(c,0).mod(a)}},j.RS_BLOCK_TABLE=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[2,33,11,2,34,12],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[7,42,14,4,43,15],[4,133,107],[8,59,37,1,60,38],[8,44,20,4,45,21],[12,33,11,4,34,12],[3,145,115,1,146,116],[4,64,40,5,65,41],[11,36,16,5,37,17],[11,36,12,5,37,13],[5,109,87,1,110,88],[5,65,41,5,66,42],[5,54,24,7,55,25],[11,36,12],[5,122,98,1,123,99],[7,73,45,3,74,46],[15,43,19,2,44,20],[3,45,15,13,46,16],[1,135,107,5,136,108],[10,74,46,1,75,47],[1,50,22,15,51,23],[2,42,14,17,43,15],[5,150,120,1,151,121],[9,69,43,4,70,44],[17,50,22,1,51,23],[2,42,14,19,43,15],[3,141,113,4,142,114],[3,70,44,11,71,45],[17,47,21,4,48,22],[9,39,13,16,40,14],[3,135,107,5,136,108],[3,67,41,13,68,42],[15,54,24,5,55,25],[15,43,15,10,44,16],[4,144,116,4,145,117],[17,68,42],[17,50,22,6,51,23],[19,46,16,6,47,17],[2,139,111,7,140,112],[17,74,46],[7,54,24,16,55,25],[34,37,13],[4,151,121,5,152,122],[4,75,47,14,76,48],[11,54,24,14,55,25],[16,45,15,14,46,16],[6,147,117,4,148,118],[6,73,45,14,74,46],[11,54,24,16,55,25],[30,46,16,2,47,17],[8,132,106,4,133,107],[8,75,47,13,76,48],[7,54,24,22,55,25],[22,45,15,13,46,16],[10,142,114,2,143,115],[19,74,46,4,75,47],[28,50,22,6,51,23],[33,46,16,4,47,17],[8,152,122,4,153,123],[22,73,45,3,74,46],[8,53,23,26,54,24],[12,45,15,28,46,16],[3,147,117,10,148,118],[3,73,45,23,74,46],[4,54,24,31,55,25],[11,45,15,31,46,16],[7,146,116,7,147,117],[21,73,45,7,74,46],[1,53,23,37,54,24],[19,45,15,26,46,16],[5,145,115,10,146,116],[19,75,47,10,76,48],[15,54,24,25,55,25],[23,45,15,25,46,16],[13,145,115,3,146,116],[2,74,46,29,75,47],[42,54,24,1,55,25],[23,45,15,28,46,16],[17,145,115],[10,74,46,23,75,47],[10,54,24,35,55,25],[19,45,15,35,46,16],[17,145,115,1,146,116],[14,74,46,21,75,47],[29,54,24,19,55,25],[11,45,15,46,46,16],[13,145,115,6,146,116],[14,74,46,23,75,47],[44,54,24,7,55,25],[59,46,16,1,47,17],[12,151,121,7,152,122],[12,75,47,26,76,48],[39,54,24,14,55,25],[22,45,15,41,46,16],[6,151,121,14,152,122],[6,75,47,34,76,48],[46,54,24,10,55,25],[2,45,15,64,46,16],[17,152,122,4,153,123],[29,74,46,14,75,47],[49,54,24,10,55,25],[24,45,15,46,46,16],[4,152,122,18,153,123],[13,74,46,32,75,47],[48,54,24,14,55,25],[42,45,15,32,46,16],[20,147,117,4,148,118],[40,75,47,7,76,48],[43,54,24,22,55,25],[10,45,15,67,46,16],[19,148,118,6,149,119],[18,75,47,31,76,48],[34,54,24,34,55,25],[20,45,15,61,46,16]],j.getRSBlocks=function(a,b){var c=j.getRsBlockTable(a,b);if(void 0==c)throw new Error("bad rs block @ typeNumber:"+a+"/errorCorrectLevel:"+b);for(var d=c.length/3,e=[],f=0;d>f;f++)for(var g=c[3*f+0],h=c[3*f+1],i=c[3*f+2],k=0;g>k;k++)e.push(new j(h,i));return e},j.getRsBlockTable=function(a,b){switch(b){case d.L:return j.RS_BLOCK_TABLE[4*(a-1)+0];case d.M:return j.RS_BLOCK_TABLE[4*(a-1)+1];case d.Q:return j.RS_BLOCK_TABLE[4*(a-1)+2];case d.H:return j.RS_BLOCK_TABLE[4*(a-1)+3];default:return void 0}},k.prototype={get:function(a){var b=Math.floor(a/8);return 1==(1&this.buffer[b]>>>7-a%8)},put:function(a,b){for(var c=0;b>c;c++)this.putBit(1==(1&a>>>b-c-1))},getLengthInBits:function(){return this.length},putBit:function(a){var b=Math.floor(this.length/8);this.buffer.length<=b&&this.buffer.push(0),a&&(this.buffer[b]|=128>>>this.length%8),this.length++}};var l=[[17,14,11,7],[32,26,20,14],[53,42,32,24],[78,62,46,34],[106,84,60,44],[134,106,74,58],[154,122,86,64],[192,152,108,84],[230,180,130,98],[271,213,151,119],[321,251,177,137],[367,287,203,155],[425,331,241,177],[458,362,258,194],[520,412,292,220],[586,450,322,250],[644,504,364,280],[718,560,394,310],[792,624,442,338],[858,666,482,382],[929,711,509,403],[1003,779,565,439],[1091,857,611,461],[1171,911,661,511],[1273,997,715,535],[1367,1059,751,593],[1465,1125,805,625],[1528,1190,868,658],[1628,1264,908,698],[1732,1370,982,742],[1840,1452,1030,790],[1952,1538,1112,842],[2068,1628,1168,898],[2188,1722,1228,958],[2303,1809,1283,983],[2431,1911,1351,1051],[2563,1989,1423,1093],[2699,2099,1499,1139],[2809,2213,1579,1219],[2953,2331,1663,1273]],o=function(){var a=function(a,b){this._el=a,this._htOption=b};return a.prototype.draw=function(a){function g(a,b){var c=document.createElementNS("http://www.w3.org/2000/svg",a);for(var d in b)b.hasOwnProperty(d)&&c.setAttribute(d,b[d]);return c}var b=this._htOption,c=this._el,d=a.getModuleCount();Math.floor(b.width/d),Math.floor(b.height/d),this.clear();var h=g("svg",{viewBox:"0 0 "+String(d)+" "+String(d),width:"100%",height:"100%",fill:b.colorLight});h.setAttributeNS("http://www.w3.org/2000/xmlns/","xmlns:xlink","http://www.w3.org/1999/xlink"),c.appendChild(h),h.appendChild(g("rect",{fill:b.colorDark,width:"1",height:"1",id:"template"}));for(var i=0;d>i;i++)for(var j=0;d>j;j++)if(a.isDark(i,j)){var k=g("use",{x:String(i),y:String(j)});k.setAttributeNS("http://www.w3.org/1999/xlink","href","#template"),h.appendChild(k)}},a.prototype.clear=function(){for(;this._el.hasChildNodes();)this._el.removeChild(this._el.lastChild)},a}(),p="svg"===document.documentElement.tagName.toLowerCase(),q=p?o:m()?function(){function a(){this._elImage.src=this._elCanvas.toDataURL("image/png"),this._elImage.style.display="block",this._elCanvas.style.display="none"}function d(a,b){var c=this;if(c._fFail=b,c._fSuccess=a,null===c._bSupportDataURI){var d=document.createElement("img"),e=function(){c._bSupportDataURI=!1,c._fFail&&_fFail.call(c)},f=function(){c._bSupportDataURI=!0,c._fSuccess&&c._fSuccess.call(c)};return d.onabort=e,d.onerror=e,d.onload=f,d.src="data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg==",void 0}c._bSupportDataURI===!0&&c._fSuccess?c._fSuccess.call(c):c._bSupportDataURI===!1&&c._fFail&&c._fFail.call(c)}if(this._android&&this._android<=2.1){var b=1/window.devicePixelRatio,c=CanvasRenderingContext2D.prototype.drawImage;CanvasRenderingContext2D.prototype.drawImage=function(a,d,e,f,g,h,i,j){if("nodeName"in a&&/img/i.test(a.nodeName))for(var l=arguments.length-1;l>=1;l--)arguments[l]=arguments[l]*b;else"undefined"==typeof j&&(arguments[1]*=b,arguments[2]*=b,arguments[3]*=b,arguments[4]*=b);c.apply(this,arguments)}}var e=function(a,b){this._bIsPainted=!1,this._android=n(),this._htOption=b,this._elCanvas=document.createElement("canvas"),this._elCanvas.width=b.width,this._elCanvas.height=b.height,a.appendChild(this._elCanvas),this._el=a,this._oContext=this._elCanvas.getContext("2d"),this._bIsPainted=!1,this._elImage=document.createElement("img"),this._elImage.style.display="none",this._el.appendChild(this._elImage),this._bSupportDataURI=null};return e.prototype.draw=function(a){var b=this._elImage,c=this._oContext,d=this._htOption,e=a.getModuleCount(),f=d.width/e,g=d.height/e,h=Math.round(f),i=Math.round(g);b.style.display="none",this.clear();for(var j=0;e>j;j++)for(var k=0;e>k;k++){var l=a.isDark(j,k),m=k*f,n=j*g;c.strokeStyle=l?d.colorDark:d.colorLight,c.lineWidth=1,c.fillStyle=l?d.colorDark:d.colorLight,c.fillRect(m,n,f,g),c.strokeRect(Math.floor(m)+.5,Math.floor(n)+.5,h,i),c.strokeRect(Math.ceil(m)-.5,Math.ceil(n)-.5,h,i)}this._bIsPainted=!0},e.prototype.makeImage=function(){this._bIsPainted&&d.call(this,a)},e.prototype.isPainted=function(){return this._bIsPainted},e.prototype.clear=function(){this._oContext.clearRect(0,0,this._elCanvas.width,this._elCanvas.height),this._bIsPainted=!1},e.prototype.round=function(a){return a?Math.floor(1e3*a)/1e3:a},e}():function(){var a=function(a,b){this._el=a,this._htOption=b};return a.prototype.draw=function(a){for(var b=this._htOption,c=this._el,d=a.getModuleCount(),e=Math.floor(b.width/d),f=Math.floor(b.height/d),g=['<table style="border:0;border-collapse:collapse;">'],h=0;d>h;h++){g.push("<tr>");for(var i=0;d>i;i++)g.push('<td style="border:0;border-collapse:collapse;padding:0;margin:0;width:'+e+"px;height:"+f+"px;background-color:"+(a.isDark(h,i)?b.colorDark:b.colorLight)+';"></td>');g.push("</tr>")}g.push("</table>"),c.innerHTML=g.join("");var j=c.childNodes[0],k=(b.width-j.offsetWidth)/2,l=(b.height-j.offsetHeight)/2;k>0&&l>0&&(j.style.margin=l+"px "+k+"px")},a.prototype.clear=function(){this._el.innerHTML=""},a}();QRCode=function(a,b){if(this._htOption={width:256,height:256,typeNumber:4,colorDark:"#000000",colorLight:"#ffffff",correctLevel:d.H},"string"==typeof b&&(b={text:b}),b)for(var c in b)this._htOption[c]=b[c];"string"==typeof a&&(a=document.getElementById(a)),this._android=n(),this._el=a,this._oQRCode=null,this._oDrawing=new q(this._el,this._htOption),this._htOption.text&&this.makeCode(this._htOption.text)},QRCode.prototype.makeCode=function(a){this._oQRCode=new b(r(a,this._htOption.correctLevel),this._htOption.correctLevel),this._oQRCode.addData(a),this._oQRCode.make(),this._el.title=a,this._oDrawing.draw(this._oQRCode),this.makeImage()},QRCode.prototype.makeImage=function(){"function"==typeof this._oDrawing.makeImage&&(!this._android||this._android>=3)&&this._oDrawing.makeImage()},QRCode.prototype.clear=function(){this._oDrawing.clear()},QRCode.CorrectLevel=d}();
+</script>
+<script>
 // ── v14.50.0 PAY CORE: plain calculations for UPI payment confirmation and the parcel label. No screen or sheet access here. ──
 var PAY_DAYS=5,PAY_MAX_STEP=999,PAY_PICK_FROM=10,PAY_ADJ_MAX=10,PAY_SMS_MAX=1000;
 function _payCents(x){const n=parseFloat(x);return isFinite(n)?Math.round(n*100):NaN;}
@@ -2736,14 +2750,17 @@ function payView(alerts,recs,claims,nowMs){
   const row=(key,ps,c)=>{
     const paid=Math.round(ps.reduce((s,p)=>s+p.amount*100,0))/100;
     const first=ps.reduce((m,p)=>(!m||String(p.txnAt)<String(m))?p.txnAt:m,'');
-    return{key,claim:c||null,pays:ps,utrs:ps.map(p=>p.utr),paid,verified:ps.every(p=>p.verified),
-      confirmed:!!((c&&c.confirmedAt)||ps.some(p=>p.confirmedAt)),date:_payDay(first)||(c?_payDay(c.createdAt):''),
+    const verified=ps.length>0&&ps.every(p=>p.verified);
+    const paidAll=ps.length?paid:(c&&c.paidMark?Math.round((parseFloat(c.amount)||0)*100)/100:0);
+    return{key,claim:c||null,pays:ps,utrs:ps.map(p=>p.utr),paid:paidAll,verified,
+      check:verified?'bank':(c&&c.paidMark==='bank'?'you':'none'),
+      confirmed:!!((c&&c.confirmedAt)||ps.some(p=>p.confirmedAt)),date:_payDay(first)||(c?_payDay(c.paidAt||c.createdAt):''),
       invId:(c&&c.invId)||(ps.find(p=>p.invId)||{}).invId||'',invNo:(c&&c.invNo)||(ps.find(p=>p.invNo)||{}).invNo||''};
   };
   cl.forEach(c=>{
     const ps=byClaim[String(c.id)]||[];
     if(c.status==='cancelled'&&!ps.length){cancelled.push(c);return;}
-    if(!ps.length){waiting.push(c);return;}
+    if(!ps.length&&!c.paidMark){waiting.push(c);return;}
     const r=row('C:'+c.id,ps,c);(r.invId?done:toBill).push(r);
   });
   const known=new Set(cl.map(c=>String(c.id)));
@@ -2762,13 +2779,29 @@ function payUnbilledOld(view,todayStr){
   return (view&&view.toBill||[]).filter(r=>r.date&&r.date<todayStr).map(r=>Object.assign({},r,{days:Math.max(1,Math.round((t-Date.parse(r.date+'T00:00:00Z'))/86400000))}));
 }
 // How the money received compares with the bill. Only up to ₹10 below the bill becomes an adjustment.
-function payBillAdj(grand,paid){
-  const g=_payCents(grand),p=_payCents(paid);
+// auto = the paise the app itself took off this sale; a bigger gap must be asked about (v14.50.1).
+function payBillAdj(grand,paid,auto){
+  const g=_payCents(grand),p=_payCents(paid),a=Math.max(0,_payCents(auto)||0);
   if(!isFinite(g)||!isFinite(p))return{kind:'short',adj:0,diff:0};
   if(p===g)return{kind:'exact',adj:0};
   if(p>g)return{kind:'over',adj:0,diff:(p-g)/100};
-  if(g-p<=PAY_ADJ_MAX*100)return{kind:'adjust',adj:(g-p)/100};
+  if(g-p<=PAY_ADJ_MAX*100)return{kind:'adjust',adj:(g-p)/100,ask:(g-p)>a};
   return{kind:'short',adj:0,diff:(g-p)/100};
+}
+function payOwnGap(c){
+  if(!c)return 0;
+  const p=_payCents(c.price),a=_payCents(c.amount);
+  return isFinite(p)&&isFinite(a)&&p>a?(p-a)/100:0;
+}
+function payDupAmounts(view){
+  const n={};(view&&view.waiting||[]).forEach(c=>{const k=_payCents(c.amount);if(isFinite(k))n[k]=(n[k]||0)+1;});
+  return Object.keys(n).filter(k=>n[k]>1).map(k=>k/100);
+}
+function payUnchecked(view){return (view&&view.toBill||[]).filter(r=>r.check==='none');}
+function payKeyArg(key){
+  const s=String(key==null?'':key),i=s.indexOf(':');
+  const clean=x=>x.replace(/[^\w-]/g,'');
+  return i>0?clean(s.slice(0,i))+':'+clean(s.slice(i+1)):clean(s);
 }
 function payUpiUrl(pa,pn,amount){
   return 'upi://pay?pa='+encodeURIComponent(pa)+'&pn='+encodeURIComponent(pn)+'&am='+(Math.round(parseFloat(amount)*100)/100).toFixed(2)+'&cu=INR';
@@ -15108,16 +15141,9 @@ async function confirmCleanup() {
 let _upiQrInv=null;
 
 function ensureQRLib(){
-  return new Promise((resolve,reject)=>{
-    if(window.QRCode){resolve();return;}
-    const s=document.createElement('script');
-    s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
-    s.onload=resolve;s.onerror=reject;
-    document.head.appendChild(s);
-  });
+  // v14.50.1: the QR library is built into this file, so nothing is downloaded
+  return window.QRCode?Promise.resolve():Promise.reject(new Error('QR library missing'));
 }
-
-let _upiQrWhich='';
 function openUpiQrModal(inv,which){
   _upiQrWhich=which||'';
   if(!S.upiId){toast('⚠️ Add your UPI ID in Settings before making a payment QR.',5000);return;} // v14.49.0
@@ -18044,7 +18070,7 @@ async function vcPayShowQr(c){
 function vcPayTakeStatus(){
   const el=document.getElementById('vc-take-status');if(!el||!_vcTakeId)return;
   const v=vcPayViewNow(),r=v.toBill.concat(v.done).find(x=>x.key==='C:'+_vcTakeId);
-  if(r){el.style.color='#1A6E37';el.textContent='✅ Received '+_payInr(r.paid)+(r.verified?'':' (manual, bank alert not seen yet)');}
+  if(r){el.style.color='#1A6E37';el.textContent='✅ Received '+_payInr(r.paid)+(r.check==='bank'?'':r.check==='you'?' (checked by you)':' (not checked with bank yet)');}
   else{el.style.color='#8F5E00';el.textContent='⏳ Waiting for the bank alert…';}
 }
 function _payQrCanvas(){
@@ -18090,43 +18116,96 @@ function vcPayCopyAmt(){
 }
 
 // ── Bank SMS pasted by hand ──
-async function vcPayPaste(){
-  const el=document.getElementById('vc-pay-paste');if(!el)return;
-  const r=payParseSms(el.value,vcPayAcct());
+async function vcPayPasteText(text){
+  const r=payParseSms(String(text||''),vcPayAcct());
   if(!r.ok){
-    const why={'not-credit':'This is not a credit SMS.','other-account':'This SMS is not for the business account ending '+vcPayAcct()+'.','no-utr':'No UPI reference number found in this SMS.','no-amount':'No amount found in this SMS.','too-long':'Paste one SMS at a time.','empty':'Paste the bank SMS first.'};
-    toast('⚠️ '+(why[r.reason]||'This SMS could not be read.'),6000);return;
+    const why={'not-credit':'This is not a credit SMS.','other-account':'This SMS is not for the business account ending '+vcPayAcct()+'.','no-utr':'No UPI reference number found in this SMS.','no-amount':'No amount found in this SMS.','too-long':'Copy one SMS at a time.','empty':'Copy the bank SMS first.'};
+    toast('⚠️ '+(why[r.reason]||'This SMS could not be read.'),6000);return false;
   }
-  if(bankAlerts.some(a=>payCleanUtr(a.utr)===r.utr)){toast('This payment is already in the list');el.value='';return;}
+  if(bankAlerts.some(a=>payCleanUtr(a.utr)===r.utr)){toast('This payment is already in the list');return true;}
   vcxStore('bank',{id:'U'+r.utr,utr:r.utr,amount:r.amount,acct:r.acct,payer:r.payer,date:r.date,txnAt:r.txnAt||new Date().toISOString(),recAt:new Date().toISOString(),src:'paste'});
-  el.value='';
   const n=vcPayAutoMatch();
   vcxPush();
   toast(n?'✅ '+_payInr(r.amount)+' received and matched to a sale':'✅ '+_payInr(r.amount)+' added. No waiting sale has this exact amount, so link it by hand.',5000);
   vcPayRefresh();
-}
-
-// ── Manual Received, Not a sale, linking, confirming ──
-function vcPayManual(id){
-  const c=_payClaim(id);if(!c)return;
-  _vcEnsureModal('vc-pay-man-modal','<div class="modal" style="max-width:420px;"><button class="modal-close" onclick="document.getElementById(\'vc-pay-man-modal\').classList.remove(\'open\')">✕</button>'
-    +'<div class="modal-title">Mark received</div><div style="font-size:13px;color:#636366;margin-bottom:12px;line-height:1.5;">For '+esc(_payInr(c.amount))+'. Type the 12-digit UPI reference (UTR) from the customer\'s screenshot. It stays marked Manual until the bank alert arrives.</div>'
-    +'<div class="fg"><label for="vc-pay-man-utr">UPI reference (12 digits)</label><input id="vc-pay-man-utr" inputmode="numeric" maxlength="16" autocomplete="off"/></div>'
-    +'<button class="btn btn-p" style="width:100%;" onclick="if(vcPayManualSave(\''+_vcIdArg(c.id)+'\',document.getElementById(\'vc-pay-man-utr\').value))document.getElementById(\'vc-pay-man-modal\').classList.remove(\'open\')">Save</button></div>').classList.add('open');
-}
-function vcPayManualSave(id,utrIn){
-  const c=_payClaim(id),utr=payCleanUtr(utrIn);
-  if(!c)return false;
-  if(!utr){toast('⚠️ The UPI reference is 12 digits');return false;}
-  const r=_payRec(utr);
-  if(r&&r.claimId&&String(r.claimId)!==String(id)){toast('⚠️ This reference is already linked to another sale');return false;}
-  if(r&&r.notSale){toast('⚠️ This reference is marked Not a sale');return false;}
-  const alert=bankAlerts.find(a=>payCleanUtr(a.utr)===utr);
-  _paySetRec(utr,{claimId:String(id),amount:alert?alert.amount:c.amount,manual:!alert,at:new Date().toISOString()});
-  vcxPush();vcPayRefresh();
-  toast(alert?'✅ Linked to the bank alert':'✅ Marked received (manual)');
   return true;
 }
+async function vcPayPaste(){
+  const el=document.getElementById('vc-pay-paste');if(!el)return;
+  if(await vcPayPasteText(el.value)){el.value='';_payBoxOpen=false;const b=document.getElementById('vc-pay-paste-box');if(b)b.style.display='none';}
+}
+let _payBoxOpen=false;
+function _payShowBox(){_payBoxOpen=true;const b=document.getElementById('vc-pay-paste-box');if(b)b.style.display='block';const t=document.getElementById('vc-pay-paste');if(t)t.focus();}
+// One tap: reads the SMS copied from Messages. Falls back to a box when the browser will not share the clipboard.
+async function vcPayClipboard(){
+  let text='';
+  try{
+    if(!navigator.clipboard||!navigator.clipboard.readText)throw new Error('no clipboard');
+    text=await navigator.clipboard.readText();
+  }catch(e){_payShowBox();toast('Paste the SMS into the box below.',4000);return;}
+  if(!String(text).trim()){_payShowBox();toast('Nothing copied yet. Copy the SMS in Messages first.',4000);return;}
+  await vcPayPasteText(text);
+}
+
+// ── Mark paid (no UTR needed), Add payment ──
+function vcPayMarkModal(id){
+  const c=_payClaim(id);if(!c)return;
+  const cid=_vcIdArg(c.id);
+  const close="document.getElementById('vc-pay-man-modal').classList.remove('open')";
+  _vcEnsureModal('vc-pay-man-modal','<div class="modal" style="max-width:420px;"><button class="modal-close" onclick="'+close+'">✕</button>'
+    +'<div class="modal-title">Mark paid</div><div style="font-size:13px;color:#636366;margin-bottom:12px;line-height:1.5;">'+esc(_payInr(c.amount))+'. How do you know it was paid?</div>'
+    +'<div class="fg"><label for="vc-pay-man-utr">UPI reference (optional, 12 digits)</label><input id="vc-pay-man-utr" inputmode="numeric" maxlength="16" autocomplete="off"/></div>'
+    +'<div style="display:flex;flex-direction:column;gap:8px;">'
+    +'<button class="btn btn-p" style="width:100%;" onclick="if(vcPayMarkPaid(\''+cid+'\',\'bank\',document.getElementById(\'vc-pay-man-utr\').value))'+close+'">Seen in bank app</button>'
+    +'<button class="btn btn-o" style="width:100%;" onclick="if(vcPayMarkPaid(\''+cid+'\',\'shot\',document.getElementById(\'vc-pay-man-utr\').value))'+close+'">Customer&#39;s screenshot only</button>'
+    +'</div><div style="font-size:12px;color:#636366;margin-top:10px;line-height:1.5;">Screenshot only stays "Not checked with bank" until the bank SMS for this amount arrives, or until you tap Seen in bank app later.</div></div>').classList.add('open');
+}
+function _payWho(){const a=_vcAuthGet()||{};return String(a.e||'').slice(0,80);}
+function vcPayMarkPaid(id,how,utrIn){
+  const c=_payClaim(id);if(!c)return false;
+  const typed=String(utrIn==null?'':utrIn).trim(),utr=payCleanUtr(typed);
+  if(typed&&!utr){toast('⚠️ The UPI reference is 12 digits. Leave it empty if you do not have it.');return false;}
+  if(utr){
+    const r=_payRec(utr);
+    if(r&&r.claimId&&String(r.claimId)!==String(id)){toast('⚠️ This reference is already linked to another sale');return false;}
+    if(r&&r.notSale){toast('⚠️ This reference is marked Not a sale');return false;}
+    const alert=bankAlerts.find(a=>payCleanUtr(a.utr)===utr);
+    _paySetRec(utr,{claimId:String(id),amount:alert?alert.amount:c.amount,manual:!alert,at:new Date().toISOString()});
+  }
+  const mark=(how==='bank'||c.paidMark==='bank')?'bank':'shot';
+  _paySetClaim(id,{paidMark:mark,paidBy:_payWho(),paidAt:c.paidAt||new Date().toISOString()});
+  vcxPush();vcPayRefresh();
+  toast(mark==='bank'?'✅ Marked paid, checked by you':'✅ Marked paid, not checked with bank yet');
+  return true;
+}
+function vcPayUnmark(id){
+  const c=_payClaim(id);if(!c||c.invId)return;
+  _paySetClaim(id,{paidMark:'',paidBy:'',paidAt:''});vcxPush();vcPayRefresh();
+}
+function vcPayAddModal(){
+  const close="document.getElementById('vc-pay-add-modal').classList.remove('open')";
+  _vcEnsureModal('vc-pay-add-modal','<div class="modal" style="max-width:420px;"><button class="modal-close" onclick="'+close+'">✕</button>'
+    +'<div class="modal-title">Add payment</div><div style="font-size:13px;color:#636366;margin-bottom:12px;line-height:1.5;">For money you can see in the bank app but have no SMS for, and no waiting sale. It is marked as checked by you.</div>'
+    +'<div class="fg"><label for="vc-pay-add-amt">Amount received (₹)</label><input id="vc-pay-add-amt" type="number" inputmode="decimal" min="1" step="0.01"/></div>'
+    +'<div class="fg"><label for="vc-pay-add-utr">UPI reference (optional, 12 digits)</label><input id="vc-pay-add-utr" inputmode="numeric" maxlength="16" autocomplete="off"/></div>'
+    +'<button class="btn btn-p" style="width:100%;" onclick="if(vcPayAddSave(document.getElementById(\'vc-pay-add-amt\').value,document.getElementById(\'vc-pay-add-utr\').value))'+close+'">Save</button></div>').classList.add('open');
+}
+function vcPayAddSave(amtIn,utrIn){
+  const amount=Math.round(parseFloat(amtIn)*100)/100;
+  if(!(amount>=1)||amount>10000000){toast('⚠️ Enter the amount');return false;}
+  const typed=String(utrIn==null?'':utrIn).trim(),utr=payCleanUtr(typed);
+  if(typed&&!utr){toast('⚠️ The UPI reference is 12 digits. Leave it empty if you do not have it.');return false;}
+  const old=utr?_payRec(utr):null;
+  if(old&&(old.claimId||old.invId)){toast('⚠️ This reference is already in the list');return false;}
+  const now=new Date().toISOString();
+  const c={id:'C'+uid(),price:amount,amount,createdAt:now,by:_payWho(),status:'open',added:true,paidMark:'bank',paidBy:_payWho(),paidAt:now};
+  vcxStore('payc',c);
+  if(utr){const alert=bankAlerts.find(a=>payCleanUtr(a.utr)===utr);_paySetRec(utr,{claimId:c.id,amount:alert?alert.amount:amount,manual:!alert,at:now});}
+  vcxPush();vcPayRefresh();toast('✅ Payment added');
+  return true;
+}
+
+// ── Not a sale, linking, confirming ──
 function vcPayNotSale(utr){
   const u=payCleanUtr(utr);if(!u)return;
   const p=vcPayViewNow().payments.find(x=>x.utr===u);
@@ -18168,8 +18247,9 @@ function vcPayUnlink(utr){
 function vcPayCancelClaim(id){
   showConfirmModal('Cancel this sale?','The customer has not paid and will not pay this amount. The QR amount stays blocked for 5 days so a late payment is not mistaken for another sale.',()=>{_paySetClaim(id,{status:'cancelled'});vcxPush();vcPayRefresh();},null);
 }
+function _payRowByKey(key){const k=payKeyArg(key);return vcPayViewNow().toBill.find(x=>payKeyArg(x.key)===k)||null;}
 function vcPayConfirm(key){
-  const r=vcPayViewNow().toBill.find(x=>x.key===key);if(!r)return;
+  const r=_payRowByKey(key);if(!r)return;
   window.open('https://wa.me/?text='+encodeURIComponent(payWaMsg(r.paid,r.date,r.utrs)),'_blank');
   const at=new Date().toISOString();
   if(r.claim)_paySetClaim(r.claim.id,{confirmedAt:at});else r.utrs.forEach(u=>_paySetRec(u,{confirmedAt:at}));
@@ -18179,40 +18259,55 @@ function vcPayConfirm(key){
 // ── Payments page ──
 function _payRowHtml(r){
   const tags=[];
-  if(!r.verified)tags.push('<span class="badge b-yellow">Manual</span>');
+  if(r.check==='none')tags.push('<span class="badge b-yellow">Not checked with bank</span>');
+  if(r.check==='you')tags.push('<span class="badge b-blue">Checked by you</span>');
   if(r.pays.some(p=>p.src==='paste'))tags.push('<span class="badge b-blue">Pasted</span>');
   if(!r.claim)tags.push('<span class="badge b-yellow">Not linked to a sale</span>');
+  if(r.claim&&r.claim.added)tags.push('<span class="badge b-blue">Added by hand</span>');
   if(r.confirmed)tags.push('<span class="badge b-green">Confirmed</span>');
-  const k=esc(r.key).replace(/'/g,'');
-  const u=r.utrs[0]||'';
+  const k=payKeyArg(r.key); // v14.50.1 fix 7: only letters, digits, - and : can reach a button
+  const u=payCleanUtr(r.utrs[0]||'');
   const btns=['<button class="btn btn-p btn-sm" onclick="vcPayStartBill(\''+k+'\')">Bill</button>',
     '<button class="btn btn-o btn-sm" onclick="vcPayConfirm(\''+k+'\')">💬 Confirm</button>'];
-  if(!r.claim){btns.push('<button class="btn btn-o btn-sm" onclick="vcPayLinkMenu(\''+u+'\',this)">Link</button>');btns.push('<button class="btn btn-o btn-sm" onclick="vcPayNotSale(\''+u+'\')">Not a sale</button>');}
-  else if(r.utrs.length)btns.push('<button class="btn btn-o btn-sm" onclick="vcPayRowMenu(\''+k+'\',this)">…</button>');
+  if(r.claim&&r.check==='none')btns.push('<button class="btn btn-o btn-sm" onclick="vcPayMarkPaid(\''+_vcIdArg(r.claim.id)+'\',\'bank\',\'\')">Seen in bank app</button>');
+  if(!r.claim&&u){btns.push('<button class="btn btn-o btn-sm" onclick="vcPayLinkMenu(\''+u+'\',this)">Link</button>');btns.push('<button class="btn btn-o btn-sm" onclick="vcPayNotSale(\''+u+'\')">Not a sale</button>');}
+  else if(r.claim)btns.push('<button class="btn btn-o btn-sm" aria-label="More" onclick="vcPayRowMenu(\''+k+'\',this)">…</button>');
+  const when=(r.pays[0]&&r.pays[0].txnAt)||(r.claim&&(r.claim.paidAt||r.claim.createdAt))||'';
   return'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="min-width:0;flex:1 1 220px;"><div class="list-main">'+esc(_payInr(r.paid))+(r.claim&&_payCents(r.claim.price)!==_payCents(r.paid)?' <span style="font-weight:400;color:#636366;font-size:12px;">price '+esc(_payInr(r.claim.price))+'</span>':'')+'</div>'
-    +'<div class="list-sub">'+esc(_payTimeTxt(r.pays[0]&&r.pays[0].txnAt))+' · Ref '+esc(r.utrs.join(', '))+(r.pays[0]&&r.pays[0].payer?' · '+esc(r.pays[0].payer):'')+'</div>'
+    +'<div class="list-sub">'+esc(_payTimeTxt(when))+(r.utrs.length?' · Ref '+esc(r.utrs.join(', ')):'')+(r.pays[0]&&r.pays[0].payer?' · '+esc(r.pays[0].payer):'')+'</div>'
     +(tags.length?'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">'+tags.join('')+'</div>':'')+'</div>'
     +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+btns.join('')+'</div></div>';
 }
 function vcPayRowMenu(key,btn){
-  const r=vcPayViewNow().toBill.find(x=>x.key===key);if(!r)return;
-  uiSheet('Payment',r.utrs.map(u=>({label:'Unlink Ref '+u,fn:()=>vcPayUnlink(u)})),btn);
+  const r=_payRowByKey(key);if(!r)return;
+  const opts=r.utrs.map(u=>({label:'Unlink Ref '+u,fn:()=>vcPayUnlink(u)}));
+  if(r.claim&&!r.pays.length)opts.push({label:'Undo Mark paid',fn:()=>vcPayUnmark(r.claim.id)});
+  if(!opts.length)return;
+  uiSheet('Payment',opts,btn);
 }
 function buildPaymentsPage(){return'<div id="vc-pay"></div>';}
 function vcPayRender(){
   const el=document.getElementById('vc-pay');if(!el)return;
+  // A background refresh must not close the paste box or lose what is typed in it
+  const _ta=document.getElementById('vc-pay-paste'),_typed=_ta?_ta.value:'',_focus=_ta&&document.activeElement===_ta;
   const v=vcPayViewNow();
   const head=(t,n)=>'<div class="card-title">'+t+' ('+n+')</div>';
   let h='<div class="card"><div class="btn-row" style="justify-content:flex-start;flex-wrap:wrap;margin-top:0;"><button class="btn btn-p" onclick="vcPayOpenTake()">💳 Take payment</button><button class="btn btn-o" onclick="vcPayPull(true).then(ok=>toast(ok?\'Up to date\':\'⚠️ Could not reach the sheet\'))">🔄 Refresh</button></div>'
     +(S.upiId?'':'<div style="margin-top:10px;font-size:13px;color:#C0392B;">Add your UPI ID in Settings before taking payments.</div>')+'</div>';
-  h+='<div class="card"><div class="card-title">Paste bank SMS</div><div style="font-size:12px;color:#636366;margin-bottom:8px;line-height:1.5;">Only if the iPhone forwarding missed one. Business account ending '+esc(vcPayAcct())+' only.</div>'
-    +'<div class="fg" style="margin-bottom:8px;"><textarea id="vc-pay-paste" rows="4" maxlength="1000" placeholder="INR … credited A/c no. XX'+esc(vcPayAcct())+' …" aria-label="Bank SMS"></textarea></div><button class="btn btn-o btn-sm" onclick="vcPayPaste()">Add payment</button></div>';
-  h+='<div class="card">'+head('⏳ Waiting for bank',v.waiting.length)+(v.waiting.length?v.waiting.slice().reverse().map(c=>'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="flex:1 1 200px;"><div class="list-main">'+esc(_payInr(c.amount))+'</div><div class="list-sub">'+esc(_payTimeTxt(c.createdAt))+' · price '+esc(_payInr(c.price))+'</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-o btn-sm" onclick="vcPayReopen(\''+_vcIdArg(c.id)+'\')">QR</button><button class="btn btn-o btn-sm" onclick="vcPayManual(\''+_vcIdArg(c.id)+'\')">Received</button><button class="btn btn-d btn-sm" onclick="vcPayCancelClaim(\''+_vcIdArg(c.id)+'\')">Cancel</button></div></div>').join(''):'<div class="list-sub" style="padding:8px 0;">Nothing waiting.</div>')+'</div>';
+  h+='<div class="card"><div class="card-title">Missed bank SMS</div><div style="font-size:12px;color:#636366;margin-bottom:10px;line-height:1.5;">If the iPhone forwarding missed one: copy the SMS in Messages, then tap Paste bank SMS. Business account ending '+esc(vcPayAcct())+' only.</div>'
+    +'<div class="btn-row" style="justify-content:flex-start;flex-wrap:wrap;margin-top:0;"><button class="btn btn-p btn-sm" onclick="vcPayClipboard()">📋 Paste bank SMS</button><button class="btn btn-o btn-sm" onclick="vcPayAddModal()">＋ Add payment (no SMS)</button><button class="btn btn-plain btn-sm" onclick="_payShowBox()">Paste by hand</button></div>'
+    +'<div id="vc-pay-paste-box" style="display:none;margin-top:10px;"><div class="fg" style="margin-bottom:8px;"><textarea id="vc-pay-paste" rows="4" maxlength="1000" placeholder="INR … credited A/c no. XX'+esc(vcPayAcct())+' …" aria-label="Bank SMS"></textarea></div><button class="btn btn-o btn-sm" onclick="vcPayPaste()">Add</button></div></div>';
+  const dup=payDupAmounts(v); // v14.50.1 fix 10
+  if(dup.length)h+='<div class="card" style="background:#fff8e1;border:1px solid #f5c26b;font-size:13px;color:#7a5200;line-height:1.5;">⚠️ Two waiting sales have the same amount: '+dup.map(x=>esc(_payInr(x))).join(', ')+'. This can happen when both phones make a QR at the same moment. When it is paid, link it by hand, or cancel one sale and make a new QR.</div>';
+  h+='<div class="card">'+head('⏳ Waiting for bank',v.waiting.length)+(v.waiting.length?v.waiting.slice().reverse().map(c=>'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="flex:1 1 200px;"><div class="list-main">'+esc(_payInr(c.amount))+'</div><div class="list-sub">'+esc(_payTimeTxt(c.createdAt))+' · price '+esc(_payInr(c.price))+'</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-o btn-sm" onclick="vcPayReopen(\''+_vcIdArg(c.id)+'\')">QR</button><button class="btn btn-o btn-sm" onclick="vcPayMarkModal(\''+_vcIdArg(c.id)+'\')">Mark paid</button><button class="btn btn-d btn-sm" onclick="vcPayCancelClaim(\''+_vcIdArg(c.id)+'\')">Cancel</button></div></div>').join(''):'<div class="list-sub" style="padding:8px 0;">Nothing waiting.</div>')+'</div>';
   h+='<div class="card">'+head('✅ Received, not billed',v.toBill.length)+(v.toBill.length?v.toBill.slice().reverse().map(_payRowHtml).join(''):'<div class="list-sub" style="padding:8px 0;">Everything received is billed.</div>')+'</div>';
   if(v.notSale.length)h+='<details class="card collapse-card"><summary class="collapse-summary"><span class="card-title" style="margin:0;display:inline;">Not a sale ('+v.notSale.length+')</span><span class="collapse-chevron">▾</span></summary><div style="margin-top:8px;">'+v.notSale.slice().reverse().map(p=>'<div class="list-row"><div><div class="list-main">'+esc(_payInr(p.amount))+'</div><div class="list-sub">'+esc(_payTimeTxt(p.txnAt))+' · Ref '+esc(p.utr)+' · '+esc(PAY_NS[p.nsReason]||'Other')+(p.nsNote?': '+esc(p.nsNote):'')+'</div></div><button class="btn btn-o btn-sm" onclick="vcPayNotSaleUndo(\''+p.utr+'\')">Undo</button></div>').join('')+'</div></details>';
   const recent=v.done.filter(r=>r.date>=new Date(Date.now()-30*86400000).toISOString().slice(0,10));
-  if(recent.length)h+='<details class="card collapse-card"><summary class="collapse-summary"><span class="card-title" style="margin:0;display:inline;">Billed, last 30 days ('+recent.length+')</span><span class="collapse-chevron">▾</span></summary><div style="margin-top:8px;">'+recent.slice().reverse().map(r=>'<div class="list-row"><div><div class="list-main">'+esc(_payInr(r.paid))+' · '+esc(r.invNo)+'</div><div class="list-sub">'+esc(_payTimeTxt(r.pays[0]&&r.pays[0].txnAt))+' · Ref '+esc(r.utrs.join(', '))+'</div></div></div>').join('')+'</div></details>';
+  if(recent.length)h+='<details class="card collapse-card"><summary class="collapse-summary"><span class="card-title" style="margin:0;display:inline;">Billed, last 30 days ('+recent.length+')</span><span class="collapse-chevron">▾</span></summary><div style="margin-top:8px;">'+recent.slice().reverse().map(r=>'<div class="list-row"><div><div class="list-main">'+esc(_payInr(r.paid))+' · '+esc(r.invNo)+'</div><div class="list-sub">'+esc(_payTimeTxt((r.pays[0]&&r.pays[0].txnAt)||(r.claim&&r.claim.paidAt)))+(r.utrs.length?' · Ref '+esc(r.utrs.join(', ')):'')+'</div></div></div>').join('')+'</div></details>';
   el.innerHTML=h;
+  const box=document.getElementById('vc-pay-paste-box'),ta=document.getElementById('vc-pay-paste');
+  if(box&&(_payBoxOpen||_typed))box.style.display='block';
+  if(ta&&_typed){ta.value=_typed;if(_focus)ta.focus();}
 }
 
 // ── Dashboard card and the midnight check ──
@@ -18224,14 +18319,17 @@ function vcPayCard(){
   let h='<div class="card-title">💳 Payments</div>'
     +'<div style="display:flex;gap:16px;font-size:14px;margin-bottom:10px;flex-wrap:wrap;"><span>⏳ Waiting: <strong>'+v.waiting.length+'</strong></span><span>✅ Received, not billed: <strong>'+v.toBill.length+'</strong></span></div>';
   if(old.length)h+='<div style="background:#fde8e8;border:1px solid #e6b0aa;border-radius:10px;padding:10px 12px;font-size:13px;color:#C0392B;margin-bottom:10px;line-height:1.6;"><strong>Not billed from earlier days ('+old.length+')</strong><br/>'
-    +old.slice(0,10).map(r=>esc(_payInr(r.paid))+' · '+esc(fmtDate(r.date))+' · Ref '+esc(r.utrs.join(', '))+' · '+r.days+(r.days===1?' day':' days')+' old').join('<br/>')+(old.length>10?'<br/>and '+(old.length-10)+' more':'')+'</div>';
+    +old.slice(0,10).map(r=>esc(_payInr(r.paid))+' · '+esc(fmtDate(r.date))+(r.utrs.length?' · Ref '+esc(r.utrs.join(', ')):'')+' · '+r.days+(r.days===1?' day':' days')+' old').join('<br/>')+(old.length>10?'<br/>and '+(old.length-10)+' more':'')+'</div>';
+  const unc=payUnchecked(v);
+  if(unc.length)h+='<div style="background:#fff8e1;border:1px solid #f5c26b;border-radius:10px;padding:10px 12px;font-size:13px;color:#7a5200;margin-bottom:10px;line-height:1.6;"><strong>Not checked with bank ('+unc.length+')</strong><br/>'
+    +unc.slice(0,10).map(r=>esc(_payInr(r.paid))+' · marked paid '+esc(_payTimeTxt(r.claim&&(r.claim.paidAt||r.claim.createdAt)))).join('<br/>')+'<br/>Check these in the Axis app before shipping.</div>';
   h+='<div class="btn-row" style="justify-content:flex-start;flex-wrap:wrap;margin-top:0;"><button class="btn btn-p btn-sm" onclick="vcPayOpenTake()">💳 Take payment</button><button class="btn btn-o btn-sm" onclick="showSubPage(\'payments\')">Open Payments</button></div>';
   el.innerHTML=h;
 }
 
 // ── Billing from a payment ──
 function vcPayStartBill(key){
-  const r=vcPayViewNow().toBill.find(x=>x.key===key);
+  const r=_payRowByKey(key);
   if(!r){toast('⚠️ This payment is no longer waiting for a bill');return;}
   _vcPayLink={key,utrs:r.utrs.slice(),paid:r.paid,claimId:r.claim?String(r.claim.id):''};
   try{closeSubPage();}catch(e){}
@@ -18243,7 +18341,7 @@ function vcPayStartBill(key){
 function vcPayLinkPick(btn){
   const v=vcPayViewNow();
   if(!v.toBill.length){toast('No received payment waiting for a bill');return;}
-  uiSheet('Which payment is this bill for?',v.toBill.map(r=>({label:_payInr(r.paid)+' · '+_payTimeTxt(r.pays[0]&&r.pays[0].txnAt)+' · Ref '+r.utrs.join(', '),fn:()=>vcPayStartBill(r.key)})),btn);
+  uiSheet('Which payment is this bill for?',v.toBill.map(r=>({label:_payInr(r.paid)+' · '+_payTimeTxt((r.pays[0]&&r.pays[0].txnAt)||(r.claim&&r.claim.paidAt))+(r.utrs.length?' · Ref '+r.utrs.join(', '):''),fn:()=>vcPayStartBill(r.key)})),btn);
 }
 function vcPayUnlinkBill(){_vcPayLink=null;vcPayLinkCard();recalc();}
 function vcPayLinkCard(){
@@ -18252,7 +18350,7 @@ function vcPayLinkCard(){
     const anchor=document.getElementById('vc-slips-card');if(!anchor)return;
     c=document.createElement('div');c.className='card';c.id='vc-paylink-card';anchor.parentNode.insertBefore(c,anchor);
   }
-  if(_vcPayLink)c.innerHTML='<div class="card-title">💳 Paid by UPI</div><div style="font-size:15px;font-weight:600;">'+esc(_payInr(_vcPayLink.paid))+'</div><div class="list-sub" style="margin-bottom:10px;">Ref '+esc(_vcPayLink.utrs.join(', '))+'</div><button class="btn btn-o btn-sm" onclick="vcPayUnlinkBill()">Remove link</button>';
+  if(_vcPayLink)c.innerHTML='<div class="card-title">💳 Paid by UPI</div><div style="font-size:15px;font-weight:600;">'+esc(_payInr(_vcPayLink.paid))+'</div><div class="list-sub" style="margin-bottom:10px;">'+(_vcPayLink.utrs.length?'Ref '+esc(_vcPayLink.utrs.join(', ')):'No UPI reference')+'</div><button class="btn btn-o btn-sm" onclick="vcPayUnlinkBill()">Remove link</button>';
   else c.innerHTML='<div class="card-title">💳 UPI payment</div><div class="list-sub" style="margin-bottom:10px;">For an online order paid by UPI, link the payment so the bill matches the money received.</div><button class="btn btn-o btn-sm" onclick="vcPayLinkPick(this)">Link a received payment</button>';
 }
 function _payAsk(title,body){
@@ -18265,7 +18363,8 @@ async function vcPayGate(){
   if(_vcPayLink){
     const r=vcPayViewNow().toBill.find(x=>x.key===_vcPayLink.key);
     if(!r){_vcPayLink=null;vcPayLinkCard();toast('⚠️ The linked payment was billed on another device. Link another one.',6000);return false;}
-    const a=payBillAdj(grand,r.paid),refs=r.utrs.join(',');
+    const a=payBillAdj(grand,r.paid,payOwnGap(r.claim)),refs=r.utrs.join(','); // v14.50.1 fix 8
+    if(a.kind==='adjust'&&a.ask&&!(await _payAsk('Payment is less than the bill','The customer paid '+esc(_payInr(r.paid))+', which is '+esc(_payInr(a.adj))+' less than this bill and more than the paise the app took off the QR. Show '+esc(_payInr(a.adj))+' as UPI payment adjustment, so the bill equals the money received?')))return false;
     if(a.kind==='over'&&!(await _payAsk('Paid more than the bill','The customer paid '+esc(_payInr(r.paid))+', which is '+esc(_payInr(a.diff))+' more than this bill. The bill will show '+esc(_payInr(grand))+'. Bill it anyway?')))return false;
     if(a.kind==='short'&&!(await _payAsk('Bill is more than the payment','This bill is '+esc(_payInr(a.diff))+' more than the payment linked ('+esc(_payInr(r.paid))+'). Bill it anyway?')))return false;
     return{adj:a.adj||0,refs,link:Object.assign({},_vcPayLink,{utrs:r.utrs,claimId:r.claim?String(r.claim.id):''})};
@@ -18286,9 +18385,10 @@ function vcPayRecalcNote(){
   const sb=document.getElementById('summary-box');if(!sb||!_vcPayLink)return;
   const ship=parseFloat(document.getElementById('shipping')?.value)||0,disc=parseFloat(document.getElementById('discount')?.value)||0;
   if(!items.some(i=>i.unitPrice>0))return;
-  const g=calcTotals(items,ship,disc).grandIncl,a=payBillAdj(g,_vcPayLink.paid);
+  const lr=_payRowByKey(_vcPayLink.key);
+  const g=calcTotals(items,ship,disc).grandIncl,a=payBillAdj(g,_vcPayLink.paid,payOwnGap(lr&&lr.claim));
   let t='';
-  if(a.kind==='adjust')t='<div class="list-row" style="color:#c0392b;"><span>UPI payment adjustment</span><strong>−'+esc(_payInr(a.adj))+'</strong></div><div class="list-row" style="font-weight:700;"><span>Bill total = paid</span><strong>'+esc(_payInr(_vcPayLink.paid))+'</strong></div>';
+  if(a.kind==='adjust')t=(a.ask?'<div class="list-row" style="color:#8F5E00;font-size:13px;"><span>More than the QR paise, you will be asked</span><span>⚠️</span></div>':'')+'<div class="list-row" style="color:#c0392b;"><span>UPI payment adjustment</span><strong>−'+esc(_payInr(a.adj))+'</strong></div><div class="list-row" style="font-weight:700;"><span>Bill total = paid</span><strong>'+esc(_payInr(_vcPayLink.paid))+'</strong></div>';
   else if(a.kind==='exact')t='<div class="list-row" style="color:#1A6E37;"><span>Matches the UPI payment</span><strong>✓</strong></div>';
   else t='<div class="list-row" style="color:#C0392B;font-size:13px;"><span>Payment linked: '+esc(_payInr(_vcPayLink.paid))+'</span><strong>'+(a.kind==='over'?'paid '+esc(_payInr(a.diff))+' more':'bill '+esc(_payInr(a.diff))+' more')+'</strong></div>';
   sb.insertAdjacentHTML('beforeend',t);
@@ -18311,7 +18411,7 @@ function vcPaySettingsSave(){
   after('renderDashboard',vcPayCard);
   after('resetInvoiceForm',()=>{_vcPayLink=null;vcPayLinkCard();});
   after('showPage',p=>{if(p==='invoice')vcPayLinkCard();if(p==='dash')vcPayPull(false);});
-  after('showSubPage',id=>{if(id==='payments'){vcPayRender();vcPayPull(true);}});
+  after('showSubPage',id=>{if(id==='payments'){_payBoxOpen=false;vcPayRender();vcPayPull(true);}});
   after('toggleSettings',vcPaySettingsFill);
   after('saveSettings',vcPaySettingsSave);
   const sy=window.syncAll;
