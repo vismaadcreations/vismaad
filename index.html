@@ -3,10 +3,20 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.49.1
+APP: Vismaad Creations v14.50.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 04-Nov-2026 - v14.49.1: BILL COPIES ON EVERY DISPATCH TYPE, EMAIL SIGN-IN AND SECURITY FIXES. Needs Code.gs v6 deployed on the same link.
+LAST_CHANGE: 09-Nov-2026 - v14.50.0: UPI PAYMENT CONFIRMATION + LABEL VALUE IN WORDS. Needs Code.gs v7 deployed on the same link, then setupPayments() run once.
+(P1) TAKE PAYMENT (Dashboard card, More → Payments). Type the agreed price; the app picks an amount a few paise BELOW it (never above) that no sale or bank credit has used in the last 5 days, and shows the QR (UPI ID from Settings, exact amount, no merchant code). Share QR sends an image with the amount, or saves it and copies a message. No customer name. Saved as a sale "Waiting for bank" (new PayClaims sheet).
+(P2) BANK SMS IN. The iPhone Shortcut posts each Axis SMS containing XX1045 to Code.gs (action smsIn, secret key kept only in the Shortcut). Code.gs keeps only credits to the business account (last 4 digits), needs a UPI reference, stores each reference once (new BankAlerts sheet). Paste bank SMS box on the Payments page as the backup, same checks. Reads P2A and P2M lines.
+(P3) MATCHING. A credit whose amount equals exactly one waiting sale made before it is linked to that sale (Received). Anything else is "Received, not linked": Link it to a sale (several references can go on one sale for split payments), or mark Not a sale (own transfer, refund, other with a note), which can be undone. Mark received by hand needs the 12-digit reference from the screenshot and stays tagged Manual until the bank alert with that reference arrives. Cancel a waiting sale. Link and Not a sale states are in the new PayRecs sheet.
+(P4) PAYMENTS PAGE: Take payment, Refresh, Paste bank SMS, Waiting for bank, Received not billed (Bill, WhatsApp Confirm, Link, Not a sale), Not a sale and Billed (last 30 days) lists. Checks the sheet every 30 seconds while open, and after every sync.
+(P5) BILLING FROM A PAYMENT. Bill on a payment, or Link a received payment on the Invoice page. If the bill is up to ₹10 above the money received, the gap becomes "UPI payment adjustment" (stored as qrAdj, included in discount so all GST maths is unchanged, printed on its own line under any manual discount), so the bill total equals the money received. More than ₹10 apart, or paid more, asks first. The reference prints on the bill ("Paid by UPI, Ref …") and goes into the Sales Book remarks (payRefs). A prepaid online bill (not walk-in, hand delivery or COD) with no linked payment asks "Bill it anyway?" and does not block.
+(P6) AMOUNT IN WORDS on bills now includes paise ("… Rupees and Ninety Eight Paise Only"); it used to round to the nearest rupee, which would misstate every paise bill.
+(P7) MIDNIGHT CHECK. The Dashboard payments card lists received payments from earlier days that have no bill, with age in days, and redraws when the date changes.
+(P8) TRIAL LABEL. No item names, prices, shipping, discount or total outside. Under the sender address, small grey: "Cont. val: <goods value in words>" (goods after discount, no shipping, no paise, no "rupees"); each parcel shows its own share. COD parcels still show the amount to collect. "Bill copies for inside" prints the Original for parcel 1 and a copy for each other parcel. The existing address label is unchanged.
+NEW SETTING: payAcct (business account last 4 digits, default 1045, this device). NEW INVOICE FIELDS: qrAdj, payRefs. NEW SHEETS: PayClaims, PayRecs, BankAlerts. UNCHANGED: walk-in QR and Order Slip QR.
+PREV_CHANGE: 04-Nov-2026 - v14.49.1: BILL COPIES ON EVERY DISPATCH TYPE, EMAIL SIGN-IN AND SECURITY FIXES. Needs Code.gs v6 deployed on the same link.
 (S1) EMAIL SIGN-IN. A device with no sign-in shows a full-screen sign-in page and asks the sheet for nothing. Enter an email listed in the AllowedEmails tab, get a 6-digit code, done once per browser. All records on the device stay put and unsynced changes upload after sign-in. Every sheet request carries the device token. A refused request brings the sign-in page back. Settings shows who is signed in, with Sign out. The token is not in Settings or the config backup. A refused or failed read is now an error (gsRead used to treat it as an empty sheet).
 (S2) CATALOGUE. Catalogue writes report failure properly instead of always claiming success.
 (S3) PLAIN TEXT ON OLDER SCREENS (report 6.2). Customer, product, supplier, courier and note text is escaped on the Dashboard, invoice, credit note, inventory, tracking, DS report, labels, QR and price list. Text inside click handlers is escaped too. The DS report Copy Tracking button, broken by quotes in its handler, works again.
@@ -1122,6 +1132,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <div class="stat-card"><div class="stat-val" id="ds-stock">—</div><div class="stat-lbl">In Stock</div></div>
     <div class="stat-card"><div class="stat-val" id="ds-products">—</div><div class="stat-lbl">Products</div></div>
   </div>
+  <div class="card" id="vc-pay-card" style="display:none;"></div>
   <div class="card">
     <div class="card-title">📦 Pending Orders</div>
     <div id="dash-orders"><div style="color:#aaa;font-size:13px;text-align:center;padding:20px;">Loading…</div></div>
@@ -1531,6 +1542,10 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
   <div class="sec-title">More</div>
 
   <!-- Quick actions (v14.45.0: grouped list) -->
+  <div class="ui-group-h">Payments</div>
+  <div class="ui-group">
+      <button type="button" class="ui-row" onclick="showSubPage('payments')"><span class="ui-ico" style="background:#34C759;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg></span><span class="ui-lbl">Payments</span><span class="ui-chev" aria-hidden="true">›</span></button>
+  </div>
   <div class="ui-group-h">Reports</div>
   <div class="ui-group">
       <button type="button" class="ui-row" onclick="showSubPage('salesbook')"><span class="ui-ico" style="background:#A2845E;"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.5h12a2 2 0 0 1 2 2v13H7a2 2 0 0 1-2-2zM5 17.5a2 2 0 0 1 2-2h12M9 8.5h6"/></svg></span><span class="ui-lbl">Sales Book</span><span class="ui-chev" aria-hidden="true">›</span></button>
@@ -1645,13 +1660,16 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
       <input type="file" id="qr-upload" accept="image/*" style="display:none;" onchange="handleQRUpload(event)"/>
     </div>
     <div style="background:#f0fff4;border:1px solid #b2dfdb;border-radius:10px;padding:12px 14px;margin-bottom:14px;">
-      <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:10px;">💳 UPI Payment (Walk-in Invoices)</div>
+      <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:10px;">💳 UPI Payment</div>
       <div class="fg" style="margin-bottom:10px;"><label>UPI ID</label>
         <input id="ms-upi-id" placeholder="e.g. yourshop@okaxis"/></div>
       <div class="fg" style="margin-bottom:10px;"><label>Payee Name</label>
         <input id="ms-upi-name" placeholder="e.g. Vismaad Creations"/></div>
       <div class="fg" style="margin-bottom:0;"><label>UPI Phone Number</label>
         <input id="ms-upi-phone" placeholder="e.g. 9876543210" type="tel" inputmode="numeric"/></div>
+      <div class="fg" style="margin:10px 0 0;"><label>Business bank account, last 4 digits</label>
+        <input id="ms-pay-acct" placeholder="1045" maxlength="4" inputmode="numeric"/>
+        <div style="font-size:11px;color:#888;margin-top:4px;">Bank SMS for any other account (your personal one) are ignored.</div></div>
     </div>
     <button class="btn btn-p" onclick="saveSettings()">💾 Save Settings</button>
     <!-- Config Backup / Restore -->
@@ -2407,7 +2425,7 @@ function sbInvoiceEntry(inv){
   if(parseFloat(inv.shipping)>0)parts.push('Shipping (9965)');
   const date=_vcIso(inv.invDate);
   return{key:'INV:'+inv.id,type:'Invoice',rank:0,date,fy:inv.fy||getFY(date),docNo:String(inv.invNo||''),cust:_vcCut(inv.custName,SB_CUST_MAX),pos:_vcPos(inv.custState),
-    items:_vcCut(parts.join('; ')||String(inv.itemsSummary||''),SB_ITEMS_MAX),qty,tax5:sp.suitTaxable,tax18:sp.shipTaxable,..._vcTaxLine(sp.gst,intra),total:vcMoney(sp.grand),remarks:''};
+    items:_vcCut(parts.join('; ')||String(inv.itemsSummary||''),SB_ITEMS_MAX),qty,tax5:sp.suitTaxable,tax18:sp.shipTaxable,..._vcTaxLine(sp.gst,intra),total:vcMoney(sp.grand),remarks:_vcCut(typeof payRefLine==='function'?payRefLine(inv.payRefs).replace('Paid by UPI, Ref','UPI Ref'):'',SB_REMARK_MAX)};
 }
 function sbCreditEntry(cn,inv){
   const amt=vcMoney(cn.creditAmount),gst=vcMoney(cn.gstReversed),taxable=vcMoney(amt-gst);
@@ -2631,6 +2649,167 @@ function nextDocNo(list,field,prefix,fy){
   const head=prefix+'/'+fy+'/';
   const max=(list||[]).reduce((m,x)=>{const s=String(x[field]||'');return s.startsWith(head)?Math.max(m,parseInt(s.slice(head.length))||0):m;},0);
   return head+String(max+1).padStart(3,'0');
+}
+</script>
+<script>
+// ── v14.50.0 PAY CORE: plain calculations for UPI payment confirmation and the parcel label. No screen or sheet access here. ──
+var PAY_DAYS=5,PAY_MAX_STEP=999,PAY_PICK_FROM=10,PAY_ADJ_MAX=10,PAY_SMS_MAX=1000;
+function _payCents(x){const n=parseFloat(x);return isFinite(n)?Math.round(n*100):NaN;}
+function _payStr(v,max){return typeof v==='string'?v.slice(0,max||PAY_SMS_MAX*10):'';}
+function _payPad(n){return String(n).padStart(2,'0');}
+// Reads one bank SMS. Returns {ok:true,amount,acct,utr,payer,date,txnAt} or {ok:false,reason}.
+function payParseSms(text,acctLast){
+  const t=_payStr(text);
+  if(!t.trim())return{ok:false,reason:'empty'};
+  if(t.length>PAY_SMS_MAX)return{ok:false,reason:'too-long'};
+  if(!/\bcredited\b/i.test(t)||/\bdebited\b/i.test(t))return{ok:false,reason:'not-credit'};
+  const want=String(acctLast||'').replace(/\D/g,'').slice(-4);
+  const am=t.match(/A\/c\s*(?:no\.?)?\s*[X*]+(\d{3,6})/i);
+  const acct=am?am[1]:'';
+  if(!want||!acct||acct.slice(-4)!==want)return{ok:false,reason:'other-account'};
+  const mm=t.match(/(?:INR|Rs\.?|₹)\s*([0-9][0-9,]{0,12}(?:\.\d{1,2})?)/i);
+  const amount=mm?Math.round(parseFloat(mm[1].replace(/,/g,''))*100)/100:0;
+  if(!(amount>0)||amount>10000000)return{ok:false,reason:'no-amount'};
+  let utr='',payer='';
+  const um=t.match(/UPI\/P2[A-Z]\/(\d{12})\/([^\/\n]*)/i);
+  if(um){utr=um[1];payer=um[2];}
+  else{const u2=t.match(/(?:UPI|UTR|Ref(?:erence)?(?:\s*No\.?)?)[^\d\n]{0,12}(\d{12})\b/i);if(u2)utr=u2[1];}
+  if(!utr)return{ok:false,reason:'no-utr'};
+  payer=String(payer).replace(/[^A-Za-z0-9 .&-]/g,'').replace(/\s+/g,' ').trim().slice(0,30);
+  let date='',txnAt='';
+  const dm=t.match(/\b(\d{2})-(\d{2})-(\d{2}|\d{4}),?\s*(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if(dm){
+    const d=+dm[1],mo=+dm[2],y=dm[3].length===2?2000+(+dm[3]):+dm[3],h=+dm[4],mi=+dm[5],s=+(dm[6]||0);
+    const chk=new Date(Date.UTC(y,mo-1,d));
+    if(mo>=1&&mo<=12&&d>=1&&chk.getUTCDate()===d&&h<24&&mi<60&&s<60){
+      date=y+'-'+_payPad(mo)+'-'+_payPad(d);
+      txnAt=date+'T'+_payPad(h)+':'+_payPad(mi)+':'+_payPad(s)+'+05:30';
+    }
+  }
+  return{ok:true,amount,acct,utr,payer,date,txnAt};
+}
+function payCleanUtr(v){const s=String(v==null?'':v).replace(/[\s-]/g,'');return /^\d{12}$/.test(s)?s:'';}
+// Unique amount just below the price, never above. rand() lets tests fix the choice.
+function payPickAmount(price,used,rand){
+  const p=_payCents(price);
+  if(!isFinite(p)||p<=100||p>100000000)return null;
+  const taken=new Set((used||[]).map(_payCents));
+  const free=[];
+  for(let k=1;k<=PAY_MAX_STEP&&free.length<PAY_PICK_FROM;k++){const c=p-k;if(c<100)break;if(!taken.has(c))free.push(c);}
+  if(!free.length)return null;
+  const r=typeof rand==='function'?rand():Math.random();
+  return free[Math.min(free.length-1,Math.max(0,Math.floor(r*free.length)))]/100;
+}
+function _payTime(v){const n=Date.parse(v||'');return isFinite(n)?n:NaN;}
+function payUsedAmounts(claims,alerts,nowMs,days){
+  const from=(nowMs||Date.now())-(days||PAY_DAYS)*86400000,out=[];
+  (claims||[]).forEach(c=>{if(c&&_payTime(c.createdAt)>=from&&parseFloat(c.amount)>0)out.push(parseFloat(c.amount));});
+  (alerts||[]).forEach(a=>{if(a&&_payTime(a.txnAt||a.recAt)>=from&&parseFloat(a.amount)>0)out.push(parseFloat(a.amount));});
+  return out;
+}
+function _payRecMap(recs){const m={};(recs||[]).forEach(r=>{const u=r&&payCleanUtr(r.utr);if(u)m[u]=Object.assign(m[u]||{},r);});return m;}
+// Bank credits that should be tied to a waiting sale: exact amount, exactly one waiting sale, sale made before the credit.
+function payMatch(alerts,recs,claims){
+  const rm=_payRecMap(recs),out=[];
+  const busy=new Set(Object.values(rm).filter(r=>r.claimId).map(r=>String(r.claimId)));
+  (alerts||[]).forEach(a=>{
+    const u=a&&payCleanUtr(a.utr);if(!u)return;
+    const r=rm[u];if(r&&(r.claimId||r.notSale||r.invId))return;
+    const ac=_payCents(a.amount),at=_payTime(a.txnAt||a.recAt);
+    const cand=(claims||[]).filter(c=>c&&c.id&&c.status!=='cancelled'&&!c.invId&&!busy.has(String(c.id))&&_payCents(c.amount)===ac
+      &&(!isFinite(at)||!isFinite(_payTime(c.createdAt))||(_payTime(c.createdAt)<=at+600000&&at-_payTime(c.createdAt)<30*86400000)));
+    if(cand.length===1){out.push({utr:u,claimId:String(cand[0].id)});busy.add(String(cand[0].id));}
+  });
+  return out;
+}
+function _payDay(v){const s=String(v||'');return /^\d{4}-\d{2}-\d{2}/.test(s)?s.slice(0,10):'';}
+// One view of everything for the Payments page, the Dashboard and billing.
+function payView(alerts,recs,claims,nowMs){
+  const rm=_payRecMap(recs),pays={};
+  (alerts||[]).forEach(a=>{const u=a&&payCleanUtr(a.utr);if(!u)return;pays[u]={utr:u,amount:parseFloat(a.amount)||0,txnAt:a.txnAt||a.recAt||'',payer:a.payer||'',src:a.src||'sms',verified:true};});
+  Object.keys(rm).forEach(u=>{const r=rm[u];if(!pays[u]){if(!(parseFloat(r.amount)>0))return;pays[u]={utr:u,amount:parseFloat(r.amount)||0,txnAt:r.at||'',payer:'',src:'manual',verified:false};}});
+  Object.values(pays).forEach(p=>{const r=rm[p.utr]||{};p.claimId=r.claimId?String(r.claimId):'';p.notSale=r.notSale===true||r.notSale==='true';p.nsReason=r.nsReason||'';p.nsNote=r.nsNote||'';p.invId=r.invId||'';p.invNo=r.invNo||'';p.confirmedAt=r.confirmedAt||'';p.date=_payDay(p.txnAt);});
+  const list=Object.values(pays).sort((a,b)=>String(a.txnAt).localeCompare(String(b.txnAt)));
+  const cl=(claims||[]).filter(c=>c&&c.id&&String(c.id)!=='');
+  const byClaim={};list.forEach(p=>{if(p.claimId&&!p.notSale)(byClaim[p.claimId]=byClaim[p.claimId]||[]).push(p);});
+  const waiting=[],toBill=[],done=[],cancelled=[];
+  const row=(key,ps,c)=>{
+    const paid=Math.round(ps.reduce((s,p)=>s+p.amount*100,0))/100;
+    const first=ps.reduce((m,p)=>(!m||String(p.txnAt)<String(m))?p.txnAt:m,'');
+    return{key,claim:c||null,pays:ps,utrs:ps.map(p=>p.utr),paid,verified:ps.every(p=>p.verified),
+      confirmed:!!((c&&c.confirmedAt)||ps.some(p=>p.confirmedAt)),date:_payDay(first)||(c?_payDay(c.createdAt):''),
+      invId:(c&&c.invId)||(ps.find(p=>p.invId)||{}).invId||'',invNo:(c&&c.invNo)||(ps.find(p=>p.invNo)||{}).invNo||''};
+  };
+  cl.forEach(c=>{
+    const ps=byClaim[String(c.id)]||[];
+    if(c.status==='cancelled'&&!ps.length){cancelled.push(c);return;}
+    if(!ps.length){waiting.push(c);return;}
+    const r=row('C:'+c.id,ps,c);(r.invId?done:toBill).push(r);
+  });
+  const known=new Set(cl.map(c=>String(c.id)));
+  const unclaimed=[],notSale=[];
+  list.forEach(p=>{
+    if(p.notSale){notSale.push(p);return;}
+    if(p.claimId&&known.has(p.claimId))return;
+    const r=row('U:'+p.utr,[p],null);
+    if(r.invId){done.push(r);return;}
+    unclaimed.push(p);toBill.push(r);
+  });
+  return{waiting,toBill,done,unclaimed,notSale,cancelled,payments:list,now:nowMs||Date.now()};
+}
+function payUnbilledOld(view,todayStr){
+  const t=Date.parse(todayStr+'T00:00:00Z');
+  return (view&&view.toBill||[]).filter(r=>r.date&&r.date<todayStr).map(r=>Object.assign({},r,{days:Math.max(1,Math.round((t-Date.parse(r.date+'T00:00:00Z'))/86400000))}));
+}
+// How the money received compares with the bill. Only up to ₹10 below the bill becomes an adjustment.
+function payBillAdj(grand,paid){
+  const g=_payCents(grand),p=_payCents(paid);
+  if(!isFinite(g)||!isFinite(p))return{kind:'short',adj:0,diff:0};
+  if(p===g)return{kind:'exact',adj:0};
+  if(p>g)return{kind:'over',adj:0,diff:(p-g)/100};
+  if(g-p<=PAY_ADJ_MAX*100)return{kind:'adjust',adj:(g-p)/100};
+  return{kind:'short',adj:0,diff:(g-p)/100};
+}
+function payUpiUrl(pa,pn,amount){
+  return 'upi://pay?pa='+encodeURIComponent(pa)+'&pn='+encodeURIComponent(pn)+'&am='+(Math.round(parseFloat(amount)*100)/100).toFixed(2)+'&cu=INR';
+}
+function _payInr(n){return'₹'+Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function _payDmy(d){const m=String(d||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+'-'+m[2]+'-'+m[1]:'';}
+function payWaMsg(amount,date,utrs){
+  const ref=(utrs||[]).map(payCleanUtr).filter(Boolean).join(', ');
+  return 'Payment of '+_payInr(amount)+' received'+(date?' on '+_payDmy(date):'')+(ref?', Ref '+ref:'')+'. Thank you! Your bill will follow. - Vismaad Creations';
+}
+function payRefLine(refs){
+  const u=String(refs||'').split(',').map(payCleanUtr).filter(Boolean);
+  return u.length?'Paid by UPI, Ref '+u.join(', '):'';
+}
+// Words for the parcel label: lower case, Indian counting, rupees only.
+function vcWordsLower(n){
+  const v=Math.floor(parseFloat(n));
+  if(!isFinite(v)||v<=0)return'zero';
+  const o=['','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+  const t=['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+  const two=x=>x<20?o[x]:t[Math.floor(x/10)]+(x%10?'-'+o[x%10]:'');
+  const three=x=>(x>=100?o[Math.floor(x/100)]+' hundred'+(x%100?' ':''):'')+(x%100?two(x%100):'');
+  const parts=[];let x=v;
+  const cr=Math.floor(x/10000000);x%=10000000;
+  const la=Math.floor(x/100000);x%=100000;
+  const th=Math.floor(x/1000);x%=1000;
+  if(cr)parts.push(vcWordsLower(cr)+' crore');
+  if(la)parts.push(two(la)+' lakh');
+  if(th)parts.push(two(th)+' thousand');
+  if(x)parts.push(three(x));
+  return parts.join(' ');
+}
+function vlGoodsValue(parcel){
+  const g=_payCents(parcel&&parcel.goods),d=_payCents(parcel&&parcel.discount)||0;
+  if(!isFinite(g))return 0;
+  return Math.max(0,Math.floor((g-d)/100));
+}
+// Amount in words on a bill, with paise when there are any. words() is the bill's own number speller.
+function vcBillWords(amount,words){
+  const c=Math.round((parseFloat(amount)||0)*100),r=Math.floor(c/100),p=c%100;
+  return words(r)+' Rupees'+(p?' and '+words(p)+' Paise':'')+' Only';
 }
 </script>
 <script>
@@ -3411,7 +3590,7 @@ function parseInvoiceRow(r){
   ['isShipped','isGST','isIntra','deliveredManual'].forEach(k=>{
     if(r[k]!==undefined&&r[k]!=='')out[k]=_pBool(r[k]);
   });
-  ['grandTotal','gstAmt','taxableExcl','suitsTotal','shipping','discount','costPrice','shippingCost']
+  ['grandTotal','gstAmt','taxableExcl','suitsTotal','shipping','discount','costPrice','shippingCost','qrAdj']
     .forEach(k=>{ if(r[k]!==undefined&&r[k]!=='')out[k]=parseFloat(r[k])||0; });
   if(r.itemCount!==undefined&&r.itemCount!=='')out.itemCount=parseInt(r.itemCount)||0;
   out.itemsArr=expandItems(r.itemsArr);
@@ -3563,6 +3742,8 @@ async function syncAll(manual){
             local.deliveredManualOn=remDeliveredManual?(r.deliveredManualOn||local.deliveredManualOn||''):'';
             if(r.custName)local.custName=r.custName;
             if(r.payMode)local.payMode=r.payMode; // v14.48.0
+            if(r.payRefs)local.payRefs=r.payRefs; // v14.50.0
+            if(r.qrAdj!=null&&r.qrAdj!=='')local.qrAdj=parseFloat(r.qrAdj)||0; // v14.50.0
             if(r.parcels)local.parcels=r.parcels; // v14.48.0
             if(r.invNo)local.invNo=r.invNo; // v14.48.0: a renumbered bill reached other devices only through a duplicate check
             if(r.custWhatsapp)local.custWhatsapp=r.custWhatsapp;
@@ -4068,7 +4249,8 @@ function showSubPage(id){
     dsreport:'📦 Dropship Report',
     courierspend:'🚚 Courier Spend',
     stockcount:'📦 Stock Reconciliation',
-    salesbook:'📒 Sales Book'
+    salesbook:'📒 Sales Book',
+    payments:'💳 Payments'
   };
   if(titleEl)titleEl.textContent=titles[id]||id;
   content.innerHTML=buildSubPage(id);
@@ -4982,6 +5164,7 @@ async function generateInvoice(){
   if(!custState){toast('⚠️ Select customer state');return;}
   if(isGSTEnabled()&&!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
   if(items.every(i=>!i.unitPrice)){toast('⚠️ Add at least one suit with price');return;}
+  const _pl=await vcPayGate(); if(_pl===false)return; // v14.50.0: UPI payment link, paise adjustment, warning when none
 
   // v14.29.0: resolve unrecognised tracking-number formats BEFORE any state is mutated
   // (invoice counter, stock) so cancelling mid-prompt leaves nothing half-written.
@@ -5018,7 +5201,7 @@ async function generateInvoice(){
 
   const invDate=document.getElementById('inv-date')?.value||today();
   const ship=parseFloat(document.getElementById('shipping')?.value)||0;
-  const disc=parseFloat(document.getElementById('discount')?.value)||0;
+  const disc=(parseFloat(document.getElementById('discount')?.value)||0)+(_pl?_pl.adj:0); // v14.50.0: the QR paise join the discount, recorded apart in qrAdj
   const shippingCost=parseFloat(document.getElementById('shipping-cost')?.value)||0;
   const tracking=document.getElementById('tracking')?.value||'';
   const dispatchDate=document.getElementById('dispatch-date')?.value||'';
@@ -5070,6 +5253,7 @@ async function generateInvoice(){
     dispatchMethod,courierName,channel,
     courierOverride:_courierOverride,
     payMode:document.getElementById('pay-mode')?.value==='COD'?'COD':'Prepaid', // v14.48.0
+    qrAdj:_pl?_pl.adj:0,payRefs:_pl?_pl.refs:'', // v14.50.0
     grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
     itemCount:validItems.length,
     itemsSummary:validItems.map(i=>`${i.desc}${i.variantLabel?' ('+i.variantLabel+')':''} x${i.qty} @₹${i.unitPrice}`).join(' | '),
@@ -5084,6 +5268,7 @@ async function generateInvoice(){
   const _firstTaxInv=saved.isGST&&!invoices.some(isTaxInv); // v14.47.0
   invoices.push(saved);save();
   vcSlipBilled(saved); // v14.48.0
+  vcPayBilled(saved,_pl); // v14.50.0
   if(saved.isGST)updateGstStartFromInvoices(_firstTaxInv); // v14.47.0: GST era starts at the first Tax Invoice
   saveStk(); // stock already deducted above (pool-aware) — persist it
   gsWriteConfirmed(SHEETS.invoices,flattenInvoice(saved)).then(ok=>{if(!ok)toast('⚠️ Invoice saved locally but sheet sync failed — tap sync to retry');});
@@ -5238,7 +5423,10 @@ function buildInvoiceHTML(data){
     :'';
   const discColspan=gstMode?6:4;
   // H3: discount shown above GST summary (pre-tax deduction)
-  const discRow=storedDiscount>0?'<tr><td colspan="'+discColspan+'" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: Discount (pre-GST)</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−'+f(storedDiscount)+'</td></tr>':'';
+  // v14.50.0: the UPI paise adjustment is part of the discount figure but printed on its own line
+  const _qrAdj=Math.max(0,Math.min(storedDiscount,parseFloat(data.qrAdj)||0)),_manDisc=Math.round((storedDiscount-_qrAdj)*100)/100;
+  const discRow=(_manDisc>0?'<tr><td colspan="'+discColspan+'" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: Discount (pre-GST)</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−'+f(_manDisc)+'</td></tr>':'')
+    +(_qrAdj>0?'<tr><td colspan="'+discColspan+'" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: UPI payment adjustment (pre-GST)</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−'+f(_qrAdj)+'</td></tr>':'');
   const hsnSuit=esc([...new Set(validItems.map(i=>i.hsn||'540754'))].join('/'));
   const gstRows=_isIntra
     ?'<tr><td style="padding:3px 8px;">CGST</td><td style="padding:3px 8px;">'+hsnSuit+'</td><td style="padding:3px 8px;">'+f(displaySuitTaxable)+'</td><td style="padding:3px 8px;">2.5%</td><td style="padding:3px 8px;">'+f(displaySuitGST/2)+'</td></tr>'
@@ -5313,8 +5501,9 @@ function buildInvoiceHTML(data){
       </tr></tfoot>
     </table>
     <div style="background:#f5e6c8;border-radius:5px;padding:7px 10px;font-size:11px;color:#5c3d1e;font-weight:600;margin-bottom:12px;">
-      Amount in Words: <strong>${numberToWords(Math.round(displayGrand))} Rupees Only</strong>
+      Amount in Words: <strong>${vcBillWords(displayGrand,numberToWords)}</strong>
     </div>
+    ${payRefLine(data.payRefs)?'<div style="font-size:11px;color:#1a1208;margin:-6px 0 12px;font-weight:600;">'+esc(payRefLine(data.payRefs))+'</div>':''}
     ${gstMode?`<div style="background:#f9f5ee;border:1px solid #e2d4bc;border-radius:5px;padding:9px 12px;margin-bottom:12px;">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:6px;">GST Summary</div>
       <table style="width:100%;font-size:11px;border-collapse:collapse;">
@@ -7940,6 +8129,7 @@ function buildSubPage(id){
   if(id==='courierspend')return buildCourierSpendPage();
   if(id==='stockcount')return buildStockCountPage(); // v14.46.0
   if(id==='salesbook')return buildSalesBookPage(); // v14.48.0
+  if(id==='payments')return buildPaymentsPage(); // v14.50.0
   return '<p>Coming soon</p>';
 }
 // ═══════════════════════════════════════════
@@ -17584,27 +17774,23 @@ const _VL_CSS='*{box-sizing:border-box;margin:0;padding:0;}@page{margin:0;size:A
   +'.cod{font-size:13pt;font-weight:700;color:#111;}'
   +'.ty{text-align:center;flex-shrink:0;}.tytext{font-family:"Great Vibes","Brush Script MT",cursive;font-size:16pt;color:#7B3F00;line-height:1.05;}'
   +'.bot{display:flex;align-items:center;flex-shrink:0;border-top:.5px solid #ddd;padding-top:1mm;}.botm{flex:1;text-align:center;}.botr{flex:1;text-align:right;}.frlbl{font-size:7pt;font-weight:700;text-transform:uppercase;color:#888;}.frname{font-size:9.5pt;font-weight:700;}.frdet{font-size:9pt;font-weight:700;line-height:1.3;word-break:break-word;}'
+  +'.cv{font-size:7pt;font-weight:400;color:#888;margin-top:.8mm;}'
   +'.cut{width:170mm;margin-top:3mm;padding-top:2mm;border-top:1px dashed #bbb;text-align:center;font-size:7.5pt;color:#bbb;letter-spacing:2px;}';
 const _VL_SCRIPT='window.onload=function(){var M=3.7795276*128;[].forEach.call(document.querySelectorAll(".box"),function(b){function s(e,min){if(!e)return;var px=parseFloat(getComputedStyle(e).fontSize);while(b.scrollHeight>M&&px>min){px-=.5;e.style.fontSize=px+"px";}}s(b.querySelector(".toaddr"),10.7);s(b.querySelector(".toname"),13);s(b.querySelector(".frdet"),10);var a=b.querySelector(".toaddr");if(a&&b.scrollHeight>M){var h=a.offsetHeight-(b.scrollHeight-M)-1;if(h>20){a.style.maxHeight=h+"px";}}});setTimeout(function(){window.print();},500);};';
 function _vlBox(d,parcel,inv){
   const m=_sbMoney;
   let ord='';
-  if(parcel&&parcel.units.length){
-    const L=labelLines(parcel,4);
-    ord='<div class="ord"><table>'+L.lines.map(l=>'<tr><td>'+(l.prodNo?'#'+esc(l.prodNo)+' ':'')+esc(String(l.desc).slice(0,60))+' × '+l.qty+'</td><td class="r">₹'+m(l.price*l.qty)+'</td></tr>').join('')
-      +(L.more?'<tr><td colspan="2">+ '+L.more+' more item'+(L.more>1?'s':'')+', see invoice</td></tr>':'')
-      +(parcel.shipping>0?'<tr><td>Shipping</td><td class="r">₹'+m(parcel.shipping)+'</td></tr>':'')
-      +(parcel.discount>0?'<tr><td>Discount</td><td class="r">-₹'+m(parcel.discount)+'</td></tr>':'')
-      +'<tr class="ordertotal"><td>'+(parcel.of>1?'Value of this parcel':'Total')+'</td><td class="r">₹'+m(parcel.value)+'</td></tr></table>'
-      +(inv.payMode==='COD'?'<div class="cod">'+esc(payLine(inv,parcel.value))+'</div>':'<div>'+esc(payLine(inv,parcel.value))+'</div>')+'</div>';
-  }
+  // v14.50.0: no item names or prices outside the parcel (post office: they attract thieves). Only the COD
+  // amount the postman must collect, and the goods value in words, small, under the sender address.
+  if(parcel&&parcel.units.length&&inv.payMode==='COD')ord='<div class="ord"><div class="cod">'+esc(payLine(inv,parcel.value))+'</div></div>';
+  void m;
   const qr=(typeof qrB64!=='undefined'&&qrB64)?'<img src="'+esc(qrB64)+'" style="width:30mm;height:30mm;object-fit:contain;flex-shrink:0;"/>':'';
   const logo=(typeof logoB64!=='undefined'&&logoB64)?'<img src="'+esc(logoB64)+'" style="max-height:14mm;max-width:45mm;object-fit:contain;"/>':'<span style="font-size:10pt;font-weight:700;color:#5c3d1e;">Vismaad Creations</span>';
   const ph=d.phone&&d.wa&&d.phone!==d.wa?'&#9990; '+esc(d.phone)+' &nbsp;|&nbsp; 💬 '+esc(d.wa):d.phone?'&#9990; '+esc(d.phone):d.wa?'💬 '+esc(d.wa):'';
   return'<div class="page"><div class="box"><div class="ref"><span class="pn">'+(parcel&&parcel.of>1?'Parcel '+parcel.no+' of '+parcel.of:'')+'</span><span>'+[d.invNo?'Inv: '+esc(d.invNo):'',d.invDate?esc(fmtDate(d.invDate)):'',d.track?esc(d.track):''].filter(Boolean).join(' · ')+'</span></div>'
     +'<div class="mid"><div class="to"><div class="tolbl">To</div><div class="toname">'+esc(d.name)+'</div><div class="toaddr">'+esc(d.addr).replace(/\n/g,'<br/>')+(d.pin?'<br/>PIN: '+esc(d.pin):'')+'</div>'+(ph?'<div class="toph">'+ph+'</div>':'')+'</div>'+qr+'</div>'
     +ord+'<div class="ty"><span class="tytext">Thank you for shopping with us!</span></div>'
-    +'<div class="bot"><div class="botm">'+logo+'</div><div class="botr"><div class="frlbl">From</div><div class="frname">Vismaad Creations</div><div class="frdet">'+esc(d.fromAddr||'').replace(/\n/g,'<br/>')+(d.fromPh?'<br/>&#9990; '+esc(d.fromPh):'')+'</div></div></div></div><div class="cut">✂ cut here</div></div>';
+    +'<div class="bot"><div class="botm">'+logo+'</div><div class="botr"><div class="frlbl">From</div><div class="frname">Vismaad Creations</div><div class="frdet">'+esc(d.fromAddr||'').replace(/\n/g,'<br/>')+(d.fromPh?'<br/>&#9990; '+esc(d.fromPh):'')+'</div>'+(parcel&&parcel.units.length?'<div class="cv">Cont. val: '+esc(vcWordsLower(vlGoodsValue(parcel)))+'</div>':'')+'</div></div></div><div class="cut">✂ cut here</div></div>';
 }
 function _vlOpen(body){
   const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/><link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet"/><style>'+_VL_CSS+'</style><script>'+_VL_SCRIPT+'<\/script></head><body>'+body+'</body></html>';
@@ -17646,7 +17832,7 @@ function _vcParcelDraw(){
     +'<div class="fg"><label>Number of parcels</label><input id="vc-parcel-n" type="number" min="1" max="'+(units.length||1)+'" value="'+st.n+'" inputmode="numeric" onchange="vcParcelN()"/></div>'
     +units.map((u,i)=>'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:.5px solid var(--sep);font-size:13px;"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(u.prodNo?'#'+esc(u.prodNo)+' ':'')+esc(u.desc)+'</span><select onchange="vcParcelSet('+i+',this.value)" style="width:auto;flex-shrink:0;">'+opts(st.a[i])+'</select></div>').join('')
     +'<div style="background:var(--goldp);border-radius:8px;padding:10px 12px;font-size:13px;margin:12px 0;line-height:1.6;">'+ps.map(p=>'Parcel '+p.no+': '+p.units.length+' piece(s), ₹'+_sbMoney(p.value)).join('<br/>')+'</div>'
-    +'<div class="btn-row"><button class="btn btn-p" id="vc-parcel-print" onclick="vcParcelPrint()">🖨️ Print labels</button>'+(st.n>1?'<button class="btn btn-o" onclick="vcParcelBillCopies()">Extra bill copies</button>':'')+'</div></div>').classList.add('open');
+    +'<div class="btn-row"><button class="btn btn-p" id="vc-parcel-print" onclick="vcParcelPrint()">🖨️ Print labels</button>'+'<button class="btn btn-o" onclick="vcParcelBillCopies()">🧾 Bill copies for inside</button></div><div style="font-size:12px;color:#636366;margin-top:8px;line-height:1.5;">The outside label shows only the goods value in words, under your address. Put the bill inside the parcel.</div></div>').classList.add('open');
 }
 function vcParcelN(){
   const st=_vcParcelState,n=parcelCount(_vcParcelInv,document.getElementById('vc-parcel-n')?.value);
@@ -17665,7 +17851,8 @@ function vcParcelPrint(){
 function vcParcelBillCopies(){
   const inv=_vcParcelInv,n=_vcParcelState.n;
   _vcParcelSave();
-  let h='';for(let i=2;i<=n;i++)h+='<div class="print-page">'+getInvHtml(inv,'COPY FOR PARCEL '+i+' OF '+n)+'</div>';
+  let h='<div class="print-page">'+getInvHtml(inv,isBillLocked(inv)?'ORIGINAL FOR RECIPIENT':'')+'</div>'; // v14.50.0: the customer's bill goes in parcel 1
+  for(let i=2;i<=n;i++)h+='<div class="print-page">'+getInvHtml(inv,'COPY FOR PARCEL '+i+' OF '+n)+'</div>';
   document.getElementById('print-area').innerHTML=h;window.print();
 }
 function vcTrialBulk(){
@@ -17744,5 +17931,399 @@ function vcTrialFromLabelPage(){
   };
   vcSlipBtn();vcSlipsRender();
   vcxPush();
+})();
+</script>
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// v14.50.0: UPI PAYMENT CONFIRMATION (Take Payment, bank SMS, Payments page,
+// billing from a payment, midnight check). Calculations live in PAY CORE.
+// ═══════════════════════════════════════════════════════════════════════
+let payClaims=_vcList('vc_pay_claims'),payRecs=_vcList('vc_pay_recs'),bankAlerts=_vcList('vc_bank_alerts');
+VCX.payc={sheet:'PayClaims',ls:'vc_pay_claims',get:()=>payClaims,set:v=>{payClaims=v;}};
+VCX.payr={sheet:'PayRecs',ls:'vc_pay_recs',get:()=>payRecs,set:v=>{payRecs=v;}};
+VCX.bank={sheet:'BankAlerts',ls:'vc_bank_alerts',get:()=>bankAlerts,set:v=>{bankAlerts=v;}};
+_VC_NUM.payc=['price','amount'];_VC_NUM.payr=['amount'];_VC_NUM.bank=['amount'];
+_VC_DATE.payc=[];_VC_DATE.payr=[];_VC_DATE.bank=[];
+const PAY_NS={own:'Own transfer',refund:'Refund',other:'Other'};
+let _vcPayLink=null,_vcTakeId=null;
+function vcPayAcct(){return String(S.payAcct||'1045').replace(/\D/g,'').slice(-4);}
+function vcPayViewNow(){return payView(bankAlerts,payRecs,payClaims,Date.now());}
+function _payTimeTxt(v){const m=String(v||'').match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);return m?fmtDate(m[1])+' '+m[2]+':'+m[3]:(v?fmtDate(String(v).slice(0,10)):'');}
+function _payRec(utr){return payRecs.find(r=>payCleanUtr(r.utr)===utr)||null;}
+function _paySetRec(utr,patch){
+  const old=_payRec(utr)||{id:'U'+utr,utr};
+  vcxStore('payr',Object.assign({},old,patch,{id:'U'+utr,utr}));
+}
+function _payClaim(id){return payClaims.find(c=>String(c.id)===String(id))||null;}
+function _paySetClaim(id,patch){const c=_payClaim(id);if(c)vcxStore('payc',Object.assign({},c,patch));}
+function vcPayAutoMatch(){
+  const links=payMatch(bankAlerts,payRecs,payClaims);
+  links.forEach(l=>_paySetRec(l.utr,{claimId:l.claimId}));
+  if(links.length)vcxPush();
+  return links.length;
+}
+function vcPayRefresh(){
+  try{vcPayRender();}catch(e){console.warn(e);}
+  try{vcPayTakeStatus();}catch(e){console.warn(e);}
+  try{vcPayCard();}catch(e){console.warn(e);}
+  try{vcPayLinkCard();}catch(e){console.warn(e);}
+}
+let _vcPayPullAt=0,_vcPayPulling=null;
+function vcPayPull(force){
+  if(!vcAuthToken())return Promise.resolve(false);
+  if(_vcPayPulling)return _vcPayPulling;
+  if(!force&&Date.now()-_vcPayPullAt<20000)return Promise.resolve(true);
+  _vcPayPulling=(async()=>{
+    try{
+      await vcxPush();
+      for(const kind of ['payc','payr','bank']){
+        const rows=await gsRead(VCX[kind].sheet);
+        const m=mergeById(VCX[kind].get(),rows.map(r=>vcxNorm(kind,r)));
+        VCX[kind].set(m);_vcxSave(kind,m);
+      }
+      _vcPayPullAt=Date.now();
+      vcPayAutoMatch();
+      return true;
+    }catch(e){console.warn('Payments sync failed:',e.message);return false;}
+    finally{_vcPayPulling=null;vcPayRefresh();}
+  })();
+  return _vcPayPulling;
+}
+
+// ── Take Payment ──
+function vcPayOpenTake(){
+  _vcTakeId=null;
+  const m=_vcEnsureModal('vc-take-modal','<div class="modal" style="max-width:440px;"><button class="modal-close" onclick="vcPayCloseTake()">✕</button>'
+    +'<div class="modal-title">💳 Take payment</div>'
+    +'<div class="fg"><label for="vc-take-price">Price agreed with the customer (₹)</label><input id="vc-take-price" type="number" inputmode="decimal" min="2" step="0.01" placeholder="e.g. 1995" onkeydown="if(event.key===\'Enter\')vcPayMakeQr()"/></div>'
+    +'<button class="btn btn-p" style="width:100%;" onclick="vcPayMakeQr()">Show QR</button>'
+    +'<div id="vc-take-out" style="display:none;text-align:center;margin-top:16px;">'
+    +'<div style="font-size:13px;color:#636366;">Customer pays exactly</div>'
+    +'<div id="vc-take-amount" style="font-size:34px;font-weight:700;letter-spacing:-.5px;margin:2px 0 10px;"></div>'
+    +'<div id="vc-take-qr" style="display:inline-block;background:#fff;padding:10px;border-radius:12px;"></div>'
+    +'<div id="vc-take-payee" style="font-size:13px;color:#636366;margin:6px 0 12px;word-break:break-all;"></div>'
+    +'<div class="btn-row" style="justify-content:center;flex-wrap:wrap;"><button class="btn btn-p" onclick="vcPayShare()">📤 Share QR</button><button class="btn btn-o" onclick="vcPayCopyAmt()">Copy amount</button></div>'
+    +'<div id="vc-take-status" role="status" style="margin-top:12px;font-size:14px;font-weight:600;"></div>'
+    +'<div style="font-size:12px;color:#636366;margin-top:8px;line-height:1.5;">The amount is a few paise below the price so the bank alert can be matched to this sale. The paise go on the bill as a separate adjustment.</div>'
+    +'</div></div>');
+  m.classList.add('open');
+  setTimeout(()=>{const i=document.getElementById('vc-take-price');if(i)i.focus();},50);
+}
+function vcPayCloseTake(){const m=document.getElementById('vc-take-modal');if(m)m.classList.remove('open');_vcTakeId=null;}
+async function vcPayMakeQr(){
+  if(!S.upiId){toast('⚠️ Add your UPI ID in Settings first',5000);return;}
+  const price=parseFloat(document.getElementById('vc-take-price')?.value);
+  if(!(price>1)||price>1000000){toast('⚠️ Enter the price');return;}
+  const amount=payPickAmount(price,payUsedAmounts(payClaims,bankAlerts,Date.now(),PAY_DAYS),Math.random);
+  if(amount===null){toast('⚠️ No free amount left below this price. Try again tomorrow or change the price slightly.',6000);return;}
+  const a=_vcAuthGet()||{};
+  const c={id:'C'+uid(),price:Math.round(price*100)/100,amount,createdAt:new Date().toISOString(),by:String(a.e||'').slice(0,80),status:'open'};
+  vcxStore('payc',c);vcxPush();
+  _vcTakeId=c.id;
+  await vcPayShowQr(c);
+  vcPayRefresh();
+}
+function vcPayReopen(id){
+  const c=_payClaim(id);if(!c)return;
+  vcPayOpenTake();
+  const i=document.getElementById('vc-take-price');if(i)i.value=c.price||'';
+  _vcTakeId=c.id;vcPayShowQr(c);
+}
+async function vcPayShowQr(c){
+  const out=document.getElementById('vc-take-out');if(!out)return;
+  out.style.display='block';
+  document.getElementById('vc-take-amount').textContent=_payInr(c.amount);
+  document.getElementById('vc-take-payee').textContent=(S.upiName||'')+' · '+S.upiId;
+  const box=document.getElementById('vc-take-qr');box.innerHTML='';
+  try{
+    await ensureQRLib();
+    new QRCode(box,{text:payUpiUrl(S.upiId,S.upiName||'',c.amount),width:200,height:200,colorDark:'#000000',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+  }catch(e){box.textContent='QR could not be made. Check the internet connection.';}
+  vcPayTakeStatus();
+}
+function vcPayTakeStatus(){
+  const el=document.getElementById('vc-take-status');if(!el||!_vcTakeId)return;
+  const v=vcPayViewNow(),r=v.toBill.concat(v.done).find(x=>x.key==='C:'+_vcTakeId);
+  if(r){el.style.color='#1A6E37';el.textContent='✅ Received '+_payInr(r.paid)+(r.verified?'':' (manual, bank alert not seen yet)');}
+  else{el.style.color='#8F5E00';el.textContent='⏳ Waiting for the bank alert…';}
+}
+function _payQrCanvas(){
+  const box=document.getElementById('vc-take-qr');
+  return box&&(box.querySelector('canvas')||null);
+}
+function vcPayShareImage(c){
+  const src=_payQrCanvas();if(!src)return null;
+  const W=600,H=820,cv=document.createElement('canvas');cv.width=W;cv.height=H;
+  const x=cv.getContext('2d');if(!x)return null;
+  x.fillStyle='#ffffff';x.fillRect(0,0,W,H);
+  x.fillStyle='#1c1c1e';x.textAlign='center';
+  x.font='bold 30px Arial';x.fillText('Vismaad Creations',W/2,60);
+  x.font='24px Arial';x.fillText('Pay exactly',W/2,120);
+  x.font='bold 56px Arial';x.fillText(_payInr(c.amount),W/2,185);
+  try{x.drawImage(src,100,220,400,400);}catch(e){}
+  x.font='22px Arial';x.fillStyle='#444';
+  x.fillText(String(S.upiName||''),W/2,670);x.fillText(String(S.upiId||''),W/2,705);
+  x.font='20px Arial';x.fillText('Scan with any UPI app',W/2,760);
+  return cv;
+}
+function vcPayShare(){
+  const c=_payClaim(_vcTakeId);if(!c)return;
+  const text='Please pay exactly '+_payInr(c.amount)+' by UPI to '+(S.upiName||'')+' ('+S.upiId+'). Scan the QR, or pay to the UPI ID with this exact amount. - Vismaad Creations';
+  const cv=vcPayShareImage(c);
+  const fallback=()=>{
+    if(cv){const a=document.createElement('a');a.href=cv.toDataURL('image/png');a.download='pay-'+String(c.amount).replace('.','-')+'.png';document.body.appendChild(a);a.click();a.remove();}
+    try{navigator.clipboard&&navigator.clipboard.writeText(text);}catch(e){}
+    toast('QR image saved and message copied. Send both on WhatsApp.',5000);
+  };
+  if(!cv||!navigator.share){fallback();return;}
+  cv.toBlob(b=>{
+    try{
+      const f=new File([b],'pay-vismaad.png',{type:'image/png'});
+      if(navigator.canShare&&navigator.canShare({files:[f]}))navigator.share({files:[f],text}).catch(()=>{});
+      else navigator.share({text}).catch(()=>{});
+    }catch(e){fallback();}
+  },'image/png');
+}
+function vcPayCopyAmt(){
+  const c=_payClaim(_vcTakeId);if(!c)return;
+  try{navigator.clipboard.writeText(c.amount.toFixed(2));toast('Copied '+c.amount.toFixed(2));}catch(e){toast(c.amount.toFixed(2));}
+}
+
+// ── Bank SMS pasted by hand ──
+async function vcPayPaste(){
+  const el=document.getElementById('vc-pay-paste');if(!el)return;
+  const r=payParseSms(el.value,vcPayAcct());
+  if(!r.ok){
+    const why={'not-credit':'This is not a credit SMS.','other-account':'This SMS is not for the business account ending '+vcPayAcct()+'.','no-utr':'No UPI reference number found in this SMS.','no-amount':'No amount found in this SMS.','too-long':'Paste one SMS at a time.','empty':'Paste the bank SMS first.'};
+    toast('⚠️ '+(why[r.reason]||'This SMS could not be read.'),6000);return;
+  }
+  if(bankAlerts.some(a=>payCleanUtr(a.utr)===r.utr)){toast('This payment is already in the list');el.value='';return;}
+  vcxStore('bank',{id:'U'+r.utr,utr:r.utr,amount:r.amount,acct:r.acct,payer:r.payer,date:r.date,txnAt:r.txnAt||new Date().toISOString(),recAt:new Date().toISOString(),src:'paste'});
+  el.value='';
+  const n=vcPayAutoMatch();
+  vcxPush();
+  toast(n?'✅ '+_payInr(r.amount)+' received and matched to a sale':'✅ '+_payInr(r.amount)+' added. No waiting sale has this exact amount, so link it by hand.',5000);
+  vcPayRefresh();
+}
+
+// ── Manual Received, Not a sale, linking, confirming ──
+function vcPayManual(id){
+  const c=_payClaim(id);if(!c)return;
+  _vcEnsureModal('vc-pay-man-modal','<div class="modal" style="max-width:420px;"><button class="modal-close" onclick="document.getElementById(\'vc-pay-man-modal\').classList.remove(\'open\')">✕</button>'
+    +'<div class="modal-title">Mark received</div><div style="font-size:13px;color:#636366;margin-bottom:12px;line-height:1.5;">For '+esc(_payInr(c.amount))+'. Type the 12-digit UPI reference (UTR) from the customer\'s screenshot. It stays marked Manual until the bank alert arrives.</div>'
+    +'<div class="fg"><label for="vc-pay-man-utr">UPI reference (12 digits)</label><input id="vc-pay-man-utr" inputmode="numeric" maxlength="16" autocomplete="off"/></div>'
+    +'<button class="btn btn-p" style="width:100%;" onclick="if(vcPayManualSave(\''+_vcIdArg(c.id)+'\',document.getElementById(\'vc-pay-man-utr\').value))document.getElementById(\'vc-pay-man-modal\').classList.remove(\'open\')">Save</button></div>').classList.add('open');
+}
+function vcPayManualSave(id,utrIn){
+  const c=_payClaim(id),utr=payCleanUtr(utrIn);
+  if(!c)return false;
+  if(!utr){toast('⚠️ The UPI reference is 12 digits');return false;}
+  const r=_payRec(utr);
+  if(r&&r.claimId&&String(r.claimId)!==String(id)){toast('⚠️ This reference is already linked to another sale');return false;}
+  if(r&&r.notSale){toast('⚠️ This reference is marked Not a sale');return false;}
+  const alert=bankAlerts.find(a=>payCleanUtr(a.utr)===utr);
+  _paySetRec(utr,{claimId:String(id),amount:alert?alert.amount:c.amount,manual:!alert,at:new Date().toISOString()});
+  vcxPush();vcPayRefresh();
+  toast(alert?'✅ Linked to the bank alert':'✅ Marked received (manual)');
+  return true;
+}
+function vcPayNotSale(utr){
+  const u=payCleanUtr(utr);if(!u)return;
+  const p=vcPayViewNow().payments.find(x=>x.utr===u);
+  _vcEnsureModal('vc-pay-ns-modal','<div class="modal" style="max-width:420px;"><button class="modal-close" onclick="document.getElementById(\'vc-pay-ns-modal\').classList.remove(\'open\')">✕</button>'
+    +'<div class="modal-title">Not a sale</div><div style="font-size:13px;color:#636366;margin-bottom:12px;">'+esc(p?_payInr(p.amount)+' · Ref '+p.utr:u)+'. It stays on record and can be undone.</div>'
+    +'<div class="fg"><label for="vc-pay-ns-r">Reason</label><select id="vc-pay-ns-r" onchange="document.getElementById(\'vc-pay-ns-n-row\').style.display=this.value===\'other\'?\'block\':\'none\'"><option value="own">Own transfer</option><option value="refund">Refund</option><option value="other">Other</option></select></div>'
+    +'<div class="fg" id="vc-pay-ns-n-row" style="display:none;"><label for="vc-pay-ns-n">Note</label><input id="vc-pay-ns-n" maxlength="80"/></div>'
+    +'<button class="btn btn-p" style="width:100%;" onclick="vcPayNotSaleSave(\''+u+'\',document.getElementById(\'vc-pay-ns-r\').value,document.getElementById(\'vc-pay-ns-n\').value);document.getElementById(\'vc-pay-ns-modal\').classList.remove(\'open\')">Save</button></div>').classList.add('open');
+}
+function vcPayNotSaleSave(utr,reason,note){
+  const u=payCleanUtr(utr);if(!u)return false;
+  const r=_payRec(u);
+  if(r&&r.invId){toast('⚠️ This payment is already billed');return false;}
+  _paySetRec(u,{notSale:true,nsReason:PAY_NS[reason]?reason:'other',nsNote:String(note||'').trim().slice(0,80),claimId:''});
+  vcxPush();vcPayRefresh();return true;
+}
+function vcPayNotSaleUndo(utr){
+  const u=payCleanUtr(utr);if(!u)return;
+  _paySetRec(u,{notSale:false,nsReason:'',nsNote:''});
+  vcxPush();vcPayRefresh();
+}
+function vcPayLinkMenu(utr,btn){
+  const u=payCleanUtr(utr);if(!u)return;
+  const v=vcPayViewNow();
+  const opts=v.waiting.map(c=>({label:'Waiting: '+_payInr(c.amount)+' · '+_payTimeTxt(c.createdAt),fn:()=>vcPayLinkTo(u,c.id)}))
+    .concat(v.toBill.filter(r=>r.claim).map(r=>({label:'Add to: '+_payInr(r.paid)+' received · '+_payTimeTxt(r.claim.createdAt),fn:()=>vcPayLinkTo(u,r.claim.id)})));
+  if(!opts.length){toast('No open sale to link to');return;}
+  uiSheet('Link this payment to which sale?',opts,btn);
+}
+function vcPayLinkTo(utr,claimId){
+  if(!_payClaim(claimId))return;
+  _paySetRec(utr,{claimId:String(claimId),notSale:false});
+  vcxPush();vcPayRefresh();toast('✅ Linked');
+}
+function vcPayUnlink(utr){
+  const u=payCleanUtr(utr),r=_payRec(u);if(!r||r.invId)return;
+  _paySetRec(u,{claimId:''});vcxPush();vcPayRefresh();
+}
+function vcPayCancelClaim(id){
+  showConfirmModal('Cancel this sale?','The customer has not paid and will not pay this amount. The QR amount stays blocked for 5 days so a late payment is not mistaken for another sale.',()=>{_paySetClaim(id,{status:'cancelled'});vcxPush();vcPayRefresh();},null);
+}
+function vcPayConfirm(key){
+  const r=vcPayViewNow().toBill.find(x=>x.key===key);if(!r)return;
+  window.open('https://wa.me/?text='+encodeURIComponent(payWaMsg(r.paid,r.date,r.utrs)),'_blank');
+  const at=new Date().toISOString();
+  if(r.claim)_paySetClaim(r.claim.id,{confirmedAt:at});else r.utrs.forEach(u=>_paySetRec(u,{confirmedAt:at}));
+  vcxPush();vcPayRefresh();
+}
+
+// ── Payments page ──
+function _payRowHtml(r){
+  const tags=[];
+  if(!r.verified)tags.push('<span class="badge b-yellow">Manual</span>');
+  if(r.pays.some(p=>p.src==='paste'))tags.push('<span class="badge b-blue">Pasted</span>');
+  if(!r.claim)tags.push('<span class="badge b-yellow">Not linked to a sale</span>');
+  if(r.confirmed)tags.push('<span class="badge b-green">Confirmed</span>');
+  const k=esc(r.key).replace(/'/g,'');
+  const u=r.utrs[0]||'';
+  const btns=['<button class="btn btn-p btn-sm" onclick="vcPayStartBill(\''+k+'\')">Bill</button>',
+    '<button class="btn btn-o btn-sm" onclick="vcPayConfirm(\''+k+'\')">💬 Confirm</button>'];
+  if(!r.claim){btns.push('<button class="btn btn-o btn-sm" onclick="vcPayLinkMenu(\''+u+'\',this)">Link</button>');btns.push('<button class="btn btn-o btn-sm" onclick="vcPayNotSale(\''+u+'\')">Not a sale</button>');}
+  else if(r.utrs.length)btns.push('<button class="btn btn-o btn-sm" onclick="vcPayRowMenu(\''+k+'\',this)">…</button>');
+  return'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="min-width:0;flex:1 1 220px;"><div class="list-main">'+esc(_payInr(r.paid))+(r.claim&&_payCents(r.claim.price)!==_payCents(r.paid)?' <span style="font-weight:400;color:#636366;font-size:12px;">price '+esc(_payInr(r.claim.price))+'</span>':'')+'</div>'
+    +'<div class="list-sub">'+esc(_payTimeTxt(r.pays[0]&&r.pays[0].txnAt))+' · Ref '+esc(r.utrs.join(', '))+(r.pays[0]&&r.pays[0].payer?' · '+esc(r.pays[0].payer):'')+'</div>'
+    +(tags.length?'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">'+tags.join('')+'</div>':'')+'</div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+btns.join('')+'</div></div>';
+}
+function vcPayRowMenu(key,btn){
+  const r=vcPayViewNow().toBill.find(x=>x.key===key);if(!r)return;
+  uiSheet('Payment',r.utrs.map(u=>({label:'Unlink Ref '+u,fn:()=>vcPayUnlink(u)})),btn);
+}
+function buildPaymentsPage(){return'<div id="vc-pay"></div>';}
+function vcPayRender(){
+  const el=document.getElementById('vc-pay');if(!el)return;
+  const v=vcPayViewNow();
+  const head=(t,n)=>'<div class="card-title">'+t+' ('+n+')</div>';
+  let h='<div class="card"><div class="btn-row" style="justify-content:flex-start;flex-wrap:wrap;margin-top:0;"><button class="btn btn-p" onclick="vcPayOpenTake()">💳 Take payment</button><button class="btn btn-o" onclick="vcPayPull(true).then(ok=>toast(ok?\'Up to date\':\'⚠️ Could not reach the sheet\'))">🔄 Refresh</button></div>'
+    +(S.upiId?'':'<div style="margin-top:10px;font-size:13px;color:#C0392B;">Add your UPI ID in Settings before taking payments.</div>')+'</div>';
+  h+='<div class="card"><div class="card-title">Paste bank SMS</div><div style="font-size:12px;color:#636366;margin-bottom:8px;line-height:1.5;">Only if the iPhone forwarding missed one. Business account ending '+esc(vcPayAcct())+' only.</div>'
+    +'<div class="fg" style="margin-bottom:8px;"><textarea id="vc-pay-paste" rows="4" maxlength="1000" placeholder="INR … credited A/c no. XX'+esc(vcPayAcct())+' …" aria-label="Bank SMS"></textarea></div><button class="btn btn-o btn-sm" onclick="vcPayPaste()">Add payment</button></div>';
+  h+='<div class="card">'+head('⏳ Waiting for bank',v.waiting.length)+(v.waiting.length?v.waiting.slice().reverse().map(c=>'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="flex:1 1 200px;"><div class="list-main">'+esc(_payInr(c.amount))+'</div><div class="list-sub">'+esc(_payTimeTxt(c.createdAt))+' · price '+esc(_payInr(c.price))+'</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-o btn-sm" onclick="vcPayReopen(\''+_vcIdArg(c.id)+'\')">QR</button><button class="btn btn-o btn-sm" onclick="vcPayManual(\''+_vcIdArg(c.id)+'\')">Received</button><button class="btn btn-d btn-sm" onclick="vcPayCancelClaim(\''+_vcIdArg(c.id)+'\')">Cancel</button></div></div>').join(''):'<div class="list-sub" style="padding:8px 0;">Nothing waiting.</div>')+'</div>';
+  h+='<div class="card">'+head('✅ Received, not billed',v.toBill.length)+(v.toBill.length?v.toBill.slice().reverse().map(_payRowHtml).join(''):'<div class="list-sub" style="padding:8px 0;">Everything received is billed.</div>')+'</div>';
+  if(v.notSale.length)h+='<details class="card collapse-card"><summary class="collapse-summary"><span class="card-title" style="margin:0;display:inline;">Not a sale ('+v.notSale.length+')</span><span class="collapse-chevron">▾</span></summary><div style="margin-top:8px;">'+v.notSale.slice().reverse().map(p=>'<div class="list-row"><div><div class="list-main">'+esc(_payInr(p.amount))+'</div><div class="list-sub">'+esc(_payTimeTxt(p.txnAt))+' · Ref '+esc(p.utr)+' · '+esc(PAY_NS[p.nsReason]||'Other')+(p.nsNote?': '+esc(p.nsNote):'')+'</div></div><button class="btn btn-o btn-sm" onclick="vcPayNotSaleUndo(\''+p.utr+'\')">Undo</button></div>').join('')+'</div></details>';
+  const recent=v.done.filter(r=>r.date>=new Date(Date.now()-30*86400000).toISOString().slice(0,10));
+  if(recent.length)h+='<details class="card collapse-card"><summary class="collapse-summary"><span class="card-title" style="margin:0;display:inline;">Billed, last 30 days ('+recent.length+')</span><span class="collapse-chevron">▾</span></summary><div style="margin-top:8px;">'+recent.slice().reverse().map(r=>'<div class="list-row"><div><div class="list-main">'+esc(_payInr(r.paid))+' · '+esc(r.invNo)+'</div><div class="list-sub">'+esc(_payTimeTxt(r.pays[0]&&r.pays[0].txnAt))+' · Ref '+esc(r.utrs.join(', '))+'</div></div></div>').join('')+'</div></details>';
+  el.innerHTML=h;
+}
+
+// ── Dashboard card and the midnight check ──
+function vcPayCard(){
+  const el=document.getElementById('vc-pay-card');if(!el)return;
+  const v=vcPayViewNow(),old=payUnbilledOld(v,today());
+  const any=S.upiId||payClaims.length||bankAlerts.length;
+  el.style.display=any?'block':'none';if(!any)return;
+  let h='<div class="card-title">💳 Payments</div>'
+    +'<div style="display:flex;gap:16px;font-size:14px;margin-bottom:10px;flex-wrap:wrap;"><span>⏳ Waiting: <strong>'+v.waiting.length+'</strong></span><span>✅ Received, not billed: <strong>'+v.toBill.length+'</strong></span></div>';
+  if(old.length)h+='<div style="background:#fde8e8;border:1px solid #e6b0aa;border-radius:10px;padding:10px 12px;font-size:13px;color:#C0392B;margin-bottom:10px;line-height:1.6;"><strong>Not billed from earlier days ('+old.length+')</strong><br/>'
+    +old.slice(0,10).map(r=>esc(_payInr(r.paid))+' · '+esc(fmtDate(r.date))+' · Ref '+esc(r.utrs.join(', '))+' · '+r.days+(r.days===1?' day':' days')+' old').join('<br/>')+(old.length>10?'<br/>and '+(old.length-10)+' more':'')+'</div>';
+  h+='<div class="btn-row" style="justify-content:flex-start;flex-wrap:wrap;margin-top:0;"><button class="btn btn-p btn-sm" onclick="vcPayOpenTake()">💳 Take payment</button><button class="btn btn-o btn-sm" onclick="showSubPage(\'payments\')">Open Payments</button></div>';
+  el.innerHTML=h;
+}
+
+// ── Billing from a payment ──
+function vcPayStartBill(key){
+  const r=vcPayViewNow().toBill.find(x=>x.key===key);
+  if(!r){toast('⚠️ This payment is no longer waiting for a bill');return;}
+  _vcPayLink={key,utrs:r.utrs.slice(),paid:r.paid,claimId:r.claim?String(r.claim.id):''};
+  try{closeSubPage();}catch(e){}
+  showPage('invoice',document.getElementById('bnav-invoice'));
+  const pm=document.getElementById('pay-mode');if(pm)pm.value='Prepaid';
+  vcPayLinkCard();recalc();
+  toast('Payment linked. Fill in the customer and items, then generate the bill.',4000);
+}
+function vcPayLinkPick(btn){
+  const v=vcPayViewNow();
+  if(!v.toBill.length){toast('No received payment waiting for a bill');return;}
+  uiSheet('Which payment is this bill for?',v.toBill.map(r=>({label:_payInr(r.paid)+' · '+_payTimeTxt(r.pays[0]&&r.pays[0].txnAt)+' · Ref '+r.utrs.join(', '),fn:()=>vcPayStartBill(r.key)})),btn);
+}
+function vcPayUnlinkBill(){_vcPayLink=null;vcPayLinkCard();recalc();}
+function vcPayLinkCard(){
+  let c=document.getElementById('vc-paylink-card');
+  if(!c){
+    const anchor=document.getElementById('vc-slips-card');if(!anchor)return;
+    c=document.createElement('div');c.className='card';c.id='vc-paylink-card';anchor.parentNode.insertBefore(c,anchor);
+  }
+  if(_vcPayLink)c.innerHTML='<div class="card-title">💳 Paid by UPI</div><div style="font-size:15px;font-weight:600;">'+esc(_payInr(_vcPayLink.paid))+'</div><div class="list-sub" style="margin-bottom:10px;">Ref '+esc(_vcPayLink.utrs.join(', '))+'</div><button class="btn btn-o btn-sm" onclick="vcPayUnlinkBill()">Remove link</button>';
+  else c.innerHTML='<div class="card-title">💳 UPI payment</div><div class="list-sub" style="margin-bottom:10px;">For an online order paid by UPI, link the payment so the bill matches the money received.</div><button class="btn btn-o btn-sm" onclick="vcPayLinkPick(this)">Link a received payment</button>';
+}
+function _payAsk(title,body){
+  return new Promise(res=>{showConfirmModal(title,body,()=>res(true),()=>setTimeout(()=>res(false),0));});
+}
+// Called by generateInvoice before anything is saved. false = stop. null = no payment. {adj,refs,link} = linked payment.
+async function vcPayGate(){
+  const ship=parseFloat(document.getElementById('shipping')?.value)||0,disc=parseFloat(document.getElementById('discount')?.value)||0;
+  const grand=calcTotals(items,ship,disc).grandIncl;
+  if(_vcPayLink){
+    const r=vcPayViewNow().toBill.find(x=>x.key===_vcPayLink.key);
+    if(!r){_vcPayLink=null;vcPayLinkCard();toast('⚠️ The linked payment was billed on another device. Link another one.',6000);return false;}
+    const a=payBillAdj(grand,r.paid),refs=r.utrs.join(',');
+    if(a.kind==='over'&&!(await _payAsk('Paid more than the bill','The customer paid '+esc(_payInr(r.paid))+', which is '+esc(_payInr(a.diff))+' more than this bill. The bill will show '+esc(_payInr(grand))+'. Bill it anyway?')))return false;
+    if(a.kind==='short'&&!(await _payAsk('Bill is more than the payment','This bill is '+esc(_payInr(a.diff))+' more than the payment linked ('+esc(_payInr(r.paid))+'). Bill it anyway?')))return false;
+    return{adj:a.adj||0,refs,link:Object.assign({},_vcPayLink,{utrs:r.utrs,claimId:r.claim?String(r.claim.id):''})};
+  }
+  const dm=document.getElementById('dispatch-method')?.value||'',pm=document.getElementById('pay-mode')?.value||'Prepaid';
+  if(pm!=='COD'&&dm!=='walkin'&&dm!=='hand'){
+    if(!(await _payAsk('No payment linked','No received payment is linked to this bill. For an online order, link the UPI payment first. Bill it anyway?')))return false;
+  }
+  return null;
+}
+function vcPayBilled(inv,pl){
+  if(!pl||!pl.link)return;
+  pl.link.utrs.forEach(u=>_paySetRec(u,{invId:String(inv.id),invNo:inv.invNo,claimId:pl.link.claimId||(_payRec(u)||{}).claimId||''}));
+  if(pl.link.claimId)_paySetClaim(pl.link.claimId,{invId:String(inv.id),invNo:inv.invNo});
+  _vcPayLink=null;vcxPush();vcPayRefresh();
+}
+function vcPayRecalcNote(){
+  const sb=document.getElementById('summary-box');if(!sb||!_vcPayLink)return;
+  const ship=parseFloat(document.getElementById('shipping')?.value)||0,disc=parseFloat(document.getElementById('discount')?.value)||0;
+  if(!items.some(i=>i.unitPrice>0))return;
+  const g=calcTotals(items,ship,disc).grandIncl,a=payBillAdj(g,_vcPayLink.paid);
+  let t='';
+  if(a.kind==='adjust')t='<div class="list-row" style="color:#c0392b;"><span>UPI payment adjustment</span><strong>−'+esc(_payInr(a.adj))+'</strong></div><div class="list-row" style="font-weight:700;"><span>Bill total = paid</span><strong>'+esc(_payInr(_vcPayLink.paid))+'</strong></div>';
+  else if(a.kind==='exact')t='<div class="list-row" style="color:#1A6E37;"><span>Matches the UPI payment</span><strong>✓</strong></div>';
+  else t='<div class="list-row" style="color:#C0392B;font-size:13px;"><span>Payment linked: '+esc(_payInr(_vcPayLink.paid))+'</span><strong>'+(a.kind==='over'?'paid '+esc(_payInr(a.diff))+' more':'bill '+esc(_payInr(a.diff))+' more')+'</strong></div>';
+  sb.insertAdjacentHTML('beforeend',t);
+}
+function vcPaySettingsFill(){
+  const e=document.getElementById('ms-pay-acct');if(e)e.value=vcPayAcct();
+}
+function vcPaySettingsSave(){
+  const e=document.getElementById('ms-pay-acct');if(!e)return;
+  const v=String(e.value||'').replace(/\D/g,'').slice(-4);
+  if(v.length===4){S.payAcct=v;lsSet('vc_s',S);}
+}
+
+(function vc50Init(){
+  function after(name,fn){
+    const f=window[name];if(typeof f!=='function')return;
+    window[name]=function(){const r=f.apply(this,arguments);try{fn.apply(this,arguments);}catch(e){console.warn('v14.50 '+name+':',e);}return r;};
+  }
+  after('recalc',vcPayRecalcNote);
+  after('renderDashboard',vcPayCard);
+  after('resetInvoiceForm',()=>{_vcPayLink=null;vcPayLinkCard();});
+  after('showPage',p=>{if(p==='invoice')vcPayLinkCard();if(p==='dash')vcPayPull(false);});
+  after('showSubPage',id=>{if(id==='payments'){vcPayRender();vcPayPull(true);}});
+  after('toggleSettings',vcPaySettingsFill);
+  after('saveSettings',vcPaySettingsSave);
+  const sy=window.syncAll;
+  window.syncAll=async function(m){const r=await sy.apply(this,arguments);vcPayPull(true).catch(()=>{});return r;};
+  // Keep checking while someone is looking at payments
+  setInterval(()=>{
+    const take=document.getElementById('vc-take-modal'),pg=document.getElementById('vc-pay');
+    if((take&&take.classList.contains('open')&&_vcTakeId)||pg)vcPayPull(true);
+  },30000);
+  // The midnight check: redraw the Dashboard card when the date changes
+  let day=today();
+  setInterval(()=>{if(today()!==day){day=today();try{vcPayCard();}catch(e){}}},60000);
+  vcPayAutoMatch();vcPayCard();vcPayLinkCard();
 })();
 </script>
