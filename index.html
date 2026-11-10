@@ -3,10 +3,12 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.53.0
+APP: Vismaad Creations v14.53.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 10-Nov-2026 - v14.53.0: COPIED WHATSAPP NUMBER FILLS ITSELF IN, NUMBER BOX ABOVE PRICE. No Code.gs change. Upload index.html only.
+LAST_CHANGE: 10-Nov-2026 - v14.53.1: GITHUB HIDDEN-CHARACTER WARNING REMOVED. No Code.gs change. Upload index.html only.
+(H1) v14.53.0 put real invisible direction characters (the marks WhatsApp adds around a copied number) inside the copied-number check, so GitHub warned "bidirectional or hidden Unicode text". They are now written as plain-text codes (\u202a and so on). The app behaves exactly the same.
+PREV_CHANGE: 10-Nov-2026 - v14.53.0: COPIED WHATSAPP NUMBER FILLS ITSELF IN, NUMBER BOX ABOVE PRICE. No Code.gs change. Upload index.html only.
 (N1) TAKE PAYMENT ORDER. The customer's WhatsApp number box is now above the price. The cursor starts in the number box; Enter there moves to the price. Show QR, Send on WhatsApp and reopening an old sale are unchanged (reopening never reads what was copied).
 (N2) 📋 PASTE BUTTON beside the number box. iPhone: tap it, then tap the Paste bubble. Android / computer: one tap. Fills only when what was copied is a phone number from any country (short text of digits, spaces, brackets, dashes and one leading +; 8 to 15 digits); otherwise "What you copied is not a phone number." Never replaces a number already in the box.
 (N3) ANDROID AUTO-FILL. When Take Payment opens, the copied number is filled in by itself ("Number filled from what you copied.") and the cursor moves to the price. Skipped when that number was used for a sale in the last 30 minutes (the Paste button still fills it). If Android paste permission is refused, nothing happens.
@@ -2856,7 +2858,7 @@ function payWaPhone(v){
 // so a chat message that happens to contain digits is never taken as a number.
 var PAY_CLIP_REPEAT_MIN=30;
 function payClipNumber(text){
-  const t=String(text==null?'':text).replace(/[‎‏‪-‮⁦-⁩ ]/g,' ').trim();
+  const t=String(text==null?'':text).replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069\u00a0]/g,' ').trim();
   if(!t||t.length>40)return'';
   if(!/^[+\d\s().\-]+$/.test(t))return'';
   if(t.indexOf('+',1)>=0)return'';
