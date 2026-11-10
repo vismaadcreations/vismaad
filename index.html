@@ -3,10 +3,15 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.52.1
+APP: Vismaad Creations v14.53.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 10-Nov-2026 - v14.52.1: DANCER LOGO AS THE APP ICON. No Code.gs change. Upload manifest.json, icon-192.png, icon-512.png, icon-maskable-512.png, apple-touch-icon.png and favicon.png beside index.html.
+LAST_CHANGE: 10-Nov-2026 - v14.53.0: COPIED WHATSAPP NUMBER FILLS ITSELF IN, NUMBER BOX ABOVE PRICE. No Code.gs change. Upload index.html only.
+(N1) TAKE PAYMENT ORDER. The customer's WhatsApp number box is now above the price. The cursor starts in the number box; Enter there moves to the price. Show QR, Send on WhatsApp and reopening an old sale are unchanged (reopening never reads what was copied).
+(N2) 📋 PASTE BUTTON beside the number box. iPhone: tap it, then tap the Paste bubble. Android / computer: one tap. Fills only when what was copied is a phone number from any country (short text of digits, spaces, brackets, dashes and one leading +; 8 to 15 digits); otherwise "What you copied is not a phone number." Never replaces a number already in the box.
+(N3) ANDROID AUTO-FILL. When Take Payment opens, the copied number is filled in by itself ("Number filled from what you copied.") and the cursor moves to the price. Skipped when that number was used for a sale in the last 30 minutes (the Paste button still fills it). If Android paste permission is refused, nothing happens.
+(N4) DASHBOARD. Android: when the app opens or comes back on screen and a phone number is copied (paste already allowed), the Payments card shows "Number copied: +.... Take payment?" which opens Take Payment with it filled; ✕ hides it for that number. iPhone / computer: a "📋 Paste number and take payment" button in the Payments card. What was copied is read only by Take Payment and this Dashboard check, and is never saved unless a sale is made with it.
+PREV_CHANGE: 10-Nov-2026 - v14.52.1: DANCER LOGO AS THE APP ICON. No Code.gs change. Upload manifest.json, icon-192.png, icon-512.png, icon-maskable-512.png, apple-touch-icon.png and favicon.png beside index.html.
 (L1) All app icons are now the dancer logo on white (Android install icons, including the "maskable" one with extra margin so Android's round crop does not cut it).
 (L2) iPhone home-screen icon: apple-touch-icon.png (180 x 180) linked, because iPhone may ignore the manifest icons. A shortcut added before this may keep its old picture until it is added again.
 (L3) Browser tab icon: favicon.png linked, so the logo shows on the Edge / Chrome tab and in an Edge-installed app window.
@@ -2845,6 +2850,46 @@ function payWaPhone(v){
   const i=t.indexOf('+');if(i>=0)t=t.slice(i);
   const d=t.replace(/\D/g,'');
   return d.length>=8&&d.length<=15&&!/^0+$/.test(d)?d:'';
+}
+// v14.53.0 COPIED NUMBER: decide whether copied text is a WhatsApp number we can fill in.
+// Only short text made of digits, spaces, brackets, dashes, dots and one leading + is accepted,
+// so a chat message that happens to contain digits is never taken as a number.
+var PAY_CLIP_REPEAT_MIN=30;
+function payClipNumber(text){
+  const t=String(text==null?'':text).replace(/[‎‏‪-‮⁦-⁩ ]/g,' ').trim();
+  if(!t||t.length>40)return'';
+  if(!/^[+\d\s().\-]+$/.test(t))return'';
+  if(t.indexOf('+',1)>=0)return'';
+  return payWaPhone(t);
+}
+// true when this number was used for a sale in the last 30 minutes (Android auto-fill then stays quiet).
+function payClipRecent(digits,claims,now){
+  if(!digits)return false;
+  const win=PAY_CLIP_REPEAT_MIN*60000;
+  return (Array.isArray(claims)?claims:[]).some(c=>{
+    if(!c||payWaPhone(c.phone)!==digits)return false;
+    const at=Date.parse(c.createdAt);
+    return isFinite(at)&&now-at>=0&&now-at<win;
+  });
+}
+// Android auto-fill: the number to fill, or '' to do nothing.
+function payClipAutoFill(text,fieldValue,claims,now){
+  if(String(fieldValue||'').trim())return'';
+  const d=payClipNumber(text);
+  return d&&!payClipRecent(d,claims,now)?d:'';
+}
+// Paste button: {ok,digits,msg}. Never replaces a number already in the box.
+function payClipPaste(text,fieldValue){
+  if(String(fieldValue||'').trim())return{ok:false,digits:'',msg:'A number is already in the box. Clear it first to paste another.'};
+  if(!String(text==null?'':text).trim())return{ok:false,digits:'',msg:'Nothing is copied. Copy the number in WhatsApp first.'};
+  const d=payClipNumber(text);
+  return d?{ok:true,digits:d,msg:''}:{ok:false,digits:'',msg:'What you copied is not a phone number.'};
+}
+function payClipPlatform(ua,touch){
+  const u=String(ua||'');
+  if(/Android/i.test(u))return'android';
+  if(/iPhone|iPad|iPod/.test(u)||(/Macintosh/.test(u)&&Number(touch)>1))return'ios';
+  return'other';
 }
 function payWaLink(phone,text){return'https://wa.me/'+payWaPhone(phone)+'?text='+encodeURIComponent(text||'');}
 function payQrMsg(amount,upiName,upiId){
@@ -18144,12 +18189,13 @@ function vcPayPull(force){
 }
 
 // ── Take Payment ──
-function vcPayOpenTake(){
+function vcPayOpenTake(opts){
+  opts=opts&&typeof opts==='object'?opts:{};
   _vcTakeId=null;
   const m=_vcEnsureModal('vc-take-modal','<div class="modal" style="max-width:440px;"><button class="modal-close" onclick="vcPayCloseTake()">✕</button>'
     +'<div class="modal-title">💳 Take payment</div>'
+    +'<div class="fg"><label for="vc-take-phone">Customer WhatsApp number (optional)</label><div style="display:flex;gap:8px;align-items:stretch;"><input id="vc-take-phone" style="flex:1;min-width:0;" type="tel" inputmode="tel" maxlength="40" autocomplete="off" placeholder="e.g. +91 98765 43210" oninput="vcPayClipNote(\'\')" onkeydown="if(event.key===\'Enter\'){event.preventDefault();var p=document.getElementById(\'vc-take-price\');if(p)p.focus();}"/><button type="button" class="btn btn-o" id="vc-take-paste" style="flex:none;white-space:nowrap;margin:0;" onclick="vcPayPasteNum()">📋 Paste</button></div><div id="vc-take-clipnote" role="status" style="display:none;font-size:12px;color:#1e7e34;margin-top:4px;"></div></div>'
     +'<div class="fg"><label for="vc-take-price">Price agreed with the customer (₹)</label><input id="vc-take-price" type="number" inputmode="decimal" min="2" step="0.01" placeholder="e.g. 1995" onkeydown="if(event.key===\'Enter\')vcPayMakeQr()"/></div>'
-    +'<div class="fg"><label for="vc-take-phone">Customer WhatsApp number (optional)</label><input id="vc-take-phone" type="tel" inputmode="tel" maxlength="40" autocomplete="off" placeholder="Paste from WhatsApp, e.g. +91 98765 43210"/></div>'
     +'<button class="btn btn-p" style="width:100%;" onclick="vcPayMakeQr()">Show QR</button>'
     +'<div id="vc-take-out" style="display:none;text-align:center;margin-top:16px;">'
     +'<div id="vc-take-single">'
@@ -18166,8 +18212,65 @@ function vcPayOpenTake(){
     +'<div id="vc-take-status" role="status" style="margin-top:12px;font-size:14px;font-weight:600;"></div>'
     +'</div></div>');
   m.classList.add('open');
-  setTimeout(()=>{const i=document.getElementById('vc-take-price');if(i)i.focus();},50);
+  const pre=payWaPhone(opts.phone); // v14.53.0: opened from the Dashboard with a copied number
+  if(pre){const ph=document.getElementById('vc-take-phone');if(ph)ph.value='+'+pre;vcPayClipNote('Number filled from what you copied.');}
+  setTimeout(()=>{const ph=document.getElementById('vc-take-phone'),i=document.getElementById(ph&&String(ph.value).trim()?'vc-take-price':'vc-take-phone');if(i)i.focus();},50);
+  if(!pre&&!opts.noClip&&_payClipPlat()==='android')vcPayClipAuto();
 }
+// ── v14.53.0 COPIED NUMBER ──
+function _payClipPlat(){try{return payClipPlatform(navigator.userAgent,navigator.maxTouchPoints);}catch(e){return'other';}}
+function _payClipCan(){try{return!!(navigator.clipboard&&navigator.clipboard.readText);}catch(e){return false;}}
+function vcPayClipNote(t){const n=document.getElementById('vc-take-clipnote');if(!n)return;n.textContent=t||'';n.style.display=t?'block':'none';}
+function _payClipFail(){toast('⚠️ Could not read what you copied. Allow paste for this app, or press and hold in the number box and choose Paste.',6000);}
+// Android: fill the copied number when Take Payment opens. Quiet if refused, not a number, or used in the last 30 minutes.
+async function vcPayClipAuto(){
+  try{
+    if(!_payClipCan())return;
+    const txt=await navigator.clipboard.readText();
+    const m=document.getElementById('vc-take-modal'),ph=document.getElementById('vc-take-phone');
+    if(!m||!ph||!m.classList.contains('open')||_vcTakeId)return;
+    const d=payClipAutoFill(txt,ph.value,payClaims,Date.now());
+    if(!d)return;
+    ph.value='+'+d;vcPayClipNote('Number filled from what you copied.');
+    const p=document.getElementById('vc-take-price');if(p&&(document.activeElement===ph||document.activeElement===document.body))p.focus();
+  }catch(e){}
+}
+// The 📋 Paste button beside the number box (iPhone: tap, then tap the Paste bubble).
+async function vcPayPasteNum(){
+  const ph=document.getElementById('vc-take-phone');if(!ph)return;
+  if(String(ph.value).trim()){toast('⚠️ A number is already in the box. Clear it first to paste another.',5000);return;}
+  if(!_payClipCan()){_payClipFail();return;}
+  let txt;try{txt=await navigator.clipboard.readText();}catch(e){_payClipFail();return;}
+  const r=payClipPaste(txt,ph.value);
+  if(!r.ok){toast('⚠️ '+r.msg,5000);return;}
+  ph.value='+'+r.digits;vcPayClipNote('');
+  const p=document.getElementById('vc-take-price');if(p)p.focus();
+}
+// Dashboard: iPhone / computer button "Paste number and take payment".
+async function vcPayPasteTake(){
+  if(!S.upiId){toast('⚠️ Add your UPI ID in Settings first',5000);return;}
+  if(!_payClipCan()){_payClipFail();return;}
+  let txt;try{txt=await navigator.clipboard.readText();}catch(e){_payClipFail();return;}
+  const r=payClipPaste(txt,'');
+  if(!r.ok){toast('⚠️ '+r.msg,5000);return;}
+  vcPayOpenTake({phone:r.digits});
+}
+// Dashboard: Android "Number copied … Take payment?" — only reads when paste is already allowed, never asks by itself.
+let _payClipDash='',_payClipDismissed='',_payClipTimer=null;
+async function vcPayClipDashCheck(){
+  try{
+    if(_payClipPlat()!=='android'||!S.upiId||document.visibilityState!=='visible')return;
+    if(!_payClipCan()||!navigator.permissions||!navigator.permissions.query)return;
+    const st=await navigator.permissions.query({name:'clipboard-read'});
+    if(!st||st.state!=='granted')return;
+    const d=payClipNumber(await navigator.clipboard.readText());
+    const show=d&&d!==_payClipDismissed&&!payClipRecent(d,payClaims,Date.now())?d:'';
+    if(show!==_payClipDash){_payClipDash=show;vcPayCard();}
+  }catch(e){}
+}
+function vcPayClipDashSoon(){clearTimeout(_payClipTimer);_payClipTimer=setTimeout(vcPayClipDashCheck,500);}
+function vcPayClipTake(){const d=_payClipDash;_payClipDismissed=d;_payClipDash='';vcPayCard();vcPayOpenTake({phone:d});}
+function vcPayClipDismiss(){_payClipDismissed=_payClipDash;_payClipDash='';vcPayCard();}
 function vcPayCloseTake(){const m=document.getElementById('vc-take-modal');if(m)m.classList.remove('open');_vcTakeId=null;setTimeout(vcPayPromptCheck,300);}
 async function vcPayMakeQr(){
   if(!S.upiId){toast('⚠️ Add your UPI ID in Settings first',5000);return;}
@@ -18186,7 +18289,7 @@ async function vcPayMakeQr(){
 }
 function vcPayReopen(id){
   const c=_payClaim(id);if(!c)return;
-  vcPayOpenTake();
+  vcPayOpenTake({noClip:true});
   const i=document.getElementById('vc-take-price');if(i)i.value=c.price||'';
   const ph=document.getElementById('vc-take-phone'),pn=payWaPhone(c.phone);if(ph)ph.value=pn?'+'+pn:'';
   _vcTakeId=c.id;vcPayShowQr(c);
@@ -18658,7 +18761,10 @@ function vcPayCard(){
   const unc=payUnchecked(v);
   if(unc.length)h+='<div style="background:#fff8e1;border:1px solid #f5c26b;border-radius:10px;padding:10px 12px;font-size:13px;color:#7a5200;margin-bottom:10px;line-height:1.6;"><strong>Not checked with bank ('+unc.length+')</strong><br/>'
     +unc.slice(0,10).map(r=>esc(_payInr(r.paid))+' · marked paid '+esc(_payTimeTxt(r.claim&&(r.claim.paidAt||r.claim.createdAt)))).join('<br/>')+'<br/>Check these in the Axis app before shipping.</div>';
-  h+='<div class="btn-row" style="justify-content:flex-start;flex-wrap:wrap;margin-top:0;"><button class="btn btn-p btn-sm" onclick="vcPayOpenTake()">💳 Take payment</button><button class="btn btn-o btn-sm" onclick="showSubPage(\'payments\')">Open Payments</button></div>';
+  const clip=S.upiId&&_payClipDash&&!payClipRecent(_payClipDash,payClaims,Date.now())?payWaPhone(_payClipDash):''; // v14.53.0
+  if(clip)h+='<div id="vc-pay-clip" style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="flex:1;min-width:150px;">📋 Number copied: <strong>+'+esc(clip)+'</strong>. Take payment?</span><button class="btn btn-p btn-sm" onclick="vcPayClipTake()">💳 Take payment</button><button class="btn btn-plain btn-sm" aria-label="Not now" onclick="vcPayClipDismiss()">✕</button></div>';
+  const pasteBtn=S.upiId&&_payClipPlat()!=='android'&&_payClipCan()?'<button class="btn btn-o btn-sm" id="vc-pay-pastetake" onclick="vcPayPasteTake()">📋 Paste number and take payment</button>':'';
+  h+='<div class="btn-row" style="justify-content:flex-start;flex-wrap:wrap;margin-top:0;"><button class="btn btn-p btn-sm" onclick="vcPayOpenTake()">💳 Take payment</button>'+pasteBtn+'<button class="btn btn-o btn-sm" onclick="showSubPage(\'payments\')">Open Payments</button></div>';
   el.innerHTML=h;
 }
 
@@ -18745,7 +18851,7 @@ function vcPaySettingsSave(){
   after('recalc',vcPayRecalcNote);
   after('renderDashboard',vcPayCard);
   after('resetInvoiceForm',()=>{_vcPayLink=null;vcPayLinkCard();});
-  after('showPage',p=>{if(p==='invoice')vcPayLinkCard();if(p==='dash')vcPayPull(false);});
+  after('showPage',p=>{if(p==='invoice')vcPayLinkCard();if(p==='dash'){vcPayPull(false);vcPayClipDashSoon();}});
   after('showSubPage',id=>{if(id==='payments'){_payBoxOpen=false;vcPayRender();vcPayPull(true);}});
   after('toggleSettings',vcPaySettingsFill);
   after('saveSettings',vcPaySettingsSave);
@@ -18757,10 +18863,11 @@ function vcPaySettingsSave(){
     if((take&&take.classList.contains('open')&&_vcTakeId)||pg)vcPayPull(true);
   },30000);
   // v14.52.0: check payments when the app comes back on screen (from WhatsApp, or the phone unlocked)
-  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){vcPayPromptCheck();vcPayPull(false);}});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){vcPayPromptCheck();vcPayPull(false);vcPayClipDashSoon();}});
+  window.addEventListener('focus',vcPayClipDashSoon); // v14.53.0: Android copied-number prompt
   // The midnight check: redraw the Dashboard card when the date changes
   let day=today();
   setInterval(()=>{if(today()!==day){day=today();try{vcPayCard();}catch(e){}}},60000);
-  vcPayAutoMatch();vcPayCard();vcPayLinkCard();
+  vcPayAutoMatch();vcPayCard();vcPayLinkCard();vcPayClipDashSoon();
 })();
 </script>
