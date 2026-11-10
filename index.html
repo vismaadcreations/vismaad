@@ -3,10 +3,12 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.53.1
+APP: Vismaad Creations v14.53.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 10-Nov-2026 - v14.53.1: GITHUB HIDDEN-CHARACTER WARNING REMOVED. No Code.gs change. Upload index.html only.
+LAST_CHANGE: 10-Nov-2026 - v14.53.2: SALES EXCEL EXPORT "STATUS" COLUMN MATCHES THE SALES PAGE. No Code.gs change. Upload index.html only.
+(X1) BUG FIX. The last column of the Sales Register export (Status) only knew courier tracking data and the old Shipped toggle, so every bill with no tracking number, every Hand Delivery / Walk-in bill and every bill marked Delivered by hand came out "Pending" (a number with no tracking data yet came out "Shipped" or "Pending"). It now shows exactly the Sales page badge (new vcExportDeliveryStatus, which reads getInvoiceBucket): Delivered (courier or marked by hand), Part Delivered, the live courier status, Overdue, Awaiting Update, No Tracking, Hand Delivered, Collected, Cancelled, Returned. Column names, order, the Invoice Status column, all other columns, the file name and the GST bills only tick are unchanged.
+PREV_CHANGE: 10-Nov-2026 - v14.53.1: GITHUB HIDDEN-CHARACTER WARNING REMOVED. No Code.gs change. Upload index.html only.
 (H1) v14.53.0 put real invisible direction characters (the marks WhatsApp adds around a copied number) inside the copied-number check, so GitHub warned "bidirectional or hidden Unicode text". They are now written as plain-text codes (\u202a and so on). The app behaves exactly the same.
 PREV_CHANGE: 10-Nov-2026 - v14.53.0: COPIED WHATSAPP NUMBER FILLS ITSELF IN, NUMBER BOX ABOVE PRICE. No Code.gs change. Upload index.html only.
 (N1) TAKE PAYMENT ORDER. The customer's WhatsApp number box is now above the price. The cursor starts in the number box; Enter there moves to the price. Show QR, Send on WhatsApp and reopening an old sale are unchanged (reopening never reads what was copied).
@@ -5282,6 +5284,11 @@ function getInvoiceBucket(inv){
   const live=statuses.find(s=>s&&!/^delivered$/i.test(s))||'In Transit';
   return{bucket:'InTransit',label:live,icon:'',cls:'b-blue',style:''};
 }
+// v14.53.2: the Sales Register export's "Status" column uses the exact Sales page badge text.
+function vcExportDeliveryStatus(inv){
+  if(!inv||typeof inv!=='object')return '';
+  try{return getInvoiceBucket(inv).label;}catch(e){return '';}
+}
 function isVoidInvoice(inv){const st=invStatusOf(inv);return st==='Cancelled'||st==='Returned';}
 
 function calcTotals(arr,ship,disc){
@@ -9496,19 +9503,7 @@ function _doExport(type,from,to,label){
       dispMap[inv.dispatchMethod||'']||'',
       (inv.tracking||'').split(',').map(t=>t.trim()).filter(Boolean).join(' / '),
       invStatusOf(inv), // v14.31.0: Active / Cancelled / Returned — void rows must be visible in the register
-      (function(){
-        // Unified status: check all tracking numbers
-        const trackNos=(inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
-        if(trackNos.length>0){
-          const statuses=trackNos.map(t=>(tdGet(t)?.status||''));
-          if(statuses.every(s=>/^delivered$/i.test(s)))return 'Delivered';
-          if(statuses.some(s=>/^delivered$/i.test(s)))return 'Part Delivered';
-          const inTransit=statuses.find(s=>s&&!/^delivered$/i.test(s));
-          if(inTransit)return inTransit;
-        }
-        const shipped=inv.isShipped===true||inv.isShipped==='true'||inv.status==='Shipped';
-        return shipped?'Shipped':'Pending';
-      })()
+      vcExportDeliveryStatus(inv) // v14.53.2: same text as the Sales page badge (was Shipped/Pending fallback)
     ];
   });
   const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
