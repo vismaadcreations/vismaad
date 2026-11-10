@@ -3,10 +3,21 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.51.0
+APP: Vismaad Creations v14.52.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 10-Nov-2026 - v14.51.0: SEND QR ON WHATSAPP TO THE CUSTOMER'S NUMBER. No Code.gs change (the new phone column is added to PayClaims on first save).
+LAST_CHANGE: 10-Nov-2026 - v14.52.1: DANCER LOGO AS THE APP ICON. No Code.gs change. Upload manifest.json, icon-192.png, icon-512.png, icon-maskable-512.png, apple-touch-icon.png and favicon.png beside index.html.
+(L1) All app icons are now the dancer logo on white (Android install icons, including the "maskable" one with extra margin so Android's round crop does not cut it).
+(L2) iPhone home-screen icon: apple-touch-icon.png (180 x 180) linked, because iPhone may ignore the manifest icons. A shortcut added before this may keep its old picture until it is added again.
+(L3) Browser tab icon: favicon.png linked, so the logo shows on the Edge / Chrome tab and in an Edge-installed app window.
+PREV_CHANGE: 10-Nov-2026 - v14.52.0: SPLIT QR FOR PAYMENTS ABOVE ₹2,000, PAYMENT-RECEIVED PROMPT + EMAIL, BILL NUMBER FIX, ANDROID INSTALL. Needs Code.gs v8 (for the email) deployed on the same link. Upload manifest.json, icon-192.png, icon-512.png and icon-maskable-512.png to the repo beside index.html.
+(Q1) SPLIT INTO PARTS. Take Payment shows "✂️ Split into parts" when the price is above ₹2,000 (for customers whose UPI app stops a QR from a photo at ₹2,000). The parts add up to the EXACT price (no paise taken off), each part is in whole rupees and under ₹2,000, kept roughly even, and the split point changes every time (₹3,000 may be ₹1,700 + ₹1,300, next time ₹1,600 + ₹1,400). No part equals another sale's amount, part or bank credit from the last 5 days; only if no whole-rupee split is free are paise used inside the parts (total still exact). One QR card per part with its own Copy QR, Send on WhatsApp (message lists every part, copies part 1's QR), Share all, and "Use one QR instead" while nothing has been paid. Single QRs keep the paise reduction as before.
+(Q2) SPLIT MATCHING. Each bank credit links to its part; the sale shows "1 of 2 received" under Waiting for bank until every part arrives, then moves to Received with all references. A customer who pays the whole total in one go, or the original single QR amount, is matched too. Two waiting sales wanting the same part are never linked automatically. A split sale marked paid by hand is billed at the full price. NEW SALE FIELD: parts (e.g. 1700|1300).
+(Q3) PAYMENT-RECEIVED PROMPT. When a bank-detected payment completes a sale (single, or the last part of a split) and no confirmation was sent, a popup shows the amount, references and customer number: Send confirmation (opens that customer's chat with the usual message), Copy ₹ when no number is saved, Already sent, Later. Shown on any device once it has read the sheet this session, never over another popup, only for payments from the last 48 hours. Send and Already sent clear it on every device; Later hides it until the app is opened again. The app now also checks payments when it comes back on screen.
+(Q4) BILL NUMBER ON A NEW PHONE. A phone that had never made a bill showed INV/2026-27/001 although 16 bills existed. The next number was worked out from each bill's stored "fy" label, which Google Sheets can change (for example into a date), so synced bills were not counted; phones that had made bills hid this behind their own counter. The number is now read from the bill numbers themselves (INV/<year>/<n>), in the Invoice page, Generate Invoice and renumbering.
+(Q5) GENERATE INVOICE WAITS FOR THE FIRST SYNC. Until this session has fully read the bills from the sheet, Generate Invoice says "Getting latest bills, please wait" and starts a sync instead of making a bill, so a fresh or offline phone cannot issue a duplicate number.
+(Q6) ANDROID INSTALL. Linked a web app manifest (name, icons, standalone) so Chrome on Android offers Install. New files only; no service worker, so nothing is cached and updates show as before.
+PREV_CHANGE: 10-Nov-2026 - v14.51.0: SEND QR ON WHATSAPP TO THE CUSTOMER'S NUMBER. No Code.gs change (the new phone column is added to PayClaims on first save).
 (W1) TAKE PAYMENT has a "Customer WhatsApp number (optional)" box. Paste the number copied from the customer's WhatsApp chat (any country). The app keeps digits only (spaces, dashes, brackets and + removed, country code kept). A number that is too short or too long is refused with a message. The number is saved with that sale and syncs to the other phone.
 (W2) 💬 SEND ON WHATSAPP (new main button under the QR): one tap copies the QR image and opens that customer's chat in a new tab with the usual "Please pay exactly ..." message typed in. In WhatsApp, long-press the message box, Paste, send. The app stays open in its own tab. Share QR and Copy amount are still there. The paise reduction is unchanged, so auto-matching works as before.
 (W3) WAITING FOR BANK and RECEIVED, NOT BILLED show the customer's number. 💬 Confirm opens that customer's chat directly (it used to ask which chat). The … menu has Open chat, for sending the bill PDF later.
@@ -233,6 +244,9 @@ KEY_VARS: invoices(vc_inv), inventory(vc_stk), purchases(vc_pur), trackingData(v
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <meta name="color-scheme" content="light"/>
 <title>Vismaad Creations</title>
+<link rel="manifest" href="manifest.json"/>
+<link rel="apple-touch-icon" href="apple-touch-icon.png"/>
+<link rel="icon" type="image/png" href="favicon.png"/>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=Great+Vibes&family=Caveat:wght@400;600&display=swap" rel="stylesheet"/>
 <style>
 :root{
@@ -2723,22 +2737,25 @@ function payPickAmount(price,used,rand){
 function _payTime(v){const n=Date.parse(v||'');return isFinite(n)?n:NaN;}
 function payUsedAmounts(claims,alerts,nowMs,days){
   const from=(nowMs||Date.now())-(days||PAY_DAYS)*86400000,out=[];
-  (claims||[]).forEach(c=>{if(c&&_payTime(c.createdAt)>=from&&parseFloat(c.amount)>0)out.push(parseFloat(c.amount));});
+  (claims||[]).forEach(c=>{if(c&&_payTime(c.createdAt)>=from&&parseFloat(c.amount)>0){out.push(parseFloat(c.amount));payParts(c).forEach(x=>out.push(x));}}); // v14.52.0: parts too
   (alerts||[]).forEach(a=>{if(a&&_payTime(a.txnAt||a.recAt)>=from&&parseFloat(a.amount)>0)out.push(parseFloat(a.amount));});
   return out;
 }
 function _payRecMap(recs){const m={};(recs||[]).forEach(r=>{const u=r&&payCleanUtr(r.utr);if(u)m[u]=Object.assign(m[u]||{},r);});return m;}
 // Bank credits that should be tied to a waiting sale: exact amount, exactly one waiting sale, sale made before the credit.
+// v14.52.0: a split sale takes one payment per part (or the whole total, or its single QR amount).
 function payMatch(alerts,recs,claims){
   const rm=_payRecMap(recs),out=[];
-  const busy=new Set(Object.values(rm).filter(r=>r.claimId).map(r=>String(r.claimId)));
+  const amt={};(alerts||[]).forEach(a=>{const u=a&&payCleanUtr(a.utr);if(u)amt[u]=_payCents(a.amount);});
+  const got={};
+  Object.keys(rm).forEach(u=>{const r=rm[u];if(!r.claimId)return;const v=(u in amt)?amt[u]:_payCents(r.amount);(got[String(r.claimId)]=got[String(r.claimId)]||[]).push(isFinite(v)?v:-1);});
   (alerts||[]).forEach(a=>{
     const u=a&&payCleanUtr(a.utr);if(!u)return;
     const r=rm[u];if(r&&(r.claimId||r.notSale||r.invId))return;
     const ac=_payCents(a.amount),at=_payTime(a.txnAt||a.recAt);
-    const cand=(claims||[]).filter(c=>c&&c.id&&c.status!=='cancelled'&&!c.invId&&!busy.has(String(c.id))&&_payCents(c.amount)===ac
+    const cand=(claims||[]).filter(c=>c&&c.id&&c.status!=='cancelled'&&!c.invId&&_payWants(c,got[String(c.id)]||[],ac)
       &&(!isFinite(at)||!isFinite(_payTime(c.createdAt))||(_payTime(c.createdAt)<=at+600000&&at-_payTime(c.createdAt)<30*86400000)));
-    if(cand.length===1){out.push({utr:u,claimId:String(cand[0].id)});busy.add(String(cand[0].id));}
+    if(cand.length===1){const id=String(cand[0].id);out.push({utr:u,claimId:id});(got[id]=got[id]||[]).push(ac);}
   });
   return out;
 }
@@ -2757,7 +2774,8 @@ function payView(alerts,recs,claims,nowMs){
     const paid=Math.round(ps.reduce((s,p)=>s+p.amount*100,0))/100;
     const first=ps.reduce((m,p)=>(!m||String(p.txnAt)<String(m))?p.txnAt:m,'');
     const verified=ps.length>0&&ps.every(p=>p.verified);
-    const paidAll=ps.length?paid:(c&&c.paidMark?Math.round((parseFloat(c.amount)||0)*100)/100:0);
+    const _sp=c&&payParts(c).length&&!_payCovered(c,ps.map(p=>_payCents(p.amount))); // v14.52.0: split sale marked paid by hand = full price
+    const paidAll=_sp&&c.paidMark?Math.round((parseFloat(c.price)||0)*100)/100:ps.length?paid:(c&&c.paidMark?Math.round((parseFloat(c.amount)||0)*100)/100:0);
     return{key,claim:c||null,pays:ps,utrs:ps.map(p=>p.utr),paid:paidAll,verified,
       check:verified?'bank':(c&&c.paidMark==='bank'?'you':'none'),
       confirmed:!!((c&&c.confirmedAt)||ps.some(p=>p.confirmedAt)),date:_payDay(first)||(c?_payDay(c.paidAt||c.createdAt):''),
@@ -2766,6 +2784,8 @@ function payView(alerts,recs,claims,nowMs){
   cl.forEach(c=>{
     const ps=byClaim[String(c.id)]||[];
     if(c.status==='cancelled'&&!ps.length){cancelled.push(c);return;}
+    const _parts=payParts(c);
+    if(_parts.length&&!c.paidMark&&!_payCovered(c,ps.map(p=>_payCents(p.amount)))){waiting.push(Object.assign({},c,{_got:_payPartsGot(c,ps.map(p=>_payCents(p.amount))),_of:_parts.length,_pays:ps}));return;} // v14.52.0
     if(!ps.length&&!c.paidMark){waiting.push(c);return;}
     const r=row('C:'+c.id,ps,c);(r.invId?done:toBill).push(r);
   });
@@ -2833,6 +2853,87 @@ function payQrMsg(amount,upiName,upiId){
 function payRefLine(refs){
   const u=String(refs||'').split(',').map(payCleanUtr).filter(Boolean);
   return u.length?'Paid by UPI, Ref '+u.join(', '):'';
+}
+// ── v14.52.0 SPLIT QR: parts in whole rupees, each under ₹2,000, adding up to the exact price. ──
+var PAY_PART_MAX=199900,PAY_PART_MIN=10000,PAY_SPLIT_FROM=200000,PAY_SPLIT_UPTO=1990000,PAY_SPLIT_MAX_PARTS=10,PAY_SPLIT_TRIES=400,PAY_NOTIFY_HOURS=48;
+function payPartsStr(parts){return (parts||[]).map(x=>String(Math.round(x*100)/100)).join('|');}
+// The parts saved on a sale, or [] when there are none or they do not add up to the price.
+function payParts(c){
+  if(!c||c.parts===undefined||c.parts===null)return[];
+  const s=String(c.parts);if(!s||s.length>200)return[];
+  const xs=s.split('|').map(v=>/^\d{1,7}(\.\d{1,2})?$/.test(v.trim())?_payCents(v):NaN);
+  if(xs.length<2||xs.some(x=>!isFinite(x)||x<=0||x>PAY_PART_MAX))return[];
+  if(xs.reduce((a,b)=>a+b,0)!==_payCents(c.price))return[];
+  return xs.map(x=>x/100);
+}
+// Picks the parts. A different split point each time (rand), none equal to another sale's amount or a recent bank credit.
+function paySplitParts(price,used,rand){
+  const P=_payCents(price);
+  if(!isFinite(P)||P<=PAY_SPLIT_FROM||P>PAY_SPLIT_UPTO)return null; // above ₹2,000, up to ₹19,900 (10 parts)
+  const r=typeof rand==='function'?rand:Math.random;
+  const taken=new Set((used||[]).map(_payCents).filter(isFinite));
+  const n0=Math.ceil(P/PAY_PART_MAX);
+  const attempt=(n,paise)=>{
+    if(n>PAY_SPLIT_MAX_PARTS)return null;
+    const base=P/n;
+    const lo=Math.max(PAY_PART_MIN,Math.ceil(base*0.7/100)*100),hi=Math.min(PAY_PART_MAX,Math.floor(base*1.3/100)*100);
+    const lastLo=Math.max(PAY_PART_MIN,Math.floor(base*0.6));
+    if(lo>hi)return null;
+    for(let t=0;t<PAY_SPLIT_TRIES;t++){
+      const parts=[];let rest=P,ok=true;
+      for(let i=0;i<n-1;i++){
+        const k=n-1-i; // parts still to come after this one; keep what is left possible for them
+        const a=Math.max(lo,Math.ceil((rest-k*PAY_PART_MAX)/100)*100),b=Math.min(hi,Math.floor((rest-k*lastLo)/100)*100);
+        if(a>b){ok=false;break;}
+        let v=a+Math.min(Math.floor(r()*((b-a)/100+1)),(b-a)/100)*100;
+        if(paise){const q=1+Math.floor(r()*99);v=v+q<=PAY_PART_MAX?v+q:v-q;}
+        parts.push(v);rest-=v;
+      }
+      if(!ok)continue;
+      const last=rest;
+      if(last<lastLo||last>PAY_PART_MAX)continue;
+      parts.push(last);
+      if(new Set(parts).size!==parts.length||parts.some(x=>taken.has(x)))continue;
+      return parts.map(x=>x/100);
+    }
+    return null;
+  };
+  for(const paise of [false,true])for(const n of [n0,n0+1]){const p=attempt(n,paise);if(p)return p;}
+  return null;
+}
+// True when the payments linked to a sale (amounts in paise) cover it.
+function _payCovered(c,got){
+  const parts=payParts(c).map(_payCents);
+  if(!parts.length)return got.length>0;
+  if(got.some(a=>a===_payCents(c.amount)||a===_payCents(c.price)))return true;
+  const left=parts.slice();got.forEach(a=>{const i=left.indexOf(a);if(i>=0)left.splice(i,1);});
+  return left.length===0;
+}
+// Can this sale take one more payment of ac paise?
+function _payWants(c,got,ac){
+  if(_payCovered(c,got))return false;
+  const parts=payParts(c).map(_payCents);
+  if(!parts.length)return ac===_payCents(c.amount);
+  if(!got.length&&(ac===_payCents(c.amount)||ac===_payCents(c.price)))return true;
+  const left=parts.slice();got.forEach(a=>{const i=left.indexOf(a);if(i>=0)left.splice(i,1);});
+  return left.indexOf(ac)>=0;
+}
+function _payPartsGot(c,got){
+  const left=payParts(c).map(_payCents);let n=0;
+  got.forEach(a=>{const i=left.indexOf(a);if(i>=0){left.splice(i,1);n++;}});
+  return n;
+}
+// Received payments that should prompt "send a confirmation": bank-detected, linked to a sale, not billed,
+// not confirmed, fully paid, and arrived in the last few hours. Oldest first.
+function payNotifyList(view,nowMs,hours){
+  const from=(nowMs||Date.now())-(hours||PAY_NOTIFY_HOURS)*3600000;
+  const last=r=>{const ts=r.pays.map(p=>_payTime(p.txnAt)).filter(isFinite);return ts.length?Math.max.apply(null,ts):NaN;};
+  return (view&&view.toBill||[]).filter(r=>r.claim&&!r.invId&&!r.confirmed&&r.pays.length&&r.pays.every(p=>p.verified)&&last(r)>=from)
+    .sort((a,b)=>last(a)-last(b));
+}
+function payQrMsgSplit(parts,upiName,upiId){
+  const tot=(parts||[]).reduce((s,x)=>s+_payCents(x),0)/100;
+  return'Please pay '+_payInr(tot)+' in '+parts.length+' payments: '+parts.map(_payInr).join(' + ')+', by UPI to '+(upiName||'')+' ('+(upiId||'')+'). Scan each QR once, in any order. - Vismaad Creations';
 }
 // Words for the parcel label: lower case, Indian counting, rupees only.
 function vcWordsLower(n){
@@ -3119,6 +3220,8 @@ let items=[],itemId=0,selChannel='',currentInv=null,syncing=false;
 // Follow-up and delivery prompts wait for it, so a freshly installed or reset device never prompts
 // from its own empty history.
 let _sessionSheetRead=false;
+// v14.52.0: true once this session has read and merged the bills from the sheet. Generate Invoice waits for it.
+let _invSyncedThisSession=false;
 let logoB64=lsGet('vc_logo',null);
 let qrB64 =lsGet('vc_qr',null);
 
@@ -3327,6 +3430,13 @@ function fmtMsgDate(d){
     }
     return str;
   }catch{return String(d);}
+}
+// v14.52.0: highest n among bills numbered INV/<fy>/<n>. Read from the number itself, because Google Sheets
+// can change the stored fy label (into a date, or blank), and then a new phone counted no bills and showed 001.
+function vcGstSeqMax(list,fy){
+  let mx=0;const re=/^INV\/(\d{4}-\d{2})\/(\d{1,6})$/;
+  (list||[]).forEach(i=>{const m=re.exec(String(i&&i.invNo||'').trim());if(m&&m[1]===fy){const n=parseInt(m[2],10);if(n>mx)mx=n;}});
+  return mx;
 }
 function getFY(d){
   const dt=d?new Date(d+'T12:00:00'):new Date();
@@ -4181,6 +4291,7 @@ async function syncAll(manual){
       }
     }catch(e){console.warn('PopupState sync failed:',e.message);}
 
+    _invSyncedThisSession=true; // v14.52.0: bills read and merged
     _stage='saving locally';
     save();saveStk();savePur();saveSup();saveBills();
 
@@ -4752,12 +4863,8 @@ function setInvNumber(){
     // GST mode: FY-scoped counter, new format INV/YY-YY/NNN
     let ctr=getGSTInvCtr();
     const fy=getFY(today());
-    const fyInvs=invoices.filter(i=>i.fy===fy&&(i.invNo||'').startsWith('INV/'));
-    if(fyInvs.length>0){
-      const nums=fyInvs.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
-      const mx=Math.max(...nums);
-      if(mx>ctr){ctr=mx;setGSTInvCtr(mx);}
-    }
+    const mx=vcGstSeqMax(invoices,fy); // v14.52.0
+    if(mx>ctr){ctr=mx;setGSTInvCtr(mx);}
     if(el)el.value=fmtGSTInvNo(ctr+1);
   }else{
     // BOS mode: legacy INV-NNN counter
@@ -5215,6 +5322,11 @@ async function generateInvoice(){
   if(!custState){toast('⚠️ Select customer state');return;}
   if(isGSTEnabled()&&!S.gstin){toast('⚠️ Enter your GSTIN in Settings first');return;}
   if(items.every(i=>!i.unitPrice)){toast('⚠️ Add at least one suit with price');return;}
+  if(!_invSyncedThisSession){ // v14.52.0: never number a bill before this phone has the latest bills
+    toast('⏳ Getting latest bills, please wait. Tap Generate again in a moment.',6000);
+    if(!syncing)syncAll(true);
+    return;
+  }
   const _pl=await vcPayGate(); if(_pl===false)return; // v14.50.0: UPI payment link, paise adjustment, warning when none
 
   // v14.29.0: resolve unrecognised tracking-number formats BEFORE any state is mutated
@@ -5231,12 +5343,8 @@ async function generateInvoice(){
   if(isGSTEnabled()){
     const fy=getFY(document.getElementById('inv-date')?.value||today());
     let ctr=getGSTInvCtr();
-    const fyInvs=invoices.filter(i=>i.fy===fy&&(i.invNo||'').startsWith('INV/'));
-    if(fyInvs.length>0){
-      const nums=fyInvs.map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
-      const mx=Math.max(...nums);
-      if(mx>ctr){ctr=mx;}
-    }
+    const mx=vcGstSeqMax(invoices,fy); // v14.52.0
+    if(mx>ctr){ctr=mx;}
     ctr++;
     setGSTInvCtr(ctr);
     invNo=fmtGSTInvNo(ctr);
@@ -5973,9 +6081,9 @@ function checkDupInvNos(){
 function renumberInvoice(inv){
   let newNo;
   if((inv.invNo||'').startsWith('INV/')){
-    const fy=inv.fy||getFY(inv.invDate);
-    const nums=invoices.filter(i=>(i.fy||getFY(i.invDate))===fy&&(i.invNo||'').startsWith('INV/')).map(i=>{const m=(i.invNo||'').match(/(\d+)$/);return m?parseInt(m[1]):0;});
-    const next=Math.max(0,...nums)+1;
+    const _fm=/^INV\/(\d{4}-\d{2})\//.exec(String(inv.invNo||'').trim()); // v14.52.0: year from the number itself
+    const fy=_fm?_fm[1]:(inv.fy||getFY(inv.invDate));
+    const next=vcGstSeqMax(invoices,fy)+1;
     newNo='INV/'+fy+'/'+String(next).padStart(3,'0');
     if(fy===getFY(today()))setGSTInvCtr(Math.max(getGSTInvCtr(),next));
   }else{
@@ -18011,6 +18119,7 @@ function vcPayRefresh(){
   try{vcPayTakeStatus();}catch(e){console.warn(e);}
   try{vcPayCard();}catch(e){console.warn(e);}
   try{vcPayLinkCard();}catch(e){console.warn(e);}
+  try{vcPayPromptCheck();}catch(e){console.warn(e);} // v14.52.0
 }
 let _vcPayPullAt=0,_vcPayPulling=null;
 function vcPayPull(force){
@@ -18025,7 +18134,7 @@ function vcPayPull(force){
         const m=mergeById(VCX[kind].get(),rows.map(r=>vcxNorm(kind,r)));
         VCX[kind].set(m);_vcxSave(kind,m);
       }
-      _vcPayPullAt=Date.now();
+      _vcPayPullAt=Date.now();_payPulledOnce=true; // v14.52.0
       vcPayAutoMatch();
       return true;
     }catch(e){console.warn('Payments sync failed:',e.message);return false;}
@@ -18043,18 +18152,23 @@ function vcPayOpenTake(){
     +'<div class="fg"><label for="vc-take-phone">Customer WhatsApp number (optional)</label><input id="vc-take-phone" type="tel" inputmode="tel" maxlength="40" autocomplete="off" placeholder="Paste from WhatsApp, e.g. +91 98765 43210"/></div>'
     +'<button class="btn btn-p" style="width:100%;" onclick="vcPayMakeQr()">Show QR</button>'
     +'<div id="vc-take-out" style="display:none;text-align:center;margin-top:16px;">'
+    +'<div id="vc-take-single">'
     +'<div style="font-size:13px;color:#636366;">Customer pays exactly</div>'
     +'<div id="vc-take-amount" style="font-size:34px;font-weight:700;letter-spacing:-.5px;margin:2px 0 10px;"></div>'
     +'<div id="vc-take-qr" style="display:inline-block;background:#fff;padding:10px;border-radius:12px;"></div>'
     +'<div id="vc-take-payee" style="font-size:13px;color:#636366;margin:6px 0 12px;word-break:break-all;"></div>'
     +'<div class="btn-row" style="justify-content:center;flex-wrap:wrap;"><button class="btn btn-p" onclick="vcPaySendWa()">💬 Send on WhatsApp</button><button class="btn btn-o" onclick="vcPayShare()">📤 Share QR</button><button class="btn btn-o" onclick="vcPayCopyAmt()">Copy amount</button></div>'
-    +'<div id="vc-take-status" role="status" style="margin-top:12px;font-size:14px;font-weight:600;"></div>'
+    +'<button class="btn btn-o" id="vc-take-split" style="display:none;margin:10px auto 0;" onclick="vcPaySplit()">✂️ Split into parts</button>'
+    +'<div id="vc-take-split-note" style="display:none;font-size:12px;color:#636366;margin-top:6px;line-height:1.5;">Only if the customer says their UPI app stops them at ₹2,000.</div>'
     +'<div style="font-size:12px;color:#636366;margin-top:8px;line-height:1.5;">The amount is a few paise below the price so the bank alert can be matched to this sale. The paise go on the bill as a separate adjustment.</div>'
+    +'</div>'
+    +'<div id="vc-take-parts" style="display:none;"></div>'
+    +'<div id="vc-take-status" role="status" style="margin-top:12px;font-size:14px;font-weight:600;"></div>'
     +'</div></div>');
   m.classList.add('open');
   setTimeout(()=>{const i=document.getElementById('vc-take-price');if(i)i.focus();},50);
 }
-function vcPayCloseTake(){const m=document.getElementById('vc-take-modal');if(m)m.classList.remove('open');_vcTakeId=null;}
+function vcPayCloseTake(){const m=document.getElementById('vc-take-modal');if(m)m.classList.remove('open');_vcTakeId=null;setTimeout(vcPayPromptCheck,300);}
 async function vcPayMakeQr(){
   if(!S.upiId){toast('⚠️ Add your UPI ID in Settings first',5000);return;}
   const price=parseFloat(document.getElementById('vc-take-price')?.value);
@@ -18080,6 +18194,12 @@ function vcPayReopen(id){
 async function vcPayShowQr(c){
   const out=document.getElementById('vc-take-out');if(!out)return;
   out.style.display='block';
+  const parts=payParts(c),single=document.getElementById('vc-take-single'),pbox=document.getElementById('vc-take-parts'); // v14.52.0
+  if(single)single.style.display=parts.length?'none':'block';
+  if(pbox)pbox.style.display=parts.length?'block':'none';
+  if(parts.length){await _payShowParts(c,parts);vcPayTakeStatus();return;}
+  const canSplit=_payCents(c.price)>PAY_SPLIT_FROM&&!_payClaimHasPays(c.id);
+  ['vc-take-split','vc-take-split-note'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=canSplit?'block':'none';});
   document.getElementById('vc-take-amount').textContent=_payInr(c.amount);
   document.getElementById('vc-take-payee').textContent=(S.upiName||'')+' · '+S.upiId;
   const box=document.getElementById('vc-take-qr');box.innerHTML='';
@@ -18089,10 +18209,113 @@ async function vcPayShowQr(c){
   }catch(e){box.textContent='QR could not be made. Check the internet connection.';}
   vcPayTakeStatus();
 }
+// ── v14.52.0 split QR ──
+function _payClaimHasPays(id){return payRecs.some(r=>String(r.claimId)===String(id)&&!(r.notSale===true||r.notSale==='true'));}
+function _payClaimGotCents(id){
+  const am={};bankAlerts.forEach(a=>{const u=payCleanUtr(a.utr);if(u)am[u]=_payCents(a.amount);});
+  return payRecs.filter(r=>String(r.claimId)===String(id)&&!(r.notSale===true||r.notSale==='true')).map(r=>{const u=payCleanUtr(r.utr);return u in am?am[u]:_payCents(r.amount);});
+}
+async function vcPaySplit(){
+  const c=_payClaim(_vcTakeId);if(!c)return;
+  if(!(_payCents(c.price)>PAY_SPLIT_FROM)){toast('⚠️ Only amounts above ₹2,000 can be split');return;}
+  if(_payClaimHasPays(c.id)||c.paidMark){toast('⚠️ A payment for this sale has already come in, so it cannot be split now',6000);return;}
+  const parts=paySplitParts(c.price,payUsedAmounts(payClaims,bankAlerts,Date.now(),PAY_DAYS),Math.random);
+  if(!parts){toast('⚠️ This amount cannot be split here (up to ₹19,900 in 10 parts). Take it as more than one sale.',7000);return;}
+  _paySetClaim(c.id,{parts:payPartsStr(parts)});vcxPush();
+  await vcPayShowQr(_payClaim(c.id));vcPayRefresh();
+}
+function vcPayUnsplit(){
+  const c=_payClaim(_vcTakeId);if(!c)return;
+  if(_payClaimHasPays(c.id)){toast('⚠️ A part has already been paid. Keep the parts.',6000);return;}
+  _paySetClaim(c.id,{parts:''});vcxPush();
+  vcPayShowQr(_payClaim(c.id));vcPayRefresh();
+}
+async function _payShowParts(c,parts){
+  const box=document.getElementById('vc-take-parts');if(!box)return;
+  const n=parts.length;
+  box.innerHTML='<div style="font-size:13px;color:#636366;">Customer pays '+esc(_payInr(c.price))+' in '+n+' parts</div>'
+    +'<div style="font-size:12px;color:#636366;margin:2px 0 10px;word-break:break-all;">'+esc((S.upiName||'')+' · '+S.upiId)+'</div>'
+    +'<div class="btn-row" style="justify-content:center;flex-wrap:wrap;margin-top:0;"><button class="btn btn-p" onclick="vcPaySendWa()">💬 Send on WhatsApp</button><button class="btn btn-o" onclick="vcPayShareParts()">📤 Share all</button></div>'
+    +parts.map((p,i)=>'<div class="vc-part" data-i="'+i+'" data-amt="'+p.toFixed(2)+'" style="border:1px solid var(--sep,#E5E5EA);border-radius:14px;padding:12px;margin-top:12px;">'
+      +'<div style="font-size:13px;color:#636366;">Part '+(i+1)+' of '+n+'</div>'
+      +'<div style="font-size:26px;font-weight:700;letter-spacing:-.4px;margin:2px 0 8px;">'+esc(_payInr(p))+'</div>'
+      +'<div class="vc-part-qr" id="vc-part-qr-'+i+'" style="display:inline-block;background:#fff;padding:8px;border-radius:10px;"></div>'
+      +'<div class="vc-part-st" style="font-size:13px;font-weight:600;min-height:18px;margin:6px 0;"></div>'
+      +'<button class="btn btn-o btn-sm" onclick="vcPayCopyPart('+i+')">Copy QR</button></div>').join('')
+    +'<button class="btn btn-plain btn-sm" id="vc-take-unsplit" style="margin-top:10px;" onclick="vcPayUnsplit()">Use one QR instead</button>'
+    +'<div style="font-size:12px;color:#636366;margin-top:8px;line-height:1.5;">The parts add up to the exact price, so nothing goes on the bill as an adjustment.</div>';
+  try{
+    await ensureQRLib();
+    parts.forEach((p,i)=>{const el=document.getElementById('vc-part-qr-'+i);if(el)new QRCode(el,{text:payUpiUrl(S.upiId,S.upiName||'',p),width:180,height:180,colorDark:'#000000',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});});
+  }catch(e){box.insertAdjacentHTML('beforeend','<div style="color:#C0392B;font-size:13px;">QR could not be made. Check the internet connection.</div>');}
+}
+function _payPartCanvas(i){const b=document.getElementById('vc-part-qr-'+i);return b&&(b.querySelector('canvas')||null);}
+function _payImage(src,amount,top,bottom){
+  if(!src)return null;
+  const W=600,H=820,cv=document.createElement('canvas');cv.width=W;cv.height=H;
+  const x=cv.getContext('2d');if(!x)return null;
+  x.fillStyle='#ffffff';x.fillRect(0,0,W,H);
+  x.fillStyle='#1c1c1e';x.textAlign='center';
+  x.font='bold 30px Arial';x.fillText('Vismaad Creations',W/2,60);
+  x.font='24px Arial';x.fillText(top,W/2,120);
+  x.font='bold 56px Arial';x.fillText(_payInr(amount),W/2,185);
+  try{x.drawImage(src,100,220,400,400);}catch(e){}
+  x.font='22px Arial';x.fillStyle='#444';
+  x.fillText(String(S.upiName||''),W/2,670);x.fillText(String(S.upiId||''),W/2,705);
+  x.font='20px Arial';x.fillText(bottom,W/2,760);
+  return cv;
+}
+function _payPartImage(c,i){const p=payParts(c);return i<p.length?_payImage(_payPartCanvas(i),p[i],'Part '+(i+1)+' of '+p.length+' · pay exactly','Scan with any UPI app, then pay the next part'):null;}
+// Copies one picture inside the tap (iPhone rule). Returns true when the copy started.
+function _payCopyCanvas(cv,okMsg){
+  try{
+    if(cv&&navigator.clipboard&&navigator.clipboard.write&&typeof ClipboardItem!=='undefined'){
+      const blob=new Promise((res,rej)=>cv.toBlob(b=>b?res(b):rej(new Error('no image')),'image/png'));
+      navigator.clipboard.write([new ClipboardItem({'image/png':blob})]).then(()=>{if(okMsg)toast(okMsg,6000);},()=>toast('⚠️ The QR could not be copied. Use Share all instead.',6000));
+      return true;
+    }
+  }catch(e){}
+  return false;
+}
+function vcPayCopyPart(i){
+  const c=_payClaim(_vcTakeId);if(!c)return;
+  const n=payParts(c).length;
+  if(!_payCopyCanvas(_payPartImage(c,i),'Part '+(i+1)+' QR copied. In WhatsApp, long-press the message box, tap Paste, then send.'+(i+1<n?' Then come back for part '+(i+2)+'.':'')))toast('⚠️ This browser cannot copy images. Use Share all instead.',6000);
+}
+function vcPayShareParts(){
+  const c=_payClaim(_vcTakeId);if(!c)return;
+  const parts=payParts(c),text=payQrMsgSplit(parts,S.upiName,S.upiId);
+  const cvs=parts.map((p,i)=>_payPartImage(c,i)).filter(Boolean);
+  const fallback=()=>{
+    cvs.forEach((cv,i)=>{const a=document.createElement('a');a.href=cv.toDataURL('image/png');a.download='pay-part-'+(i+1)+'.png';document.body.appendChild(a);a.click();a.remove();});
+    try{navigator.clipboard&&navigator.clipboard.writeText(text);}catch(e){}
+    toast('QR images saved and message copied. Send them on WhatsApp.',5000);
+  };
+  if(!cvs.length||!navigator.share){fallback();return;}
+  Promise.all(cvs.map((cv,i)=>new Promise(res=>cv.toBlob(b=>res(b?new File([b],'pay-part-'+(i+1)+'.png',{type:'image/png'}):null),'image/png')))).then(files=>{
+    files=files.filter(Boolean);
+    try{
+      if(navigator.canShare&&navigator.canShare({files}))navigator.share({files,text}).catch(()=>{});
+      else navigator.share({text}).catch(()=>{});
+    }catch(e){fallback();}
+  });
+}
 function vcPayTakeStatus(){
   const el=document.getElementById('vc-take-status');if(!el||!_vcTakeId)return;
   const v=vcPayViewNow(),r=v.toBill.concat(v.done).find(x=>x.key==='C:'+_vcTakeId);
+  const c=_payClaim(_vcTakeId),parts=payParts(c); // v14.52.0: per-part ticks
+  if(parts.length){
+    const left=_payClaimGotCents(_vcTakeId).slice(),all=!!r;
+    document.querySelectorAll('#vc-take-parts .vc-part').forEach(card=>{
+      const a=_payCents(card.getAttribute('data-amt')),k=left.indexOf(a),st=card.querySelector('.vc-part-st');
+      const paid=all||k>=0;if(k>=0)left.splice(k,1);
+      if(st){st.style.color=paid?'#1A6E37':'#8F5E00';st.textContent=paid?'✅ Received':'⏳ Waiting';}
+    });
+    const ub=document.getElementById('vc-take-unsplit');if(ub)ub.style.display=_payClaimHasPays(_vcTakeId)?'none':'inline-flex';
+  }
+  const w=v.waiting.find(x=>String(x.id)===String(_vcTakeId));
   if(r){el.style.color='#1A6E37';el.textContent='✅ Received '+_payInr(r.paid)+(r.check==='bank'?'':r.check==='you'?' (checked by you)':' (not checked with bank yet)');}
+  else if(w&&w._of&&w._got){el.style.color='#8F5E00';el.textContent='⏳ '+w._got+' of '+w._of+' received, waiting for the rest…';}
   else{el.style.color='#8F5E00';el.textContent='⏳ Waiting for the bank alert…';}
 }
 function _payQrCanvas(){
@@ -18139,6 +18362,14 @@ function vcPaySendWa(){
   const el=document.getElementById('vc-take-phone'),raw=String(el&&el.value||'').trim(),phone=payWaPhone(raw);
   if(!phone){toast(raw?'⚠️ This WhatsApp number does not look right. Copy it again from WhatsApp.':'⚠️ Paste the customer\'s WhatsApp number first',6000);if(el)el.focus();return;}
   if(payWaPhone(c.phone)!==phone){_paySetClaim(c.id,{phone});vcxPush();vcPayRefresh();}
+  const _parts=payParts(c); // v14.52.0
+  if(_parts.length){
+    const copyingP=_payCopyCanvas(_payPartImage(c,0),null);
+    const urlP=payWaLink(phone,payQrMsgSplit(_parts,S.upiName,S.upiId));
+    const wP=window.open(urlP,'_blank');if(!wP)location.href=urlP;
+    toast(copyingP?'Part 1 QR copied. In WhatsApp, long-press the message box, tap Paste, then send. Then come back and tap Copy QR on part 2.':'⚠️ This browser cannot copy images. Use Share all instead.',8000);
+    return;
+  }
   let copying=false;
   try{
     const cv=vcPayShareImage(c);
@@ -18300,10 +18531,56 @@ function _payRowByKey(key){const k=payKeyArg(key);return vcPayViewNow().toBill.f
 function vcPayConfirm(key){
   const r=_payRowByKey(key);if(!r)return;
   window.open(payWaLink(r.claim?r.claim.phone:'',payWaMsg(r.paid,r.date,r.utrs)),'_blank'); // v14.51.0: straight to the customer when the number is saved
+  _paySetConfirmed(r);
+}
+function _paySetConfirmed(r){
   const at=new Date().toISOString();
   if(r.claim)_paySetClaim(r.claim.id,{confirmedAt:at});else r.utrs.forEach(u=>_paySetRec(u,{confirmedAt:at}));
   vcxPush();vcPayRefresh();
 }
+
+// ── v14.52.0 payment-received prompt ──
+let _payPulledOnce=false,_payLater=new Set(),_payPromptKey=null;
+function _payPromptClose(){const m=document.getElementById('vc-pay-rcv-modal');if(m)m.classList.remove('open');_payPromptKey=null;}
+function _payPromptBlocked(){
+  if(document.visibilityState==='hidden'||!vcAuthToken())return true;
+  const ag=document.getElementById('auth-gate');if(ag&&ag.style.display&&ag.style.display!=='none')return true;
+  const su=document.getElementById('setup-screen');if(su&&su.style.display&&su.style.display!=='none')return true;
+  if(document.querySelector('.modal-bg.open:not(#vc-pay-rcv-modal),.ui-sheet-bg,.loading-overlay.show'))return true;
+  return false;
+}
+function vcPayPromptCheck(){
+  try{
+    if(!_payPulledOnce)return;
+    const m=document.getElementById('vc-pay-rcv-modal'),isOpen=!!(m&&m.classList.contains('open'));
+    const list=payNotifyList(vcPayViewNow(),Date.now(),PAY_NOTIFY_HOURS).filter(r=>!_payLater.has(payKeyArg(r.key)));
+    if(!list.length){if(isOpen)_payPromptClose();return;}
+    if(!isOpen&&_payPromptBlocked())return;
+    const r=list[0],k=payKeyArg(r.key);
+    if(isOpen&&_payPromptKey===k)return;
+    _payPromptKey=k;
+    const ph=r.claim?payWaPhone(r.claim.phone):'';
+    const btns=(ph?'<button class="btn btn-p" id="vc-pay-rcv-send" style="width:100%;" onclick="vcPayPromptSend()">💬 Send confirmation</button>'
+        :'<button class="btn btn-o" id="vc-pay-rcv-copy" style="width:100%;" onclick="vcPayCopyRupee(\''+k+'\')">Copy ₹ to find the chat</button>'
+        +'<button class="btn btn-p" id="vc-pay-rcv-send" style="width:100%;" onclick="vcPayPromptSend()">💬 Send confirmation (choose chat)</button>')
+      +'<button class="btn btn-o" id="vc-pay-rcv-done" style="width:100%;" onclick="vcPayPromptDone()">Already sent</button>'
+      +'<button class="btn btn-plain" id="vc-pay-rcv-later" style="width:100%;" onclick="vcPayPromptLater()">Later</button>';
+    _vcEnsureModal('vc-pay-rcv-modal','<div class="modal" style="max-width:420px;">'
+      +'<div class="modal-title">💳 Payment received</div>'
+      +'<div style="font-size:32px;font-weight:700;letter-spacing:-.5px;">'+esc(_payInr(r.paid))+'</div>'
+      +'<div class="list-sub" style="margin:4px 0 10px;line-height:1.5;word-break:break-all;">'+esc(_payTimeTxt((r.pays[r.pays.length-1]||{}).txnAt))+(r.utrs.length?' · Ref '+esc(r.utrs.join(', ')):'')
+      +' · '+(ph?'+'+esc(ph):'No WhatsApp number saved')+(r.claim&&_payCents(r.claim.price)!==_payCents(r.paid)?' · price '+esc(_payInr(r.claim.price)):'')+'</div>'
+      +'<div style="font-size:15px;margin-bottom:14px;">Send the customer a confirmation that the payment was received?</div>'
+      +'<div style="display:flex;flex-direction:column;gap:8px;">'+btns+'</div>'
+      +(list.length>1?'<div style="text-align:center;font-size:12px;color:#636366;margin-top:10px;">1 of '+list.length+' payments to confirm</div>':'')
+      +'</div>').classList.add('open');
+  }catch(e){console.warn('Payment prompt:',e);}
+}
+function _payPromptRow(){return _payPromptKey?_payRowByKey(_payPromptKey):null;}
+function _payPromptNext(){_payPromptClose();setTimeout(vcPayPromptCheck,250);}
+function vcPayPromptSend(){const r=_payPromptRow();if(r)vcPayConfirm(r.key);_payPromptNext();}
+function vcPayPromptDone(){const r=_payPromptRow();if(r)_paySetConfirmed(r);_payPromptNext();}
+function vcPayPromptLater(){if(_payPromptKey)_payLater.add(_payPromptKey);_payPromptNext();}
 
 // ── Payments page ──
 function _payRowHtml(r){
@@ -18337,6 +18614,12 @@ function vcPayRowMenu(key,btn){
   if(!opts.length)return;
   uiSheet('Payment',opts,btn);
 }
+// v14.52.0: a waiting split sale shows its parts and how many have come in
+function _payWaitHead(c){
+  const p=payParts(c);
+  if(!p.length)return esc(_payInr(c.amount));
+  return esc(_payInr(c.price))+' <span style="font-weight:400;color:#636366;font-size:12px;">in '+p.length+' parts: '+p.map(x=>esc(_payInr(x))).join(' + ')+(c._got?' · '+c._got+' of '+c._of+' received':'')+'</span>';
+}
 function buildPaymentsPage(){return'<div id="vc-pay"></div>';}
 function vcPayRender(){
   const el=document.getElementById('vc-pay');if(!el)return;
@@ -18351,7 +18634,7 @@ function vcPayRender(){
     +'<div id="vc-pay-paste-box" style="display:none;margin-top:10px;"><div class="fg" style="margin-bottom:8px;"><textarea id="vc-pay-paste" rows="4" maxlength="1000" placeholder="INR … credited A/c no. XX'+esc(vcPayAcct())+' …" aria-label="Bank SMS"></textarea></div><button class="btn btn-o btn-sm" onclick="vcPayPaste()">Add</button></div></div>';
   const dup=payDupAmounts(v); // v14.50.1 fix 10
   if(dup.length)h+='<div class="card" style="background:#fff8e1;border:1px solid #f5c26b;font-size:13px;color:#7a5200;line-height:1.5;">⚠️ Two waiting sales have the same amount: '+dup.map(x=>esc(_payInr(x))).join(', ')+'. This can happen when both phones make a QR at the same moment. When it is paid, link it by hand, or cancel one sale and make a new QR.</div>';
-  h+='<div class="card">'+head('⏳ Waiting for bank',v.waiting.length)+(v.waiting.length?v.waiting.slice().reverse().map(c=>'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="flex:1 1 200px;"><div class="list-main">'+esc(_payInr(c.amount))+'</div><div class="list-sub">'+esc(_payTimeTxt(c.createdAt))+' · price '+esc(_payInr(c.price))+(payWaPhone(c.phone)?' · +'+esc(payWaPhone(c.phone)):'')+'</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-o btn-sm" onclick="vcPayReopen(\''+_vcIdArg(c.id)+'\')">QR</button><button class="btn btn-o btn-sm" onclick="vcPayMarkModal(\''+_vcIdArg(c.id)+'\')">Mark paid</button><button class="btn btn-d btn-sm" onclick="vcPayCancelClaim(\''+_vcIdArg(c.id)+'\')">Cancel</button></div></div>').join(''):'<div class="list-sub" style="padding:8px 0;">Nothing waiting.</div>')+'</div>';
+  h+='<div class="card">'+head('⏳ Waiting for bank',v.waiting.length)+(v.waiting.length?v.waiting.slice().reverse().map(c=>'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="flex:1 1 200px;"><div class="list-main">'+_payWaitHead(c)+'</div><div class="list-sub">'+esc(_payTimeTxt(c.createdAt))+' · price '+esc(_payInr(c.price))+(payWaPhone(c.phone)?' · +'+esc(payWaPhone(c.phone)):'')+'</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-o btn-sm" onclick="vcPayReopen(\''+_vcIdArg(c.id)+'\')">QR</button><button class="btn btn-o btn-sm" onclick="vcPayMarkModal(\''+_vcIdArg(c.id)+'\')">Mark paid</button><button class="btn btn-d btn-sm" onclick="vcPayCancelClaim(\''+_vcIdArg(c.id)+'\')">Cancel</button></div></div>').join(''):'<div class="list-sub" style="padding:8px 0;">Nothing waiting.</div>')+'</div>';
   h+='<div class="card">'+head('✅ Received, not billed',v.toBill.length)+(v.toBill.length?v.toBill.slice().reverse().map(_payRowHtml).join(''):'<div class="list-sub" style="padding:8px 0;">Everything received is billed.</div>')+'</div>';
   if(v.notSale.length)h+='<details class="card collapse-card"><summary class="collapse-summary"><span class="card-title" style="margin:0;display:inline;">Not a sale ('+v.notSale.length+')</span><span class="collapse-chevron">▾</span></summary><div style="margin-top:8px;">'+v.notSale.slice().reverse().map(p=>'<div class="list-row"><div><div class="list-main">'+esc(_payInr(p.amount))+'</div><div class="list-sub">'+esc(_payTimeTxt(p.txnAt))+' · Ref '+esc(p.utr)+' · '+esc(PAY_NS[p.nsReason]||'Other')+(p.nsNote?': '+esc(p.nsNote):'')+'</div></div><button class="btn btn-o btn-sm" onclick="vcPayNotSaleUndo(\''+p.utr+'\')">Undo</button></div>').join('')+'</div></details>';
   const recent=v.done.filter(r=>r.date>=new Date(Date.now()-30*86400000).toISOString().slice(0,10));
@@ -18473,6 +18756,8 @@ function vcPaySettingsSave(){
     const take=document.getElementById('vc-take-modal'),pg=document.getElementById('vc-pay');
     if((take&&take.classList.contains('open')&&_vcTakeId)||pg)vcPayPull(true);
   },30000);
+  // v14.52.0: check payments when the app comes back on screen (from WhatsApp, or the phone unlocked)
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){vcPayPromptCheck();vcPayPull(false);}});
   // The midnight check: redraw the Dashboard card when the date changes
   let day=today();
   setInterval(()=>{if(today()!==day){day=today();try{vcPayCard();}catch(e){}}},60000);
