@@ -3,10 +3,14 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.55.0
+APP: Vismaad Creations v14.56.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 12-Nov-2026 - v14.55.0: PRINTING ON IPHONE AND IPAD MAKES A PDF. No Code.gs change. Upload index.html only.
+LAST_CHANGE: 12-Nov-2026 - v14.56.0: IPHONE PRINTING GOES THROUGH CANON PRINT AGAIN, WITH SAVE AS PDF. No Code.gs change. Upload index.html only.
+(E1) BUG FIX. v14.55.0 shared a PDF file on iPhone, and Canon PRINT only accepts a web page from the share sheet, so the Canon G3010 (no AirPrint) could not be reached without Save to Files. On iPhone/iPad, vcPrint(name) now opens each print as its own page again, like before v14.54.0: Share, then Canon PRINT, prints it. This now also covers multiple invoices, multiple labels and the Sales Book.
+(E2) The print page never prints by itself (that caused "Cannot open the page because the URL is invalid"). A bar at the top (hidden when printed) says "tap Share and choose Canon PRINT" and has a Save as PDF button that makes a proper PDF in the page (same page sizes as v14.55.0) for WhatsApp or Files, so WhatsApp no longer gets a blank page.
+(E3) HOW. _vcBuildPrintPage(name) writes #print-area with the app's print styles (_vcPrintCss), the page width from the @page rule, the PDF tools and the page helpers (_vcLen, _vcPageSpec, _vcCuts, _vcPdfName, _vcLib, _vcRenderPdf, _vcPageSave) into one page; name and settings are passed escaped. vcMakePdf is replaced by _vcRenderPdf, shared by the page. vcPrintInApp opens the page straight after the tap on iPhone (iPhone blocks a page opened later); when it is blocked anyway (prints made after saving), a "Print page ready" box with an Open button appears. The previous print page is released when a new one opens. Computers print directly as before.
+PREV_CHANGE: 12-Nov-2026 - v14.55.0: PRINTING ON IPHONE AND IPAD MAKES A PDF. No Code.gs change. Upload index.html only.
 (D1) BUG FIX. iPhone ignores window.print() in a home-screen app (nothing happened on any print), and in Safari it ignores the @page size (Sales Book printed portrait and cut). On iPhone/iPad (_vcUsePdf) every print now becomes a PDF with the right page size, handed to the share sheet (Print, Save to Files, WhatsApp). If iPhone needs a tap first, the "File ready" box appears. Computers and Android print directly as before.
 (D2) HOW. Every print calls vcPrint(name) instead of window.print(). vcMakePdf copies #print-area into a hidden frame with the app styles (print rules on, screen-only and dark-mode rules off), reads the page size and margins from the last @page rule (_vcPageSpec), splits pages at the document's page breaks and otherwise between rows and lines, never through them (_vcCuts), draws each page with html2canvas at 2x and puts it into jsPDF as a JPEG. Canvases stay under 12 million pixels (iPhone limit about 16.7). One PDF at a time; a failure shows a message and cleans up.
 (D3) TOOLS. jsPDF 4.2.1 and html2canvas 1.4.1 (MIT licence, npm audit clean) are built into the end of this file as text and started only when a PDF is made, so the app does not load slower and printing needs no internet. File size grows by about 0.6 MB.
@@ -6094,7 +6098,7 @@ function vcPrintInApp(css,body,opt){
   };
   const imgs=[...root.querySelectorAll('img')].filter(im=>!im.complete);
   const fontsReady=!document.fonts||document.fonts.status==='loaded';
-  if(!imgs.length&&fontsReady){go();return true;}
+  if((!imgs.length&&fontsReady)||_vcUsePdf()){go();return true;} // v14.56.0: iPhone opens the print page only straight after a tap
   let done=false;const fire=()=>{if(done)return;done=true;go();};
   setTimeout(fire,o.maxWait||3000);
   Promise.all([document.fonts?document.fonts.ready:null].concat(imgs.map(im=>new Promise(r=>{im.addEventListener('load',r,{once:true});im.addEventListener('error',r,{once:true});})))).then(fire,fire);
@@ -6211,85 +6215,119 @@ function _vcPdfName(name){
   const n=String(name||('Vismaad-'+today())).replace(/[\\/:*?"<>|]+/g,'-').trim()||'Vismaad';
   return /\.pdf$/i.test(n)?n:n+'.pdf';
 }
-let _vcPdfBusy=false;
-async function vcMakePdf(name){
-  if(_vcPdfBusy){toast('⏳ Still making the last PDF…');return;}
-  const area=document.getElementById('print-area');if(!area||!area.innerHTML.trim()){toast('⚠️ Nothing to print');return;}
-  _vcPdfBusy=true;showLoading('Making PDF…');
-  let fr=null;
-  try{
-    _vcPdocBeforePrint(); // same clean-up a real print does
-    // The page, as the printer would see it: app styles with their print rules switched on, screen-only and dark-mode rules off
-    let css='';
-    [...document.querySelectorAll('style')].forEach(st=>{css+=st.textContent+'\n';});
-    const pageCss=css;
-    // the app's print rule that hides everything but #print-area would also hide html2canvas's own work frame
-    css=css.replace(/body\s*>\s*\*\s*\{[^}]*\}/g,'').replace(/@media\s+print\b/gi,'@media all').replace(/@media\s+screen\b/gi,'@media not all').replace(/@media\s*\(\s*prefers-color-scheme\s*:\s*dark\s*\)/gi,'@media not all');
-    const sp=_vcPageSpec(pageCss);
-    const PX=96/25.4,cw=(sp.w-sp.ml-sp.mr)*PX,ch=(sp.h-sp.mt-sp.mb)*PX;
-    if(!(cw>20&&ch>20))throw new Error('page size');
-    fr=document.createElement('iframe');fr.className='vc-pdf-frame';fr.setAttribute('aria-hidden','true');
-    fr.style.cssText='position:fixed;left:-30000px;top:0;width:'+Math.ceil(cw)+'px;height:'+Math.ceil(ch)+'px;border:0;';
-    document.body.appendChild(fr);
-    const w=fr.contentWindow,d=w.document;
-    const links=[...document.querySelectorAll('link[rel="stylesheet"]')].map(l=>'<link rel="stylesheet" href="'+esc(l.href)+'"/>').join('');
-    d.open();d.write('<!DOCTYPE html><html><head><meta charset="UTF-8"/>'+links+'</head><body style="margin:0;background:#fff;"></body></html>');d.close();
-    const st=d.createElement('style');st.textContent=css+'\nhtml,body{margin:0!important;padding:0!important;background:#fff!important;width:'+cw+'px!important;min-height:0!important;height:auto!important;overflow:visible!important;}#print-area{display:block!important;position:static!important;}';
-    d.head.appendChild(st);
-    const pa=d.createElement('div');pa.id='print-area';pa.innerHTML=area.innerHTML;d.body.appendChild(pa);
-    _vcLib('vc-lib-h2c',w);_vcLib('vc-lib-jspdf',window);
-    // wait for fonts and pictures (at most 4 s)
-    const imgs=[...d.images].filter(im=>!im.complete);
-    await Promise.race([Promise.all([d.fonts?d.fonts.ready:null].concat(imgs.map(im=>new Promise(r=>{im.onload=im.onerror=r;})))),new Promise(r=>setTimeout(r,4000))]);
-    const top0=pa.getBoundingClientRect().top+w.scrollY,total=pa.scrollHeight;
-    const avoid=[],forced=[];
-    pa.querySelectorAll('*').forEach(el=>{
-      const r=el.getBoundingClientRect();if(!r.height)return;
-      const t=r.top+w.scrollY-top0,b=t+r.height,cs=w.getComputedStyle(el);
-      const ba=cs.breakAfter||'',pba=cs.pageBreakAfter||'',bb=cs.breakBefore||'',pbb=cs.pageBreakBefore||'';
-      if(/page|always|left|right/.test(ba)||pba==='always')forced.push(b);
-      if(/page|always|left|right/.test(bb)||pbb==='always')forced.push(t);
-      const leaf=!el.firstElementChild&&el.textContent.trim();
-      if(leaf||/^(TR|IMG|SVG|CANVAS)$/i.test(el.tagName)||cs.breakInside==='avoid'||cs.pageBreakInside==='avoid')avoid.push([t,b]);
-    });
-    fr.style.height=Math.ceil(total+top0+10)+'px';
-    const segs=_vcCuts(total,ch,avoid,forced);
-    if(!segs.length)throw new Error('empty');
-    const {jsPDF}=window.jspdf;
-    const pdf=new jsPDF({orientation:sp.w>sp.h?'landscape':'portrait',unit:'mm',format:[sp.w,sp.h],compress:true});
-    const SCALE=2,MAXPX=12e6; // iPhone canvases stop working above about 16.7 million pixels
-    const groupH=Math.max(ch,Math.floor(MAXPX/(cw*SCALE*SCALE)));
-    let i=0,pageNo=0;
-    while(i<segs.length){
-      let j=i;while(j+1<segs.length&&segs[j+1][1]-segs[i][0]<=groupH)j++;
-      const y0=segs[i][0],y1=segs[j][1];
-      showLoading('Making PDF… page '+(pageNo+1)+' of '+segs.length);
-      const cv=await w.html2canvas(pa,{scale:SCALE,useCORS:true,backgroundColor:'#ffffff',logging:false,
-        x:0,y:top0+y0,width:Math.ceil(cw),height:Math.ceil(y1-y0),windowWidth:Math.ceil(cw),windowHeight:Math.ceil(total+top0),scrollX:0,scrollY:0});
-      for(let k=i;k<=j;k++){
-        const [a,b]=segs[k],pc=document.createElement('canvas');
-        pc.width=Math.ceil(cw*SCALE);pc.height=Math.max(1,Math.round((b-a)*SCALE));
-        const g=pc.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,pc.width,pc.height);
-        g.drawImage(cv,0,Math.round((a-y0)*SCALE),pc.width,pc.height,0,0,pc.width,pc.height);
-        if(pageNo)pdf.addPage([sp.w,sp.h],sp.w>sp.h?'landscape':'portrait');
-        pdf.addImage(pc.toDataURL('image/jpeg',0.9),'JPEG',sp.ml,sp.mt,sp.w-sp.ml-sp.mr,(b-a)/PX,undefined,'FAST');
-        pc.width=pc.height=0;pageNo++;
-      }
-      cv.width=cv.height=0;i=j+1;
+// The printed page as the printer sees it: app styles with their print rules switched on, screen-only and
+// dark-mode rules off, and without the print rule that hides everything but #print-area.
+function _vcPrintCss(){
+  let raw='';
+  [...document.querySelectorAll('style')].forEach(st=>{raw+=st.textContent+'\n';});
+  const css=raw.replace(/body\s*>\s*\*\s*\{[^}]*\}/g,'').replace(/@media\s+print\b/gi,'@media all')
+    .replace(/@media\s+screen\b/gi,'@media not all').replace(/@media\s*\(\s*prefers-color-scheme\s*:\s*dark\s*\)/gi,'@media not all');
+  return {css,pageCss:raw};
+}
+// Draws pa (in window w, html2canvas and jsPDF loaded there) page by page into a PDF. sp: _vcPageSpec result.
+// Runs in the app and inside the separate print page, so it uses only w and the _vc page helpers.
+async function _vcRenderPdf(w,pa,sp,progress){
+  const PX=96/25.4,cw=(sp.w-sp.ml-sp.mr)*PX,ch=(sp.h-sp.mt-sp.mb)*PX;
+  if(!(cw>20&&ch>20))throw new Error('page size');
+  const d=w.document;
+  const imgs=[...pa.querySelectorAll('img')].filter(im=>!im.complete);
+  await Promise.race([Promise.all([d.fonts?d.fonts.ready:null].concat(imgs.map(im=>new Promise(r=>{im.addEventListener('load',r,{once:true});im.addEventListener('error',r,{once:true});})))),new Promise(r=>setTimeout(r,4000))]);
+  const top0=pa.getBoundingClientRect().top+w.scrollY,total=pa.scrollHeight;
+  const avoid=[],forced=[];
+  pa.querySelectorAll('*').forEach(el=>{
+    const r=el.getBoundingClientRect();if(!r.height)return;
+    const t=r.top+w.scrollY-top0,b=t+r.height,cs=w.getComputedStyle(el);
+    if(/page|always|left|right/.test(cs.breakAfter||'')||cs.pageBreakAfter==='always')forced.push(b);
+    if(/page|always|left|right/.test(cs.breakBefore||'')||cs.pageBreakBefore==='always')forced.push(t);
+    const leaf=!el.firstElementChild&&el.textContent.trim();
+    if(leaf||/^(TR|IMG|SVG|CANVAS)$/i.test(el.tagName)||cs.breakInside==='avoid'||cs.pageBreakInside==='avoid')avoid.push([t,b]);
+  });
+  const segs=_vcCuts(total,ch,avoid,forced);
+  if(!segs.length)throw new Error('empty');
+  const jsPDF=(w.jspdf||window.jspdf).jsPDF;
+  const pdf=new jsPDF({orientation:sp.w>sp.h?'landscape':'portrait',unit:'mm',format:[sp.w,sp.h],compress:true});
+  const SCALE=2,MAXPX=12e6; // iPhone canvases stop working above about 16.7 million pixels
+  const groupH=Math.max(ch,Math.floor(MAXPX/(cw*SCALE*SCALE)));
+  let i=0,pageNo=0;
+  while(i<segs.length){
+    let j=i;while(j+1<segs.length&&segs[j+1][1]-segs[i][0]<=groupH)j++;
+    const y0=segs[i][0],y1=segs[j][1];
+    if(progress)progress('Making PDF… page '+(pageNo+1)+' of '+segs.length);
+    const cv=await w.html2canvas(pa,{scale:SCALE,useCORS:true,backgroundColor:'#ffffff',logging:false,
+      x:0,y:y0, /* html2canvas measures x and y from the element itself */ width:Math.ceil(cw),height:Math.ceil(y1-y0),windowWidth:Math.max(Math.ceil(cw),d.documentElement.clientWidth),windowHeight:Math.ceil(total+top0),scrollX:0,scrollY:0});
+    for(let k=i;k<=j;k++){
+      const [a,b]=segs[k],pc=d.createElement('canvas');
+      pc.width=Math.ceil(cw*SCALE);pc.height=Math.max(1,Math.round((b-a)*SCALE));
+      const g=pc.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,pc.width,pc.height);
+      g.drawImage(cv,0,Math.round((a-y0)*SCALE),pc.width,pc.height,0,0,pc.width,pc.height);
+      if(pageNo)pdf.addPage([sp.w,sp.h],sp.w>sp.h?'landscape':'portrait');
+      pdf.addImage(pc.toDataURL('image/jpeg',0.9),'JPEG',sp.ml,sp.mt,sp.w-sp.ml-sp.mr,(b-a)/PX,undefined,'FAST');
+      pc.width=pc.height=0;pageNo++;
     }
-    const blob=pdf.output('blob');
-    fr.remove();fr=null;hideLoading();_vcPdfBusy=false;
-    vcSaveFile(new Blob([blob],{type:'application/pdf'}),_vcPdfName(name),{share:true});
-  }catch(e){
-    console.warn('PDF',e);
-    if(fr)fr.remove();hideLoading();_vcPdfBusy=false;
-    toast('⚠️ Could not make the PDF. Please try again.',5000);
+    cv.width=cv.height=0;i=j+1;
   }
+  return new Blob([pdf.output('blob')],{type:'application/pdf'});
+}
+// Runs inside the separate print page: Save as PDF button.
+async function _vcPageSave(){
+  if(window.__vcBusy)return;window.__vcBusy=true;
+  const st=document.getElementById('vc-status'),go=document.getElementById('vc-share');
+  go.style.display='none';
+  try{
+    _vcLib('vc-lib-h2c',window);_vcLib('vc-lib-jspdf',window);
+    const blob=await _vcRenderPdf(window,document.getElementById('print-area'),VC_SP,t=>{st.textContent=t;});
+    const file=new File([blob],_vcPdfName(VC_NAME),{type:'application/pdf'});
+    const dl=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=file.name;document.body.appendChild(a);a.click();};
+    st.textContent='PDF ready: '+file.name;
+    if(navigator.share&&navigator.canShare&&navigator.canShare({files:[file]})){
+      const share=()=>navigator.share({files:[file]}).catch(e=>{if(e&&e.name==='AbortError')return;if(e&&e.name==='NotAllowedError'){go.style.display='inline-block';return;}dl();});
+      go.onclick=()=>{go.style.display='none';share();};
+      if(navigator.userActivation&&!navigator.userActivation.isActive)go.style.display='inline-block';else share();
+    }else dl();
+  }catch(e){st.textContent='Could not make the PDF. Please try again.';}
+  window.__vcBusy=false;
+}
+// The separate print page for iPhone/iPad: the print as a web page (Share, then Canon PRINT, prints it),
+// a Save as PDF button for WhatsApp and Files, and the PDF tools. It never prints by itself.
+function _vcBuildPrintPage(name){
+  _vcPdocBeforePrint(); // same clean-up a real print does
+  const area=document.getElementById('print-area');
+  const {css,pageCss}=_vcPrintCss(),sp=_vcPageSpec(pageCss),cw=(sp.w-sp.ml-sp.mr)*96/25.4;
+  const links=[...document.querySelectorAll('link[rel="stylesheet"]')].map(l=>'<link rel="stylesheet" href="'+esc(l.href)+'"/>').join('');
+  const lib=id=>'<script type="text/plain" id="'+id+'">'+document.getElementById(id).textContent+'</'+'script>';
+  const js=v=>JSON.stringify(v).replace(/</g,'\\u003c');
+  const fns=[_vcLen,_vcPageSpec,_vcCuts,_vcPdfName,_vcLib,_vcRenderPdf,_vcPageSave].map(f=>f.toString()).join('\n');
+  const bar='<div id="vc-bar"><div class="vc-t">🖨️ To print: tap <b>Share</b> (square with arrow) and choose <b>Canon PRINT</b>.</div>'
+    +'<button id="vc-save-pdf" onclick="_vcPageSave()">📄 Save as PDF</button> <button id="vc-share" style="display:none">📤 Share PDF</button>'
+    +'<div id="vc-status"></div><div class="vc-t2">For WhatsApp or Files, use Save as PDF.</div></div>';
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>'+esc(String(name||'Print'))+'</title>'+links
+    +'<style>'+css+'\nhtml,body{margin:0!important;padding:0!important;background:#fff!important;height:auto!important;overflow:visible!important;}'
+    +'body{width:'+cw+'px!important;margin:0 auto!important;display:block!important;}#print-area{display:block!important;position:static!important;}'
+    +'#vc-bar{font-family:-apple-system,Arial,sans-serif;background:#fff8e1;border:2px solid #f5c26b;border-radius:14px;padding:18px;margin:12px 0 18px;color:#5c3d1e;font-size:26px;line-height:1.4;}'
+    +'#vc-bar button{font-size:28px;padding:14px 26px;margin:12px 8px 6px 0;border-radius:12px;border:0;background:#5c3d1e;color:#fff;}'
+    +'#vc-status{font-size:22px;margin-top:6px;}#vc-bar .vc-t2{font-size:20px;color:#8a6d3b;margin-top:6px;}'
+    +'@media print{#vc-bar{display:none!important;}}</style></head><body>'+bar
+    +'<div id="print-area">'+area.innerHTML+'</div>'+lib('vc-lib-jspdf')+lib('vc-lib-h2c')
+    +'<script>var VC_SP='+js(sp)+',VC_NAME='+js(String(name||''))+';\nfunction today(){return new Date().toISOString().slice(0,10);}\n'+fns+'</'+'script></body></html>';
+}
+let _vcLastPageUrl=null;
+function _vcOpenPage(url){
+  const w=window.open(url,'_blank');
+  if(w)return;
+  // iPhone only opens a new page straight after a tap; some prints are made after saving first
+  const m=_vcEnsureModal('vc-open-modal','<div class="modal"><button class="modal-close" onclick="document.getElementById(\'vc-open-modal\').classList.remove(\'open\')">✕</button>'
+    +'<div class="modal-title">🖨️ Print page ready</div><button class="btn btn-p" id="vc-open-go" style="width:100%;">Open print page</button></div>');
+  m.style.zIndex='100000';m.classList.add('open');
+  m.querySelector('#vc-open-go').onclick=()=>{m.classList.remove('open');if(!window.open(url,'_blank'))toast('⚠️ Allow pop-ups for this app and try again.',5000);};
 }
 // Every print in the app goes through here.
 function vcPrint(name){
-  if(_vcUsePdf()){vcMakePdf(name);return;}
-  window.print();
+  if(!_vcUsePdf()){window.print();return;}
+  let html;
+  try{html=_vcBuildPrintPage(name);}catch(e){console.warn('print page',e);toast('⚠️ Could not prepare the print. Please try again.',5000);return;}
+  if(_vcLastPageUrl)URL.revokeObjectURL(_vcLastPageUrl);
+  _vcLastPageUrl=URL.createObjectURL(new Blob([html],{type:'text/html'}));
+  _vcOpenPage(_vcLastPageUrl);
 }
 function _bulkPrintRun(sel,which){
   // v14.54.0: printed from the app itself, like a single invoice. A separate page cannot be printed from the iPhone home-screen app.
