@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="Print Lab"/>
+<title>Vismaad Print Lab</title>
+<!--
+  Vismaad Print Lab v1.0 (12-Nov-2026). A standalone test page, not part of the app.
+  Purpose: find which way of printing works on iPhone from the home-screen app and from Safari,
+  with the Canon PIXMA G3010 (Canon PRINT app, no AirPrint). Each numbered method is one way the app could print.
+  The same file is also the print page: print-lab.html#k=<kind>&a=<1 auto print>&d=<sample, base64url>.
+  Results are kept on this phone only (localStorage) and can be copied with "Copy results".
+-->
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,Arial,sans-serif;background:#fdf8f2;color:#1a1208}
+.wrap{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:4px 0 6px;color:#5c3d1e}
+.mode{display:inline-block;font-size:13px;padding:4px 10px;border-radius:20px;background:#5c3d1e;color:#fff;margin-bottom:10px}
+.note{font-size:14px;line-height:1.5;background:#fff8e1;border:1px solid #f5c26b;border-radius:10px;padding:10px 12px;margin:10px 0}
+.kinds{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.kinds button{flex:1;min-width:100px;padding:10px;border-radius:10px;border:2px solid #d9c4a8;background:#fff;font-size:14px}
+.kinds button.on{border-color:#5c3d1e;background:#5c3d1e;color:#fff}
+.card{background:#fff;border:1px solid #e6d8c6;border-radius:12px;padding:12px;margin:10px 0}
+.card h3{margin:0 0 4px;font-size:16px}
+.card p{margin:0 0 8px;font-size:13px;color:#6b5a48;line-height:1.45}
+.go{width:100%;padding:12px;font-size:16px;border:0;border-radius:10px;background:#5c3d1e;color:#fff}
+.res{display:flex;gap:8px;margin-top:8px}
+.res button{flex:1;padding:8px;border-radius:8px;border:1px solid #d9c4a8;background:#fff;font-size:13px}
+.res button.ok.on{background:#2e7d32;color:#fff;border-color:#2e7d32}
+.res button.no.on{background:#c0392b;color:#fff;border-color:#c0392b}
+.res button.part.on{background:#e6a100;color:#fff;border-color:#e6a100}
+.copy{width:100%;padding:12px;margin:12px 0;font-size:15px;border-radius:10px;border:2px solid #5c3d1e;background:#fff;color:#5c3d1e}
+textarea{width:100%;height:120px;font-size:12px}
+/* print page */
+#print-root{display:none}
+body.printing .wrap{display:none}
+body.printing #print-root{display:block}
+.pp-bar{font-family:-apple-system,Arial,sans-serif;background:#fff8e1;border:1px solid #f5c26b;border-radius:10px;padding:10px;margin:8px;font-size:14px}
+@media print{.pp-bar{display:none!important}}
+</style>
+<style id="page-size"></style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🖨️ Vismaad Print Lab</h1>
+  <div class="mode" id="mode"></div>
+  <div class="note">Try each method below, once in the <b>home-screen app</b> and once in <b>Safari</b>. After each try, tap <b>Worked</b>, <b>Part</b> or <b>Failed</b>. "Worked" means it reached the Canon printer and the page looked right. When done, tap <b>Copy results</b> and paste them to Claude.</div>
+  <div style="font-size:14px;font-weight:600;margin-top:6px;">Sample to print</div>
+  <div class="kinds" id="kinds">
+    <button data-k="label">Label (A4 upright)</button>
+    <button data-k="land">Sales Book (A4 sideways)</button>
+    <button data-k="tags">Tags (55 × 89 mm)</button>
+  </div>
+  <div id="cards"></div>
+  <button class="copy" id="copy">📋 Copy results</button>
+  <textarea id="out" readonly placeholder="Results appear here"></textarea>
+  <button class="copy" id="clear" style="border-color:#c0392b;color:#c0392b;">Clear results</button>
+</div>
+<div id="print-root"></div>
+<script>
+'use strict';
+var KINDS={
+  label:{page:'@page{size:A4 portrait;margin:10mm}',name:'Label'},
+  land:{page:'@page{size:A4 landscape;margin:8mm}',name:'Sales Book'},
+  tags:{page:'@page{size:55mm 89mm;margin:0}',name:'Tags'}
+};
+var kind='label';
+function isApp(){return window.navigator.standalone===true||(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches);}
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function sampleBody(k){
+  if(k==='tags'){
+    var t='';
+    [['101','1,500'],['101','1,500'],['102','900']].forEach(function(x){
+      t+='<div style="width:55mm;height:89mm;position:relative;page-break-after:always;overflow:hidden;font-family:Arial,sans-serif;">'
+        +'<div style="position:absolute;top:58mm;left:21mm;font-size:28pt;font-weight:700;">'+x[0]+'</div>'
+        +'<div style="position:absolute;top:69mm;left:21mm;font-size:28pt;font-weight:700;">'+x[1]+'</div></div>';
+    });
+    return t;
+  }
+  if(k==='land'){
+    var rows='';for(var i=1;i<=12;i++)rows+='<tr><td>'+i+'</td><td>2'+i%9+'-10-2026</td><td>INV/2026-27/0'+(10+i)+'</td><td>Customer '+i+'</td><td>Punjab (03)</td><td>Silk ×1 (500720)</td><td style="text-align:right">1,900.00</td><td style="text-align:right">47.50</td><td style="text-align:right">47.50</td><td style="text-align:right">1,995.00</td></tr>';
+    return '<div style="width:281mm;height:194mm;border:1px solid #000;padding:4mm;font-family:Arial,sans-serif;font-size:9pt;page-break-after:always;">'
+      +'<div style="display:flex;justify-content:space-between;"><b style="font-size:13pt">Vismaad Creations</b><b>SALES BOOK · FY 2026-27 · Page 1 (test)</b></div>'
+      +'<table style="width:100%;border-collapse:collapse;margin-top:4mm;" border="1" cellpadding="3"><tr><th>S.No</th><th>Date</th><th>Bill No.</th><th>Customer</th><th>Place</th><th>Goods</th><th>Taxable</th><th>CGST</th><th>SGST</th><th>Total</th></tr>'+rows+'</table>'
+      +'<div style="margin-top:4mm">The full width of this box should fit on one sideways page. If the right side is cut, the page came out upright.</div></div>';
+  }
+  return '<div style="width:170mm;height:128mm;border:2px solid #000;border-radius:4mm;padding:6mm;font-family:Arial,sans-serif;margin:0 auto;">'
+    +'<div style="font-size:8pt;color:#555">TO</div><div style="font-size:18pt;font-weight:700">Test Customer</div>'
+    +'<div style="font-size:13pt;margin-top:3mm">101, Test Street, Model Town<br/>Patiala, Punjab 147001<br/>☎ 98140 00000</div>'
+    +'<div style="font-family:Georgia,serif;font-style:italic;font-size:20pt;text-align:center;margin-top:12mm;color:#5c3d1e">Thank you for shopping with us!</div>'
+    +'<div style="font-size:9pt;text-align:right;margin-top:8mm">FROM Vismaad Creations, Patiala · TEST LABEL ₹</div></div>';
+}
+// Kind and sample travel in the address after #, which is never sent to the website.
+function b64e(s){return btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
+function b64d(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return decodeURIComponent(escape(atob(s)));}
+function realUrl(auto){return location.href.split('#')[0]+'#k='+kind+'&a='+(auto?1:0)+'&d='+b64e(sampleBody(kind));}
+function pageHtml(auto){
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>'+esc(KINDS[kind].name)+' test</title><style>'+KINDS[kind].page+'body{margin:0}</style>'
+    +(auto?'<script>window.onload=function(){setTimeout(function(){window.print();},600);};<\/script>':'')
+    +'</head><body>'+sampleBody(kind)+'</body></html>';
+}
+function blobUrl(auto){return URL.createObjectURL(new Blob([pageHtml(auto)],{type:'text/html'}));}
+function say(m){alert(m);}
+var METHODS=[
+  {id:1,t:'Print here',d:'Prints straight from this page (how invoices print in the app now).',
+   run:function(){showPrint(false);setTimeout(function(){window.print();},300);}},
+  {id:2,t:'Hidden frame',d:'Prints from an invisible frame inside this page.',
+   run:function(){var f=document.createElement('iframe');f.style.cssText='position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;';document.body.appendChild(f);
+     var d=f.contentWindow.document;d.open();d.write(pageHtml(false));d.close();setTimeout(function(){try{f.contentWindow.focus();f.contentWindow.print();}catch(e){say('Error: '+e.message);}},500);}},
+  {id:3,t:'Temporary page, prints by itself',d:'How labels print in the app now (blob page). In the app this gave "URL is invalid".',
+   run:function(){var w=window.open(blobUrl(true),'_blank');if(!w)say('Blocked: the page did not open.');}},
+  {id:4,t:'Temporary page, then Share → Canon PRINT',d:'Opens the page. Then tap Share and choose Canon PRINT.',
+   run:function(){var w=window.open(blobUrl(false),'_blank');if(!w)say('Blocked: the page did not open.');}},
+  {id:5,t:'Real web page, prints by itself',d:'Opens this lab as a real web address carrying the sample, and prints by itself.',
+   run:function(){var w=window.open(realUrl(true),'_blank');if(!w)say('Blocked: the page did not open.');}},
+  {id:6,t:'Real web page, then Share → Canon PRINT',d:'Opens the real web address. Then tap Share and choose Canon PRINT.',
+   run:function(){var w=window.open(realUrl(false),'_blank');if(!w)say('Blocked: the page did not open.');}},
+  {id:7,t:'Jump to Safari, prints by itself',d:'Asks iPhone to open the real web address in Safari itself, then prints there. (Needs a recent iOS.)',
+   run:function(){var u='x-safari-'+realUrl(true);var w=window.open(u,'_blank');if(!w)location.href=u;}},
+  {id:8,t:'Jump to Safari by link, prints by itself',d:'Same as 7, but as a plain link tap.',
+   link:function(){return 'x-safari-'+realUrl(true);}},
+  {id:9,t:'Jump to Safari, then Share → Canon PRINT',d:'Opens in Safari without printing. Then tap Share and choose Canon PRINT.',
+   run:function(){var u='x-safari-'+realUrl(false);var w=window.open(u,'_blank');if(!w)location.href=u;}},
+  {id:10,t:'Share the real link → Canon PRINT',d:'Opens the share sheet with the real web address. Look for Canon PRINT.',
+   run:function(){if(!navigator.share){say('Sharing is not available here.');return;}navigator.share({url:realUrl(false),title:KINDS[kind].name+' test'}).catch(function(e){if(e.name!=='AbortError')say('Error: '+e.message);});}},
+  {id:11,t:'Share as a web page file → Canon PRINT / Print',d:'Opens the share sheet with the page as a file. Look for Canon PRINT or Print.',
+   run:function(){var f=new File([pageHtml(false)],'test-'+kind+'.html',{type:'text/html'});
+     if(!navigator.share||!navigator.canShare||!navigator.canShare({files:[f]})){say('Sharing this file is not available here.');return;}
+     navigator.share({files:[f]}).catch(function(e){if(e.name!=='AbortError')say('Error: '+e.message);});}},
+  {id:12,t:'Data page, prints by itself',d:'Opens the page from a data address (another kind of temporary page).',
+   run:function(){var w=window.open('data:text/html;charset=utf-8,'+encodeURIComponent(pageHtml(true)),'_blank');if(!w)say('Blocked: the page did not open.');}}
+];
+var KEY='vc_print_lab_v1';
+function load(){try{return JSON.parse(localStorage.getItem(KEY)||'{}');}catch(e){return{};}}
+function save(r){try{localStorage.setItem(KEY,JSON.stringify(r));}catch(e){}}
+function where(){return isApp()?'app':'safari';}
+function render(){
+  document.getElementById('mode').textContent=isApp()?'Running as: home-screen app':'Running as: Safari / browser';
+  [].forEach.call(document.querySelectorAll('#kinds button'),function(b){b.classList.toggle('on',b.getAttribute('data-k')===kind);});
+  var r=load(),h='';
+  METHODS.forEach(function(m){
+    var key=where()+'|'+kind+'|'+m.id,v=r[key]||'';
+    h+='<div class="card"><h3>'+m.id+'. '+esc(m.t)+'</h3><p>'+esc(m.d)+'</p>'
+      +(m.link?'<a class="go" style="display:block;text-align:center;text-decoration:none;" href="'+esc(m.link())+'">Try '+m.id+'</a>':'<button class="go" data-run="'+m.id+'">Try '+m.id+'</button>')
+      +'<div class="res"><button class="ok'+(v==='worked'?' on':'')+'" data-m="'+m.id+'" data-v="worked">Worked</button><button class="part'+(v==='part'?' on':'')+'" data-m="'+m.id+'" data-v="part">Part</button><button class="no'+(v==='failed'?' on':'')+'" data-m="'+m.id+'" data-v="failed">Failed</button></div></div>';
+  });
+  document.getElementById('cards').innerHTML=h;
+  summary();
+}
+function summary(){
+  var r=load(),lines=['Vismaad Print Lab v1.0 results'];
+  ['app','safari'].forEach(function(w){Object.keys(KINDS).forEach(function(k){
+    var got=METHODS.filter(function(m){return r[w+'|'+k+'|'+m.id];}).map(function(m){return m.id+'='+r[w+'|'+k+'|'+m.id];});
+    if(got.length)lines.push((w==='app'?'Home-screen app':'Safari')+', '+KINDS[k].name+': '+got.join(', '));
+  });});
+  lines.push('Device: '+navigator.userAgent);
+  document.getElementById('out').value=lines.join('\n');
+}
+function showPrint(auto){
+  document.getElementById('page-size').textContent=KINDS[kind].page;
+  document.getElementById('print-root').innerHTML='<div class="pp-bar">'+esc(KINDS[kind].name)+' test page. '+(auto?'Printing…':'To print: tap Share and choose Canon PRINT.')+'</div>'+sampleBody(kind);
+  document.body.classList.add('printing');
+  window.addEventListener('afterprint',function(){if(!location.hash)document.body.classList.remove('printing');},{once:true});
+}
+document.getElementById('kinds').addEventListener('click',function(e){var k=e.target.getAttribute('data-k');if(k&&KINDS[k]){kind=k;render();}});
+document.getElementById('cards').addEventListener('click',function(e){
+  var run=e.target.getAttribute('data-run');
+  if(run){var m=METHODS.filter(function(x){return String(x.id)===run;})[0];try{m.run();}catch(err){say('Error: '+err.message);}return;}
+  var mid=e.target.getAttribute('data-m');
+  if(mid){var r=load(),key=where()+'|'+kind+'|'+mid;r[key]=r[key]===e.target.getAttribute('data-v')?'':e.target.getAttribute('data-v');if(!r[key])delete r[key];save(r);render();}
+});
+document.getElementById('copy').addEventListener('click',function(){summary();var t=document.getElementById('out');t.select();
+  if(navigator.clipboard)navigator.clipboard.writeText(t.value).then(function(){say('Copied. Paste it to Claude.');},function(){say('Select the text below and copy it.');});else{try{document.execCommand('copy');say('Copied.');}catch(e){say('Select the text below and copy it.');}}});
+document.getElementById('clear').addEventListener('click',function(){if(confirm('Clear all results?')){save({});render();}});
+// Print page mode: #k=..&a=..&d=..
+(function(){
+  var h=location.hash.slice(1);if(!h)return;
+  var p={};h.split('&').forEach(function(x){var i=x.indexOf('=');if(i>0)p[x.slice(0,i)]=x.slice(i+1);});
+  if(!p.d||!KINDS[p.k])return;
+  var body;try{body=b64d(p.d);}catch(e){return;}
+  kind=p.k;
+  // only the lab's own samples are shown, so a changed link cannot inject anything
+  KINDS_CHECK:{var ok=false;Object.keys(KINDS).forEach(function(k){if(sampleBody(k)===body)ok=true;});if(!ok){body='<p style="padding:20px">This test link was changed and cannot be shown.</p>';}}
+  document.getElementById('page-size').textContent=KINDS[kind].page;
+  document.getElementById('print-root').innerHTML='<div class="pp-bar">'+esc(KINDS[kind].name)+' test page. '+(p.a==='1'?'Printing…':'To print: tap Share and choose Canon PRINT.')+'</div>'+body;
+  document.body.classList.add('printing');
+  if(p.a==='1')window.addEventListener('load',function(){setTimeout(function(){window.print();},600);});
+})();
+render();
+</script>
+</body>
+</html>
