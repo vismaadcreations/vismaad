@@ -3,10 +3,16 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.56.0
+APP: Vismaad Creations v14.57.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 12-Nov-2026 - v14.56.0: IPHONE PRINTING GOES THROUGH CANON PRINT AGAIN, WITH SAVE AS PDF. No Code.gs change. Upload index.html only.
+LAST_CHANGE: 12-Nov-2026 - v14.57.0: IPHONE PRINTING OF INVOICES AND LABELS BACK TO HOW IT WAS BEFORE v14.54, TAGS OFFER BOTH WAYS. No Code.gs change. Upload index.html only.
+(G1) BUG FIX. v14.56.0's print page could not reach Canon PRINT (Share hands Canon only the page address, a blob: address it cannot open: "URL is invalid"). Checked against GitHub history (v14.36 to v14.53.2): invoices printed inside the app with the print screen, labels on their own page that opens the print screen by itself. Both are restored on iPhone.
+(G2) vcPrint(name,true) prints straight from the app on every device: single invoice, invoice from the list, invoice PDF share, credit note, Save + Print All, walk-in QR bill, bill copies, debit note, order slip, parcel bills.
+(G3) Single, multiple and parcel labels on iPhone open their own page again with the pre-v14.54 print script and timing (fonts, then 0.6 s; parcel 0.5 s), Great Vibes font, page kept 30 s (parcel 60 s). New _vcLegacyPage; the address shrink (_vcLabelFit, _vlShrink) and the v14.54 security fixes run in the app first, so the page carries the finished layout.
+(G4) Tags on iPhone ask: "Print now" (own page, prints itself after 0.8 s, as before v14.54) or "Print page / Save as PDF".
+(G5) Unchanged: Sales Book, multiple invoices, price list and catalogue open the v14.56.0 print page with Save as PDF on iPhone. Computers print as before.
+PREV_CHANGE: 12-Nov-2026 - v14.56.0: IPHONE PRINTING GOES THROUGH CANON PRINT AGAIN, WITH SAVE AS PDF. No Code.gs change. Upload index.html only.
 (E1) BUG FIX. v14.55.0 shared a PDF file on iPhone, and Canon PRINT only accepts a web page from the share sheet, so the Canon G3010 (no AirPrint) could not be reached without Save to Files. On iPhone/iPad, vcPrint(name) now opens each print as its own page again, like before v14.54.0: Share, then Canon PRINT, prints it. This now also covers multiple invoices, multiple labels and the Sales Book.
 (E2) The print page never prints by itself (that caused "Cannot open the page because the URL is invalid"). A bar at the top (hidden when printed) says "tap Share and choose Canon PRINT" and has a Save as PDF button that makes a proper PDF in the page (same page sizes as v14.55.0) for WhatsApp or Files, so WhatsApp no longer gets a blank page.
 (E3) HOW. _vcBuildPrintPage(name) writes #print-area with the app's print styles (_vcPrintCss), the page width from the @page rule, the PDF tools and the page helpers (_vcLen, _vcPageSpec, _vcCuts, _vcPdfName, _vcLib, _vcRenderPdf, _vcPageSave) into one page; name and settings are passed escaped. vcMakePdf is replaced by _vcRenderPdf, shared by the page. vcPrintInApp opens the page straight after the tap on iPhone (iPhone blocks a page opened later); when it is blocked anyway (prints made after saving), a "Print page ready" box with an Open button appears. The previous print page is released when a new one opens. Computers print directly as before.
@@ -5551,7 +5557,7 @@ function printCurrentInvoice(){
   if(isBillLocked(currentInv)){vcBillCopyMenu([currentInv]);return;} // v14.49.1: every dispatch type, walk-in included
   if(_walk&&S.upiId){openUpiQrModal(currentInv);return;}
   document.getElementById('print-area').innerHTML=`<div class="print-page">${getInvHtml(currentInv)}</div>`;
-  vcPrint('Invoice-'+(currentInv.invNo||''));
+  vcPrint('Invoice-'+(currentInv.invNo||''),true);
 }
 function resetInvoiceForm(){
   setInvNumber();
@@ -6094,6 +6100,7 @@ function vcPrintInApp(css,body,opt){
       try{o.prep(root);}catch(e){console.warn('print prep',e);}
       area.removeAttribute('style');
     }
+    if(o.legacy&&_vcUsePdf()){_vcLegacyPage(css,root.innerHTML,o.legacy);return;} // v14.57.0: labels and tags on iPhone, as before v14.54
     vcPrint(o.name); // v14.55.0: a PDF on iPhone/iPad
   };
   const imgs=[...root.querySelectorAll('img')].filter(im=>!im.complete);
@@ -6310,6 +6317,18 @@ function _vcBuildPrintPage(name){
     +'<div id="print-area">'+area.innerHTML+'</div>'+lib('vc-lib-jspdf')+lib('vc-lib-h2c')
     +'<script>var VC_SP='+js(sp)+',VC_NAME='+js(String(name||''))+';\nfunction today(){return new Date().toISOString().slice(0,10);}\n'+fns+'</'+'script></body></html>';
 }
+// v14.57.0: the way labels and tags printed on iPhone before v14.54: their own page that opens the print screen by
+// itself. Fit rules (address shrink) have already run in the app, so the page gets the finished layout.
+const _VC_GV_FONT='<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet"/>';
+const _VC_LG_LABEL={head:_VC_GV_FONT,script:'window.onload=function(){var go=function(){window.print();};if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){setTimeout(go,600);});}else{setTimeout(go,1600);}};',keep:30000};
+const _VC_LG_PARCEL={head:_VC_GV_FONT,script:'window.onload=function(){setTimeout(function(){window.print();},500);};',keep:60000};
+const _VC_LG_TAGS={head:'',script:'window.onload=function(){setTimeout(function(){window.print();},800);};',keep:30000};
+function _vcLegacyPage(css,body,lg){
+  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/>'+(lg.head||'')+'<style>'+css+'</style><script>'+lg.script+'</'+'script></head><body>'+body+'</body></html>';
+  const url=URL.createObjectURL(new Blob([html],{type:'text/html'}));
+  _vcOpenPage(url);
+  setTimeout(()=>URL.revokeObjectURL(url),lg.keep||30000);
+}
 let _vcLastPageUrl=null;
 function _vcOpenPage(url){
   const w=window.open(url,'_blank');
@@ -6321,8 +6340,9 @@ function _vcOpenPage(url){
   m.querySelector('#vc-open-go').onclick=()=>{m.classList.remove('open');if(!window.open(url,'_blank'))toast('⚠️ Allow pop-ups for this app and try again.',5000);};
 }
 // Every print in the app goes through here.
-function vcPrint(name){
-  if(!_vcUsePdf()){window.print();return;}
+// direct=true: the print screen straight from the app on every device (invoices, notes, order slips, as before v14.54).
+function vcPrint(name,direct){
+  if(direct||!_vcUsePdf()){window.print();return;}
   let html;
   try{html=_vcBuildPrintPage(name);}catch(e){console.warn('print page',e);toast('⚠️ Could not prepare the print. Please try again.',5000);return;}
   if(_vcLastPageUrl)URL.revokeObjectURL(_vcLastPageUrl);
@@ -6380,7 +6400,7 @@ function viewInvoiceByIdx(idx){
 function printInvoiceByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
   if(isBillLocked(inv)){vcBillCopyMenu([inv]);return;} // v14.49.1
-  document.getElementById('print-area').innerHTML=`<div class="print-page">${getInvHtml(inv)}</div>`;vcPrint('Invoice-'+(inv.invNo||''));
+  document.getElementById('print-area').innerHTML=`<div class="print-page">${getInvHtml(inv)}</div>`;vcPrint('Invoice-'+(inv.invNo||''),true);
 }
 function toggleShippedByIdx(idx){
   const inv=salesFiltered[idx];if(!inv)return;
@@ -6764,7 +6784,7 @@ function shareInvoicePDF(){
   // Print the invoice — on iPhone Safari this gives Share → Save to Files / WhatsApp
   document.getElementById('print-area').innerHTML=
     '<div class="print-page">'+getInvHtml(inv,isBillLocked(inv)?'ORIGINAL FOR RECIPIENT':'')+'</div>'; // v14.48.0
-  vcPrint('Invoice-'+(inv.invNo||''));
+  vcPrint('Invoice-'+(inv.invNo||''),true);
 }
 
 function shareTrackingWhatsApp(){
@@ -7734,7 +7754,7 @@ function printCreditNote(cn){
     </div>
   </div>`;
   document.getElementById('print-area').innerHTML='<div class="print-page">'+html+'</div>';
-  vcPrint('Credit-Note-'+today());
+  vcPrint('Credit-Note-'+today(),true);
 }
 
 // ── DANGER ZONE ──
@@ -8345,7 +8365,7 @@ function printLabel(){
     +'<div class="cut">✂ cut here</div>';
 
   // Shrink address fonts until box fits within 128mm (v14.54.0: same rule, now run inside the app before printing)
-  if(vcPrintInApp(css,body,{prep:_vcLabelFit,name:'Shipping-Label-'+today()}))toast('🖨️ Print on A4 Portrait, 100% scale');
+  if(vcPrintInApp(css,body,{prep:_vcLabelFit,name:'Shipping-Label-'+today(),legacy:_VC_LG_LABEL}))toast('🖨️ Print on A4 Portrait, 100% scale');
 }
 // v14.37.0: fixed-format date-time (toLocaleString output differs between browsers)
 function _fmtDT(v){const d=new Date(v);if(isNaN(d))return'';const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -10080,7 +10100,7 @@ async function bulkSaveAndPrint(){
   if(!newInvs.length){toast('No new invoices to print');return;}
   if(newInvs.some(isBillLocked)){vcBillCopyMenu(newInvs);return;} // v14.49.1
   document.getElementById('print-area').innerHTML=newInvs.map(inv=>`<div class="print-page">${getInvHtml(inv)}</div>`).join('');
-  vcPrint('Invoices-'+today());
+  vcPrint('Invoices-'+today(),true);
 }
 
 // ═══════════════════════════════════════════
@@ -11697,7 +11717,7 @@ function bulkPrintLabels(){
     +'.cut{width:170mm;margin-top:3mm;padding-top:2mm;border-top:1px dashed #bbb;text-align:center;font-size:7.5pt;color:#bbb;letter-spacing:2px;}';
 
   const pages=sel.map(inv=>'<div class="page">'+buildOneLabelBody(inv)+'</div>').join('');
-  vcPrintInApp(css,pages,{prep:_vcLabelFit,name:'Shipping-Labels-'+today()}); // v14.54.0: printed in the app; v14.54.2: long addresses shrink to fit
+  vcPrintInApp(css,pages,{prep:_vcLabelFit,name:'Shipping-Labels-'+today(),legacy:_VC_LG_LABEL}); // v14.54.0: printed in the app; v14.54.2: long addresses shrink to fit
 }
 
 // ═══════════════════════════════════════════
@@ -13438,7 +13458,15 @@ function printInvTags() {
       + 'line-height:1;'
       + 'white-space:nowrap;'
     + '}';
-  vcPrintInApp(css, tagDivs, {name:'Tags-'+today()});
+  const tname='Tags-'+today();
+  if(_vcUsePdf()){ // v14.57.0: on iPhone both ways are offered; Print now is the way tags printed before v14.54
+    uiSheet('How do you want to print the tags?',[
+      {label:'🖨️ Print now (opens the print screen)',fn:()=>vcPrintInApp(css, tagDivs, {name:tname,legacy:_VC_LG_TAGS})},
+      {label:'📄 Print page / Save as PDF',fn:()=>vcPrintInApp(css, tagDivs, {name:tname})}
+    ]);
+    return;
+  }
+  vcPrintInApp(css, tagDivs, {name:tname});
 
 }
 // ═══════════════════════════════════════════
@@ -15633,7 +15661,7 @@ async function doUpiQrPrint(){
     const _rest=_upiQrWhich==='all'?['DUPLICATE FOR TRANSPORTER','TRIPLICATE FOR SUPPLIER'].map(l=>'<div class="print-page">'+getInvHtml(inv,l)+'</div>').join(''):''; // v14.49.1
     _upiQrWhich='';
     document.getElementById('print-area').innerHTML='<div class="print-page">'+(injected===invHtml?invHtml+qrBlock:injected)+'</div>'+_rest;
-    vcPrint('Invoice-'+(inv.invNo||''));
+    vcPrint('Invoice-'+(inv.invNo||''),true);
   }catch(e){hideLoading();toast('⚠️ Error: '+e.message);}
 }
 
@@ -17875,7 +17903,7 @@ function vcPrintBills(list,which){
   const _i0=list[0]; // v14.49.1: a walk-in Original carries the payment QR; Duplicate and Triplicate never do
   if(_i0&&S.upiId&&(_i0.channel==='walkin'||_i0.dispatchMethod==='walkin')&&isBillLocked(_i0)&&(which==='original'||which==='all')){openUpiQrModal(_i0,which);return;}
   document.getElementById('print-area').innerHTML=vcBillPages(list,which);
-  vcPrint(list.length===1?'Invoice-'+(list[0].invNo||''):'Invoices-'+today());
+  vcPrint(list.length===1?'Invoice-'+(list[0].invNo||''):'Invoices-'+today(),true);
 }
 function vcBillCopyMenu(list,anchor){
   const go=w=>()=>vcPrintBills(list,w);
@@ -18087,7 +18115,7 @@ function vcPrintDN(id){
     +'<table style="width:100%;border-collapse:collapse;margin:14px 0;"><tr style="background:#5c3d1e;color:#fff;"><th style="padding:7px 8px;text-align:left;">Description</th><th style="padding:7px 8px;">HSN / SAC</th><th style="padding:7px 8px;text-align:right;">Amount</th></tr><tr><td style="padding:6px 8px;">Additional amount: '+esc(d.reason)+'</td><td style="padding:6px 8px;text-align:center;">'+(d.kind==='shipping'?'9965':esc((ref&&expandItems(ref.itemsArr)[0]&&expandItems(ref.itemsArr)[0].hsn)||'540754'))+'</td><td style="padding:6px 8px;text-align:right;">₹'+m(d.taxable)+'</td></tr>'
     +c.slice(1).map(x=>'<tr><td colspan="2" style="padding:4px 8px;text-align:right;'+(x[0]==='Total'?'font-weight:700;':'')+'">'+x[0]+'</td><td style="padding:4px 8px;text-align:right;'+(x[0]==='Total'?'font-weight:700;':'')+'">₹'+m(x[1])+'</td></tr>').join('')+'</table>'
     +'<div style="font-size:10px;color:#888;font-style:italic;">This is a computer-generated document and does not require a physical signature.</div></div></div>';
-  vcPrint('Debit-Note-'+today());
+  vcPrint('Debit-Note-'+today(),true);
 }
 function vcInvNotesHtml(inv){
   const cns=creditNotes.filter(c=>String(c.refInvId)===String(inv.id)).map(c=>'Credit Note '+esc(c.cnNo)+' · ₹'+esc(_sbMoney(c.creditAmount)));
@@ -18137,7 +18165,7 @@ async function vcMakeOrderSlip(){
     +(t.shipping>0?row('Shipping','₹'+_sbMoney(t.shipping)):'')+(t.discount>0?row('Less: Discount','-₹'+_sbMoney(t.discount)):'')+row('Total','₹'+_sbMoney(t.total),true)+'</table>'
     +(qr?'<div style="text-align:center;margin:10px 0;"><img src="'+esc(qr)+'" style="width:110px;height:110px;"/><div style="font-size:10px;color:#555;">Scan to pay ₹'+_sbMoney(t.total)+'</div></div>':'')
     +'<div style="text-align:center;font-size:12px;font-weight:600;margin-top:10px;">Tax invoice to follow</div></div></div>';
-  vcPrint('Order-Slip-'+today());
+  vcPrint('Order-Slip-'+today(),true);
 }
 function vcSlipLoad(id){
   const s=orderSlips.find(x=>_vcIdArg(x.id)===String(id));if(!s)return;
@@ -18208,7 +18236,7 @@ function _vlBox(d,parcel,inv){
     +ord+'<div class="ty"><span class="tytext">Thank you for shopping with us!</span></div>'
     +'<div class="bot"><div class="botm">'+logo+'</div><div class="botr"><div class="frlbl">From</div><div class="frname">Vismaad Creations</div><div class="frdet">'+esc(d.fromAddr||'').replace(/\n/g,'<br/>')+(d.fromPh?'<br/>&#9990; '+esc(d.fromPh):'')+'</div>'+(parcel&&parcel.units.length?'<div class="cv">Cont. val: '+esc(vcWordsLower(vlGoodsValue(parcel)))+'</div>':'')+'</div></div></div><div class="cut">✂ cut here</div></div>';
 }
-function _vlOpen(body){return vcPrintInApp(_VL_CSS,body,{prep:_vlShrink,name:'Parcel-Labels-'+today()});} // v14.54.0: printed in the app
+function _vlOpen(body){return vcPrintInApp(_VL_CSS,body,{prep:_vlShrink,name:'Parcel-Labels-'+today(),legacy:_VC_LG_PARCEL});} // v14.54.0: printed in the app
 function _vlInvData(inv,i){
   const tr=String(inv.tracking||'').split(',').map(x=>x.trim()).filter(Boolean);
   return{name:inv.custName||'',addr:inv.custAddress||'',pin:inv.custPin||'',phone:inv.custPhone||'',wa:inv.custWhatsapp||'',invNo:inv.invNo||'',invDate:inv.invDate||'',track:tr[i]||'',fromAddr:S.address||'',fromPh:S.phone||''};
@@ -18263,7 +18291,7 @@ function vcParcelBillCopies(){
   _vcParcelSave();
   let h='<div class="print-page">'+getInvHtml(inv,isBillLocked(inv)?'ORIGINAL FOR RECIPIENT':'')+'</div>'; // v14.50.0: the customer's bill goes in parcel 1
   for(let i=2;i<=n;i++)h+='<div class="print-page">'+getInvHtml(inv,'COPY FOR PARCEL '+i+' OF '+n)+'</div>';
-  document.getElementById('print-area').innerHTML=h;vcPrint('Parcel-Bills-'+(inv.invNo||''));
+  document.getElementById('print-area').innerHTML=h;vcPrint('Parcel-Bills-'+(inv.invNo||''),true);
 }
 function vcTrialBulk(){
   const sel=getSelectedInvoices().filter(i=>invStatusOf(i)==='Active');
