@@ -3,10 +3,23 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.53.2
+APP: Vismaad Creations v14.54.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 10-Nov-2026 - v14.53.2: SALES EXCEL EXPORT "STATUS" COLUMN MATCHES THE SALES PAGE. No Code.gs change. Upload index.html only.
+LAST_CHANGE: 12-Nov-2026 - v14.54.2: LONG ADDRESSES SHRINK ON PARCEL AND MULTIPLE LABELS, CLEANUP SCREEN SAFE. No Code.gs change. Upload index.html only.
+(L1) BUG FIX. Parcel labels (single, bulk, from the label page): _vlShrink read overflow from the box, which clips its address row and so never overflows, so long addresses were cut off. It now reads the address row, shrinks address, name and From details to their minimums, then trims the address to the box.
+(L2) BUG FIX. Multiple shipping labels had no shrink at all. New _vcLabelFit is shared by the single and multiple shipping labels (same rule as v14.54.1: 0.5 px steps down to 8 pt).
+(L3) SECURITY. Cleanup screen (sold-out products): product number escaped in the text and passed to the tap handler as a number only; sold count read as a number.
+PREV_CHANGE: 12-Nov-2026 - v14.54.1: SAFE LINKS IN PRINTS, LONG ADDRESSES SHRINK ON THE SHIPPING LABEL, FILES SAVE FROM THE IPHONE APP. No Code.gs change. Upload index.html only.
+(F1) SECURITY. Catalogue PDF: photo links and the reel link go through new _vcSafeUrl (web links and inline images only, escaped), so code hidden in a link can no longer run in the app; javascript: reel links are dropped. Product numbers are escaped in the catalogue PDF, the catalogue HTML file and clothing tags; the carousel id in the catalogue HTML file keeps only letters, digits, - and _. Catalogue HTML file reel link uses _vcSafeUrl.
+(F2) SECURITY. Price list title is escaped in the heading and the footer.
+(F3) BUG FIX. Single shipping label: a long address was cut off, never shrunk. The minimum was worked out as 40 px instead of 8 pt (10.7 px), and overflow was read from the box, which clips its address row and so never overflows. Now overflow is read from the address row and the address, then the From details, shrink in 0.5 px steps down to 8 pt.
+(F4) BUG FIX. Downloads from the iPhone home-screen app. New vcSaveFile(blob, name): on a computer or in the Safari browser it downloads exactly as before; in the home-screen app it opens the share sheet (Save to Files, WhatsApp, Mail). When iPhone refuses the share sheet because there was no tap just before (Excel exports load first, the stock count backup runs after a sync), a "File ready" box with a Save or share button appears. Cancel does nothing; any other failure falls back to the download. Used by: Excel exports (inventory, GST summary, sales register, tracking numbers, via vcSaveXlsx), courier spend CSV, DS report CSV, import template, settings backup, pre-GST archive backup, stock count backup, catalogue HTML file. Payment QR image fallbacks are unchanged.
+PREV_CHANGE: 12-Nov-2026 - v14.54.0: EVERY PRINT NOW WORKS FROM THE IPHONE HOME-SCREEN APP. No Code.gs change. Upload index.html only.
+(P1) BUG FIX. Eight prints opened a separate blob: page. From the home-screen app on iPhone that page opened in a viewer that could not print it ("Cannot open the page because the URL is invalid"), and sharing it to WhatsApp sent only the blob link, which shows a blank page. They now print from the app itself, like a single invoice: Sales Book (print, reprint, month summary), multiple invoices, single shipping label, multiple shipping labels, parcel labels (single, bulk, from the label page), inventory price list, clothing tags, catalogue PDF.
+(P2) HOW. New vcPrintInApp(css, body, {prep}) draws the document into #print-area inside #vc-pdoc. Its CSS is scoped to #vc-pdoc by vcScopeCss (body/html become #vc-pdoc, @page and @media kept, @import dropped) and app styles are reset inside it (all:revert, SVG left alone so the Sales Book cross line keeps its stroke), so each printout keeps its own page size and layout: Sales Book A4 landscape, tags 55 x 89 mm, labels A4 portrait. Label fit rules run as prep before printing (_vlShrink, printLabel shrink, same rules as before). Prints wait up to 3 s for photos and fonts. A beforeprint listener removes the page-size style when another print has replaced #print-area, so invoices never print landscape after a Sales Book.
+(P3) Unchanged: single invoice print, invoice PDF share, walk-in QR bill, bill copies, catalogue HTML download, CSV and backup downloads.
+PREV_CHANGE: 10-Nov-2026 - v14.53.2: SALES EXCEL EXPORT "STATUS" COLUMN MATCHES THE SALES PAGE. No Code.gs change. Upload index.html only.
 (X1) BUG FIX. The last column of the Sales Register export (Status) only knew courier tracking data and the old Shipped toggle, so every bill with no tracking number, every Hand Delivery / Walk-in bill and every bill marked Delivered by hand came out "Pending" (a number with no tracking data yet came out "Shipped" or "Pending"). It now shows exactly the Sales page badge (new vcExportDeliveryStatus, which reads getInvoiceBucket): Delivered (courier or marked by hand), Part Delivered, the live courier status, Overdue, Awaiting Update, No Tracking, Hand Delivered, Collected, Cancelled, Returned. Column names, order, the Invoice Status column, all other columns, the file name and the GST bills only tick are unchanged.
 PREV_CHANGE: 10-Nov-2026 - v14.53.1: GITHUB HIDDEN-CHARACTER WARNING REMOVED. No Code.gs change. Upload index.html only.
 (H1) v14.53.0 put real invisible direction characters (the marks WhatsApp adds around a copied number) inside the copied-number check, so GitHub warned "bidirectional or hidden Unicode text". They are now written as plain-text codes (\u202a and so on). The app behaves exactly the same.
@@ -4750,8 +4763,7 @@ function archivePreGst(){
   // Backup file FIRST — downloaded before the confirm so it exists even if archive is cancelled
   const backup={app:'Vismaad Creations',type:'pre-gst-archive-backup',exportedAt:new Date().toISOString(),gstStartDate:cutoff,invoices:preInv,creditNotes:preCN};
   const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='vismaad-pregst-backup-'+today()+'.json';a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+  vcSaveFile(blob,'vismaad-pregst-backup-'+today()+'.json'); // v14.54.1
   showConfirmModal('📦 Archive Pre-GST Data',
     '<b>'+preInv.length+'</b> invoice(s) and <b>'+preCN.length+'</b> credit note(s) dated before <b>'+fmtDate(cutoff)+'</b> will be:<br/>'
     +'• moved to <b>InvoicesArchive</b> / <b>CreditNotesArchive</b> tabs in the Google Sheet<br/>'
@@ -6013,34 +6025,124 @@ function bulkPrint(){
   if(sel.some(isBillLocked)){vcBillCopyMenu(sel);return;} // v14.48.0
   _bulkPrintRun(sel,'');
 }
-function _bulkPrintRun(sel,which){
-  toast('🖨️ Preparing '+sel.length+' invoice(s)…',4000);
-  // Build full HTML document and open in new window — avoids DOM overflow for 100+ invoices
-  setTimeout(()=>{
-    const pages=vcBillPages(sel,which);
-    const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
-      +'<style>'
-      +'@page{margin:0;}'
-      +'*{box-sizing:border-box;margin:0;padding:0;}'
-      +'body{font-family:\'DM Sans\',sans-serif;}'
-      +'@import url(\'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;600&display=swap\');'
-      +'.print-page{page-break-after:always;padding:10mm;}'
-      +'.print-page:last-child{page-break-after:auto;}'
-      +'</style></head><body>'+pages+'</body></html>';
-    const blob=new Blob([html],{type:'text/html'});
-    const url=URL.createObjectURL(blob);
-    const w=window.open(url,'_blank');
-    if(w){
-      w.onload=()=>{
-        setTimeout(()=>{w.print();URL.revokeObjectURL(url);},500);
-      };
-    }else{
-      // Fallback if popup blocked — use print-area
-      document.getElementById('print-area').innerHTML=pages;
-      window.print();
-      URL.revokeObjectURL(url);
+// ── v14.54.0: IN-APP PRINTING. A home-screen app on iPhone cannot print or share a separate blob: page
+// ("URL is invalid", blank page in WhatsApp), so every print document is now drawn into #print-area and
+// printed from the app itself. The document's own CSS is scoped to #vc-pdoc so it cannot touch the app,
+// and app styles are reset inside it so the printout looks as it did in its own page.
+function _vcScopeSel(s,root){
+  s=s.trim();if(!s)return'';
+  if(s==='*')return root+' *';
+  const m=/^(html|body)\b\s*(.*)$/.exec(s);
+  if(m){const rest=m[2].replace(/^(body)\b\s*/,'').trim();return rest?root+' '+rest:root;}
+  return root+' '+s;
+}
+function vcScopeCss(css,root){
+  css=String(css||'').replace(/\/\*[\s\S]*?\*\//g,'');
+  let out='',i=0;const n=css.length;
+  while(i<n){
+    while(i<n&&/\s/.test(css[i]))i++;
+    if(i>=n)break;
+    const ob=css.indexOf('{',i);
+    if(css[i]==='@'&&!/^@(media|supports|page|font-face)/i.test(css.slice(i,i+12))){
+      // statement at-rules such as @import / @charset have no block: drop them (a ';' inside url(...) is skipped)
+      const re=/@[\w-]+(?:url\([^)]*\)|'[^']*'|"[^"]*"|[^;{'"])*;/y;re.lastIndex=i;
+      if(re.exec(css)){i=re.lastIndex;continue;}
     }
-  },100);
+    if(ob<0)break; // trailing text with no block is not a rule
+    const sel=css.slice(i,ob).trim();
+    let d=1,j=ob+1;while(j<n&&d){if(css[j]==='{')d++;else if(css[j]==='}')d--;j++;}
+    if(d)break; // unclosed block: drop it rather than emit an unscoped rule
+    const inner=css.slice(ob+1,j-1);
+    if(/^@(media|supports)/i.test(sel))out+=sel+'{'+vcScopeCss(inner,root)+'}';
+    else if(sel[0]==='@')out+=sel+'{'+inner+'}'; // @page, @font-face stay as written
+    else{const s=sel.split(',').map(x=>_vcScopeSel(x,root)).filter(Boolean).join(',');if(s)out+=s+'{'+inner+'}';}
+    i=j;
+  }
+  return out;
+}
+function _vcPdocClear(){
+  const st=document.getElementById('vc-pdoc-css');if(st)st.remove();
+  const r=document.getElementById('vc-pdoc');if(r)r.remove();
+}
+function _vcPdocBeforePrint(){ // another print replaced #print-area: its page size must not stay behind
+  if(!document.getElementById('vc-pdoc')){const st=document.getElementById('vc-pdoc-css');if(st)st.remove();}
+}
+// css: the document's own CSS. body: its HTML. opt.prep(root): runs after layout, before print (label shrink).
+function vcPrintInApp(css,body,opt){
+  const o=opt||{},area=document.getElementById('print-area');
+  if(!area){toast('⚠️ Printing is not available on this screen. Reload the app and try again.',5000);return false;}
+  _vcPdocClear();
+  const st=document.createElement('style');st.id='vc-pdoc-css';
+  st.textContent='#vc-pdoc,#vc-pdoc *:where(:not(svg, svg *)){all:revert;}#vc-pdoc{display:block;color:#000;background:#fff;font:normal 400 16px/normal serif;letter-spacing:normal;word-spacing:normal;text-transform:none;text-align:start;white-space:normal;}'
+    +vcScopeCss(css,'#vc-pdoc');
+  document.head.appendChild(st);
+  const root=document.createElement('div');root.id='vc-pdoc';root.innerHTML=body||'';
+  area.innerHTML='';area.appendChild(root);
+  const go=()=>{
+    if(!root.isConnected)return; // a newer print took over
+    if(o.prep){
+      area.style.cssText='display:block;position:fixed;left:-10000px;top:0;visibility:hidden;pointer-events:none;';
+      try{o.prep(root);}catch(e){console.warn('print prep',e);}
+      area.removeAttribute('style');
+    }
+    window.print();
+  };
+  const imgs=[...root.querySelectorAll('img')].filter(im=>!im.complete);
+  const fontsReady=!document.fonts||document.fonts.status==='loaded';
+  if(!imgs.length&&fontsReady){go();return true;}
+  let done=false;const fire=()=>{if(done)return;done=true;go();};
+  setTimeout(fire,o.maxWait||3000);
+  Promise.all([document.fonts?document.fonts.ready:null].concat(imgs.map(im=>new Promise(r=>{im.addEventListener('load',r,{once:true});im.addEventListener('error',r,{once:true});})))).then(fire,fire);
+  return true;
+}
+window.addEventListener('beforeprint',_vcPdocBeforePrint);
+// ── v14.54.1: SAFE LINKS AND FILE SAVING ──
+// Only web links and inline images may go into a printed or shared page. Anything else (javascript:, data:text/html,
+// relative paths) is dropped, and what is kept is escaped so it cannot break out of the attribute.
+function _vcSafeUrl(u){
+  if(typeof u!=='string')return'';
+  const s=u.trim();
+  if(/^https?:\/\//i.test(s)||/^data:image\/(png|jpe?g|webp|gif);base64,[a-z0-9+\/=]+$/i.test(s))return esc(s);
+  return'';
+}
+// A home-screen app on iPhone cannot download a blob: link, so there the file goes to the share sheet
+// (Save to Files, WhatsApp, Mail). Computers and the Safari browser download as before.
+function _vcIsIosApp(){return window.navigator.standalone===true;}
+function _vcDownload(blob,name){
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{try{document.body.removeChild(a);URL.revokeObjectURL(a.href);}catch(e){}},10000);
+}
+function vcSaveFile(blob,name){
+  const nav=window.navigator;
+  if(!_vcIsIosApp()||!nav.share||!nav.canShare){_vcDownload(blob,name);return;}
+  let file;try{file=new File([blob],name,{type:blob.type||'application/octet-stream'});}catch(e){_vcDownload(blob,name);return;}
+  if(!nav.canShare({files:[file]})){_vcDownload(blob,name);return;}
+  const share=()=>nav.share({files:[file]});
+  const ask=()=>{ // iPhone only opens the share sheet straight after a tap, so offer one
+    const m=_vcEnsureModal('vc-save-modal','<div class="modal"><button class="modal-close" onclick="document.getElementById(\'vc-save-modal\').classList.remove(\'open\')">✕</button>'
+      +'<div class="modal-title">📄 File ready</div><div style="font-size:14px;margin-bottom:14px;word-break:break-word;">'+esc(name)+'</div>'
+      +'<button class="btn btn-p" id="vc-save-go" style="width:100%;">📤 Save or share</button></div>');
+    m.style.zIndex='100000'; // above the loading cover and other boxes
+    m.classList.add('open');
+    m.querySelector('#vc-save-go').onclick=()=>{m.classList.remove('open');share().catch(e=>{if(e&&e.name!=='AbortError')_vcDownload(blob,name);});};
+  };
+  if(nav.userActivation&&!nav.userActivation.isActive){ask();return;}
+  share().catch(e=>{
+    if(e&&e.name==='AbortError')return; // cancelled in the share sheet
+    if(e&&e.name==='NotAllowedError'){ask();return;}
+    _vcDownload(blob,name);
+  });
+}
+function vcSaveXlsx(wb,name){
+  const data=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+  vcSaveFile(new Blob([data],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),name);
+}
+function _bulkPrintRun(sel,which){
+  // v14.54.0: printed from the app itself, like a single invoice. A separate page cannot be printed from the iPhone home-screen app.
+  _vcPdocClear();
+  document.getElementById('print-area').innerHTML=vcBillPages(sel,which);
+  window.print();
 }
 function bulkDelete(){
   const _all=getSelectedInvoices();if(!_all.length){toast('⚠️ Select invoices first');return;}
@@ -7936,6 +8038,18 @@ function goToLabel(){
     const t=document.getElementById('lbl-tracking2');if(t)t.value=currentInv.tracking||'';
   },100);}
 }
+// v14.54.2: shared by the single and multiple shipping labels. The box and its address row clip what does not
+// fit, so overflow is read from the address row, and the address, then the From details, shrink in 0.5 px steps
+// down to 8 pt (10.7 px). (v14.54.1 fixed this for the single label; multiple labels had no shrink at all.)
+function _vcLabelFit(root){
+  const MAX_H=128*3.7795276,minPx=8*96/72;
+  root.querySelectorAll('.box').forEach(box=>{
+    const mid=box.querySelector('.mid');
+    const over=()=>box.scrollHeight>MAX_H+1||(!!mid&&mid.scrollHeight>mid.clientHeight+1);
+    const fit=el=>{if(!el)return;let px=parseFloat(getComputedStyle(el).fontSize);while(over()&&px-0.5>=minPx){px-=0.5;el.style.fontSize=px+'px';}};
+    fit(box.querySelector('.toaddr'));fit(box.querySelector('.frdet'));
+  });
+}
 function printLabel(){
   const name=esc(document.getElementById('lbl-to-name')?.value.trim());
   if(!name){toast('⚠️ Enter customer name');return;}
@@ -8039,45 +8153,8 @@ function printLabel(){
     +'</div>'
     +'<div class="cut">✂ cut here</div>';
 
-  // Shrink address fonts until box fits within 128mm
-  const shrinkScript=''
-    +'window.onload=function(){'
-    +'  var PX_PER_MM=3.7795276;'
-    +'  var MAX_H=Math.round(128*PX_PER_MM);'
-    +'  var box=document.querySelector(".box");'
-    +'  var toaddr=document.getElementById("toaddr");'
-    +'  var frdet=document.getElementById("frdet");'
-    +'  function shrink(el,minPt){'
-    +'    if(!el)return;'
-    +'    var px=parseFloat(window.getComputedStyle(el).fontSize);'
-    +'    while(box.scrollHeight>MAX_H&&px>minPt*PX_PER_MM/0.75){'
-    +'      px-=0.5;el.style.fontSize=px+"px";'
-    +'    }'
-    +'  }'
-    +'  shrink(toaddr,8);'
-    +'  shrink(frdet,8);'
-    +'  var go=function(){window.print();};'
-    +'  if(document.fonts&&document.fonts.ready){'
-    +'    document.fonts.ready.then(function(){setTimeout(go,600);});'
-    +'  }else{setTimeout(go,1600);}'
-    +'};';
-
-  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
-    +'<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet"/>'
-    +'<style>'+css+'</style>'
-    +'<script>'+shrinkScript+'<\/script>'
-    +'</head><body>'+body+'</body></html>';
-
-  const blob=new Blob([html],{type:'text/html'});
-  const url=URL.createObjectURL(blob);
-  const w=window.open(url,'_blank');
-  if(!w){
-    toast('⚠️ Popup blocked — allow popups in browser settings',5000);
-    URL.revokeObjectURL(url);
-  }else{
-    setTimeout(()=>URL.revokeObjectURL(url),30000);
-    toast('🖨️ Label opening — print on A4 Portrait, 100% scale');
-  }
+  // Shrink address fonts until box fits within 128mm (v14.54.0: same rule, now run inside the app before printing)
+  if(vcPrintInApp(css,body,{prep:_vcLabelFit}))toast('🖨️ Print on A4 Portrait, 100% scale');
 }
 // v14.37.0: fixed-format date-time (toLocaleString output differs between browsers)
 function _fmtDT(v){const d=new Date(v);if(isNaN(d))return'';const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -8320,11 +8397,7 @@ function exportCourierSpend(){
     return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
   }).join(',')).join('\n');
   const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download='courier-spend-'+_csFrom+'-to-'+_csTo+'.csv';
-  document.body.appendChild(a);a.click();document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  vcSaveFile(blob,'courier-spend-'+_csFrom+'-to-'+_csTo+'.csv'); // v14.54.1
   toast('⬇️ CSV downloaded');
 }
 
@@ -9248,7 +9321,7 @@ function _doExport(type,from,to,label){
     const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
     ws['!cols']=[{wch:8},{wch:30},{wch:14},{wch:10},{wch:8},{wch:10},{wch:14},{wch:14},{wch:24}];
     XLSX.utils.book_append_sheet(wb,ws,'Inventory');
-    XLSX.writeFile(wb,'Vismaad_Inventory.xlsx');
+    vcSaveXlsx(wb,'Vismaad_Inventory.xlsx');
     toast('✅ Inventory exported — '+inventory.length+' products');
     return;
   }
@@ -9395,7 +9468,7 @@ function _doExport(type,from,to,label){
     const ws=XLSX.utils.aoa_to_sheet([hdr,...allRows]);
     ws['!cols']=[{wch:16},{wch:14},{wch:20},{wch:16},{wch:20},{wch:22},{wch:14},{wch:14},{wch:14},{wch:14}];
     XLSX.utils.book_append_sheet(wb,ws,'GST Summary');
-    XLSX.writeFile(wb,'Vismaad_GST_'+label.replace(/[\s/]/g,'_')+'.xlsx');
+    vcSaveXlsx(wb,'Vismaad_GST_'+label.replace(/[\s/]/g,'_')+'.xlsx');
     toast('✅ GST summary — '+gstFiltered.length+' Tax Invoice(s) across '+sortedMonths.length+' month(s)'+( bosCount>0?' · '+bosCount+' BOS excluded':'' ));
     // v14.31.0 warnings — these change what you file, so they must not be silent
     if(_voidNoCN.length){
@@ -9509,7 +9582,7 @@ function _doExport(type,from,to,label){
   const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
   ws['!cols']=hdr.map(h=>({wch:Math.min(Math.max(h.length,12),40)}));
   XLSX.utils.book_append_sheet(wb,ws,'Sales Register');
-  XLSX.writeFile(wb,'Vismaad_Sales_'+label.replace(/[\s/]/g,'_')+'.xlsx');
+  vcSaveXlsx(wb,'Vismaad_Sales_'+label.replace(/[\s/]/g,'_')+'.xlsx');
   toast('✅ '+salesList.length+' records exported'+(_gstOnly?' (GST bills only)':''));
 }
 
@@ -9537,10 +9610,7 @@ function buildBulkPage(){
 }
 function downloadBulkTemplate(){
   const csv=`Invoice Date,Customer Name,Phone,Address,State,Suit 1 Name,Suit 1 Price,Suit 1 Cost,Suit 2 Name,Suit 2 Price,Suit 2 Cost,Suit 3 Name,Suit 3 Price,Suit 3 Cost,Shipping Charged,Actual Shipping Cost,Discount,Tracking No,Channel\n02/03/2026,Priya Sharma,9876543210,"H.No 12 Sector 4, Chandigarh",Punjab,Floral Georgette Suit,1499,900,,,,,,, 80,65,0,EE123456789IN,WhatsApp`;
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-  a.download='vismaad_import_template.csv';
-  a.click();
+  vcSaveFile(new Blob([csv],{type:'text/csv'}),'vismaad_import_template.csv'); // v14.54.1
   toast('⬇️ Template downloaded!');
 }
 function normaliseDate(d){
@@ -11436,16 +11506,7 @@ function bulkPrintLabels(){
     +'.cut{width:170mm;margin-top:3mm;padding-top:2mm;border-top:1px dashed #bbb;text-align:center;font-size:7.5pt;color:#bbb;letter-spacing:2px;}';
 
   const pages=sel.map(inv=>'<div class="page">'+buildOneLabelBody(inv)+'</div>').join('');
-  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
-    +'<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet"/>'
-    +'<style>'+css+'</style>'
-    +'<script>window.onload=function(){if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){setTimeout(function(){window.print();},600);});}else{setTimeout(function(){window.print();},1600);}};<\/script>'
-    +'</head><body>'+pages+'</body></html>';
-  const blob=new Blob([html],{type:'text/html'});
-  const url=URL.createObjectURL(blob);
-  const w=window.open(url,'_blank');
-  if(!w){toast('⚠️ Popup blocked — allow popups in browser settings',5000);URL.revokeObjectURL(url);}
-  else{setTimeout(()=>URL.revokeObjectURL(url),30000);}
+  vcPrintInApp(css,pages,{prep:_vcLabelFit}); // v14.54.0: printed in the app; v14.54.2: long addresses shrink to fit
 }
 
 // ═══════════════════════════════════════════
@@ -11800,7 +11861,7 @@ function exportTrackingTemplate(){
     XLSX.utils.book_append_sheet(wb,ws,'Sheet1');
     const d=new Date();
     const dStr=String(d.getDate()).padStart(2,'0')+'-'+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]+'-'+d.getFullYear();
-    XLSX.writeFile(wb,'Vismaad_Tracking_'+dStr+'.xlsx');
+    vcSaveXlsx(wb,'Vismaad_Tracking_'+dStr+'.xlsx');
     toast('✅ '+top.length+' tracking numbers exported');
   });
 }
@@ -13107,23 +13168,20 @@ function printInvPriceList() {
     ? '<div style="font-size:10pt;color:#c9933a;margin-top:3px;">Shipping included: ₹' + ship.toFixed(2) + ' per article</div>'
     : '';
 
-  const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
-    + '<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;600&display=swap" rel="stylesheet"/>'
-    + '<style>'
+  // v14.54.0: printed in the app
+  const css = ''
     + '*{box-sizing:border-box;margin:0;padding:0;}'
     + '@page{margin:12mm 14mm;}'
     + 'body{font-family:"DM Sans",Arial,sans-serif;font-size:11pt;color:#1a1208;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
     + 'table{width:100%;border-collapse:collapse;}'
     + 'th{background:#5c3d1e;color:#fff;padding:8px 10px;font-size:10pt;text-align:left;}'
-    + 'tr{border-bottom:1px solid #e2d4bc;}'
-    + '</style>'
-    + '<script>window.onload=function(){setTimeout(function(){window.print();},800);};<\/script>'
-    + '</head><body>'
+    + 'tr{border-bottom:1px solid #e2d4bc;}';
+  const body = ''
     + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">'
       + '<div>' + logoImg + '<div style="font-family:\'Playfair Display\',serif;font-size:22pt;font-weight:700;color:#5c3d1e;">Vismaad Creations</div>'
       + '<div style="font-size:10pt;color:#888;">' + esc(S.address || '') + (S.phone ? ' · ' + esc(S.phone) : '') + '</div></div>'
       + '<div style="text-align:right;">'
-        + '<div style="font-size:16pt;font-weight:700;color:#5c3d1e;">' + listTitle + '</div>'
+        + '<div style="font-size:16pt;font-weight:700;color:#5c3d1e;">' + esc(listTitle) + '</div>'
         + '<div style="font-size:10pt;color:#888;">Date: ' + dateStr + '</div>'
         + shipNote
       + '</div>'
@@ -13132,14 +13190,9 @@ function printInvPriceList() {
     + '<thead><tr>' + thHtml + '</tr></thead>'
     + '<tbody>' + rows + footerHtml + '</tbody>'
     + '</table>'
-    + '<div style="margin-top:12px;font-size:9pt;color:#aaa;text-align:center;">Vismaad Creations · ' + listTitle + ' · Printed ' + dateStr + '</div>'
-    + '</body></html>';
+    + '<div style="margin-top:12px;font-size:9pt;color:#aaa;text-align:center;">Vismaad Creations · ' + esc(listTitle) + ' · Printed ' + dateStr + '</div>';
+  vcPrintInApp(css, body);
 
-  const blob = new Blob([html], {type: 'text/html'});
-  const url = URL.createObjectURL(blob);
-  const w = window.open(url, '_blank');
-  if (!w) { toast('⚠️ Popup blocked — allow popups in browser settings', 5000); URL.revokeObjectURL(url); }
-  else { setTimeout(() => URL.revokeObjectURL(url), 30000); }
 }
 
 
@@ -13158,7 +13211,7 @@ function printInvTags() {
     const qty = parseInt(p.qty) || 1;
     const sell = (parseFloat(p.sellPrice) || 0) + ship;
     const priceStr = sell.toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 2});
-    const prodStr = String(p.prodNo);
+    const prodStr = esc(String(p.prodNo)); // v14.54.1
     for (let i = 0; i < qty; i++) {
       tagDivs += '<div class="tag">'
         + '<div class="tag-prodno">' + prodStr + '</div>'
@@ -13167,8 +13220,8 @@ function printInvTags() {
     }
   });
 
-  const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"/>'
-    + '<style>'
+  // v14.54.0: printed in the app
+  const css = ''
     + '*{box-sizing:border-box;margin:0;padding:0;}'
     + '@page{size:55mm 89mm;margin:0;}'
     + 'body{font-family:Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
@@ -13193,18 +13246,9 @@ function printInvTags() {
       + 'font-size:28pt;font-weight:700;color:#000;'
       + 'line-height:1;'
       + 'white-space:nowrap;'
-    + '}'
-    + '</style>'
-    + '<script>window.onload=function(){setTimeout(function(){window.print();},800);};<\/script>'
-    + '</head><body>'
-    + tagDivs
-    + '</body></html>';
+    + '}';
+  vcPrintInApp(css, tagDivs);
 
-  const blob = new Blob([html], {type: 'text/html'});
-  const url = URL.createObjectURL(blob);
-  const w = window.open(url, '_blank');
-  if (!w) { toast('⚠️ Popup blocked — allow popups in browser settings', 5000); URL.revokeObjectURL(url); }
-  else { setTimeout(() => URL.revokeObjectURL(url), 30000); }
 }
 // ═══════════════════════════════════════════
 // SUPPLIERS & BILLS — DATA FUNCTIONS
@@ -14016,9 +14060,7 @@ function exportDSExcel(){
   const headers=Object.keys(rows[0]);
   const csv=[headers.join(','),...rows.map(r=>headers.map(h=>{const v=r[h];return typeof v==='string'&&(v.includes(',')||v.includes('"'))?'"'+v.replace(/"/g,'""')+'"':v;}).join(','))].join('\n');
   const blob=new Blob([csv],{type:'text/csv'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.download='DS-Report-'+today()+'.csv';
-  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  vcSaveFile(blob,'DS-Report-'+today()+'.csv'); // v14.54.1
   toast('⬇️ DS Report exported');
 }
 
@@ -14916,22 +14958,23 @@ function generateCataloguePDF() {
           const labelHtml = v.label ? `<div style="font-size:9pt;color:#888;margin-top:3px;">${esc(v.label)}</div>` : '';
           const soldOutBadge = !vInStock ? `<div style="font-size:8pt;color:#c0392b;font-weight:700;margin-top:2px;">Sold Out</div>` : '';
           const imgHtml = heroPhoto
-            ? `<img src="${heroPhoto.thumbUrl||heroPhoto.fullUrl}" style="width:100%;height:90px;object-fit:cover;border-radius:6px;${!vInStock?'opacity:.5;':''}" onerror="this.style.display='none'"/>`
+            ? `<img src="${_vcSafeUrl(heroPhoto.thumbUrl||heroPhoto.fullUrl)}" style="width:100%;height:90px;object-fit:cover;border-radius:6px;${!vInStock?'opacity:.5;':''}" onerror="this.style.display='none'"/>`
             : `<div style="width:100%;height:90px;border-radius:6px;background:#f5e6c8;display:flex;align-items:center;justify-content:center;font-size:10pt;color:#aaa;">No Photo</div>`;
           const extraPhotos = photos.length > 1
-            ? `<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">${photos.slice(1).map(ph => `<img src="${ph.thumbUrl||ph.fullUrl}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;" onerror="this.style.display='none'"/>`).join('')}</div>` : '';
+            ? `<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">${photos.slice(1).map(ph => `<img src="${_vcSafeUrl(ph.thumbUrl||ph.fullUrl)}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;" onerror="this.style.display='none'"/>`).join('')}</div>` : '';
           return `<div style="width:110px;">${imgHtml}${extraPhotos}${labelHtml}${soldOutBadge}${priceHtml}</div>`;
         }).join('') + '</div>';
     } else if (showPrices && p.sellPrice) {
       variantsHtml = `<div style="font-size:12pt;font-weight:700;color:#5c3d1e;margin-top:8px;">${f(p.sellPrice)}</div>`;
     }
 
-    const reelHtml = p.reelUrl ? `<div style="margin-top:8px;font-size:9pt;"><a href="${p.reelUrl}" style="color:#2980b9;">▶ View Reel</a></div>` : '';
+    const reelSafe = _vcSafeUrl(p.reelUrl); // v14.54.1
+    const reelHtml = reelSafe ? `<div style="margin-top:8px;font-size:9pt;"><a href="${reelSafe}" style="color:#2980b9;">▶ View Reel</a></div>` : '';
 
     return `<div style="border:1px solid #e2d4bc;border-radius:10px;padding:12px;break-inside:avoid;background:#fff;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <div>
-          <div style="font-size:11pt;font-weight:700;color:#5c3d1e;">#${p.prodNo} — ${esc(p.name)}</div>
+          <div style="font-size:11pt;font-weight:700;color:#5c3d1e;">#${esc(p.prodNo)} — ${esc(p.name)}</div>
           ${p.fabric ? `<div style="font-size:9pt;color:#888;">${esc(p.fabric)}</div>` : ''}
         </div>
         ${stockBadge}
@@ -14941,30 +14984,23 @@ function generateCataloguePDF() {
     </div>`;
   }).join('');
 
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;600&display=swap" rel="stylesheet"/>
-    <style>
+  // v14.54.0: printed in the app
+  const css = `
     *{box-sizing:border-box;margin:0;padding:0;}
     @page{margin:12mm 14mm;}
     body{font-family:"DM Sans",Arial,sans-serif;font-size:11pt;color:#1a1208;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:16px;}
     @media(min-width:800px){.grid{grid-template-columns:repeat(3,1fr);}}
-    </style>
-    <script>window.onload=function(){setTimeout(function(){window.print();},1200);};<\/script>
-    </head><body>
+    `;
+  const body = `
     <div style="display:flex;align-items:flex-start;justify-content:space-between;border-bottom:2px solid #e2d4bc;padding-bottom:12px;margin-bottom:4px;">
       <div>${logoHtml}<div style="font-family:'Playfair Display',serif;font-size:22pt;font-weight:700;color:#5c3d1e;">${bizName}</div><div style="font-size:10pt;color:#888;">${tagline}</div>${S.phone?`<div style="font-size:10pt;color:#888;margin-top:2px;">📞 ${esc(S.phone)}</div>`:''}</div>
       <div style="text-align:right;"><div style="font-size:16pt;font-weight:700;color:#5c3d1e;">${esc(title)}</div><div style="font-size:10pt;color:#888;">${dateStr}</div></div>
     </div>
     <div class="grid">${productCards}</div>
     <div style="margin-top:14px;font-size:9pt;color:#aaa;text-align:center;">${bizName} · ${esc(title)} · ${dateStr}</div>
-    </body></html>`;
-
-  const blob = new Blob([html], {type:'text/html'});
-  const url = URL.createObjectURL(blob);
-  const w = window.open(url, '_blank');
-  if (!w) toast('⚠️ Popup blocked — allow popups in browser settings', 5000);
-  else setTimeout(() => URL.revokeObjectURL(url), 60000);
+    `;
+  vcPrintInApp(css, body);
   document.getElementById('cat-gen-modal').classList.remove('open');
 }
 
@@ -15016,7 +15052,7 @@ function generateCatalogueHTML() {
           } else if (photos.length === 1) {
             photosHtml = `<div class="photo-single"><img src="${esc(photos[0].thumbUrl||photos[0].fullUrl)}" loading="lazy" alt="${esc(v.label||'Product photo')}"/>${!vInStock?'<div class="soldout-overlay"><span class="soldout-tag">Sold Out</span></div>':''}</div>`;
           } else {
-            const cid = `c-${p.prodNo}-${vi}`;
+            const cid = `c-${String(p.prodNo).replace(/[^\w-]/g,'')}-${vi}`; // v14.54.1: letters, digits, - and _ only
             const slides = photos.map((ph,pi) =>
               `<div class="photo-slide"><img src="${esc(ph.thumbUrl||ph.fullUrl)}" loading="lazy" alt="${esc(v.label||'Photo '+pi)}"/></div>`
             ).join('');
@@ -15048,13 +15084,13 @@ function generateCatalogueHTML() {
 
     const actionsHtml = `<div class="prod-actions">
       ${waUrl?`<a href="${waUrl}" class="btn-wa">🛒 Buy Now</a>`:''}
-      ${reelUrl?`<a href="${esc(reelUrl)}" class="btn-reel">▶ View Reel</a>`:''}
+      ${_vcSafeUrl(reelUrl)?`<a href="${_vcSafeUrl(reelUrl)}" class="btn-reel">▶ View Reel</a>`:''}
     </div>`;
 
     return `<div class="prod-card">
       <div class="prod-info">
         <div style="display:flex;align-items:center;justify-content:space-between;">
-          <div class="prod-no">Article #${p.prodNo}</div>
+          <div class="prod-no">Article #${esc(p.prodNo)}</div>
           ${stockBadge}
         </div>
         <div class="prod-name">${esc(prodName)}</div>
@@ -15161,12 +15197,7 @@ document.addEventListener('touchend',e=>{
 
   const safeName = (bizName + ' — ' + title).replace(/[^a-zA-Z0-9 _\-]/g, '').trim();
   const blob = new Blob([html], {type:'text/html'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = safeName + '.html';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 10000);
+  vcSaveFile(blob, safeName + '.html'); // v14.54.1
   document.getElementById('cat-gen-modal').classList.remove('open');
   toast('✅ Catalogue downloaded — share the HTML file on WhatsApp!', 4000);
 }
@@ -15256,11 +15287,12 @@ function openCleanupModal() {
   list.innerHTML = soldOut.map(p => {
     const varCount = (p.variants || []).length;
     const photoCount = (p.variants || []).reduce((s, v) => s + (v.photos || []).length, 0);
+    const pn = parseInt(p.prodNo) || 0; // v14.54.2: a number only, so nothing else can reach the tap handler
     return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
-      <div class="cat-sel-check" id="cls-${p.prodNo}" onclick="toggleCleanupSelect(${p.prodNo})"></div>
+      <div class="cat-sel-check" id="cls-${pn}" onclick="toggleCleanupSelect(${pn})"></div>
       <div style="flex:1;">
-        <div style="font-size:14px;font-weight:600;">#${p.prodNo} — ${esc(p.name)}</div>
-        <div style="font-size:12px;color:#888;">${esc(p.fabric||'')} · Sold ${p.qtySold||0} unit${(p.qtySold||0)!==1?'s':''}${varCount?' · '+varCount+' variant'+(varCount!==1?'s':''):''}${photoCount?' · '+photoCount+' photo'+(photoCount!==1?'s':'')+'  on GitHub':''}</div>
+        <div style="font-size:14px;font-weight:600;">#${esc(p.prodNo)} — ${esc(p.name)}</div>
+        <div style="font-size:12px;color:#888;">${esc(p.fabric||'')} · Sold ${parseInt(p.qtySold)||0} unit${(parseInt(p.qtySold)||0)!==1?'s':''}${varCount?' · '+varCount+' variant'+(varCount!==1?'s':''):''}${photoCount?' · '+photoCount+' photo'+(photoCount!==1?'s':'')+'  on GitHub':''}</div>
       </div>
     </div>`;
   }).join('');
@@ -15444,12 +15476,7 @@ function backupConfig(){
   };
   const json=JSON.stringify(config,null,2);
   const blob=new Blob([json],{type:'application/json'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;a.download='vismaad-config.json';
-  document.body.appendChild(a);a.click();
-  document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url),5000);
+  vcSaveFile(blob,'vismaad-config.json'); // v14.54.1
   const st=document.getElementById('config-backup-status');
   if(st){st.textContent='✅ Config downloaded — save this file to Google Drive or iCloud for easy restore.';st.style.display='block';setTimeout(()=>{st.style.display='none';},7000);}
   toast('✅ Config backup downloaded!');
@@ -17298,9 +17325,7 @@ async function scDoApply(sigBefore){
         variants:_scHasVars(p)?p.variants.map(v=>({id:v.id,qty:_scInt(v.qty)})):[]}))};
     try{
       const blob=new Blob([JSON.stringify(backup,null,1)],{type:'application/json'});
-      const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-      a.download='vismaad-stock-backup-'+today()+'-'+String(new Date().getHours()).padStart(2,'0')+String(new Date().getMinutes()).padStart(2,'0')+'.json';
-      document.body.appendChild(a);a.click();setTimeout(()=>{try{document.body.removeChild(a);URL.revokeObjectURL(a.href);}catch(e){}},2000);
+      vcSaveFile(blob,'vismaad-stock-backup-'+today()+'-'+String(new Date().getHours()).padStart(2,'0')+String(new Date().getMinutes()).padStart(2,'0')+'.json'); // v14.54.1
     }catch(e){hideLoading();toast('⚠️ Could not create the backup file, so nothing was changed.',6000);return;}
     showLoading('Saving the count…');
     const nowIso=new Date().toISOString();const cd=today();
@@ -17766,13 +17791,9 @@ function sbPageHtml(p,opt){
     +_sbTotalRow('Brought forward',p.bf)+rows+_sbTotalRow('Page total',p.pageTotal)+_sbTotalRow('Carried forward',p.cf)+'</tbody></table>'
     +cross+'<div class="f"><div>All amounts in ₹. Credit notes are shown as minus figures.</div><div>Signature: ____________________ &nbsp; Date: ______________</div></div></div>';
 }
-function vcOpenPrintDoc(title,css,body){
-  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>'+esc(title)+'</title><style>'+css+'</style><script>window.onload=function(){setTimeout(function(){window.print();},400);};<\/script></head><body>'+body+'</body></html>';
-  const url=URL.createObjectURL(new Blob([html],{type:'text/html'}));
-  const w=window.open(url,'_blank');
-  if(!w){toast('⚠️ Popup blocked. Allow popups for this app and try again.',5000);URL.revokeObjectURL(url);return false;}
-  setTimeout(()=>URL.revokeObjectURL(url),60000);
-  return true;
+function vcOpenPrintDoc(title,css,body){ // v14.54.0: printed in the app (title kept for callers)
+  void title;
+  return vcPrintInApp(css,body);
 }
 function vcSbPrint(){
   const legal=(S.legalName||'').trim();if(!legal){toast('⚠️ Enter the legal name first');return;}
@@ -17970,7 +17991,18 @@ const _VL_CSS='*{box-sizing:border-box;margin:0;padding:0;}@page{margin:0;size:A
   +'.bot{display:flex;align-items:center;flex-shrink:0;border-top:.5px solid #ddd;padding-top:1mm;}.botm{flex:1;text-align:center;}.botr{flex:1;text-align:right;}.frlbl{font-size:7pt;font-weight:700;text-transform:uppercase;color:#888;}.frname{font-size:9.5pt;font-weight:700;}.frdet{font-size:9pt;font-weight:700;line-height:1.3;word-break:break-word;}'
   +'.cv{font-size:7pt;font-weight:400;color:#888;margin-top:.8mm;}'
   +'.cut{width:170mm;margin-top:3mm;padding-top:2mm;border-top:1px dashed #bbb;text-align:center;font-size:7.5pt;color:#bbb;letter-spacing:2px;}';
-const _VL_SCRIPT='window.onload=function(){var M=3.7795276*128;[].forEach.call(document.querySelectorAll(".box"),function(b){function s(e,min){if(!e)return;var px=parseFloat(getComputedStyle(e).fontSize);while(b.scrollHeight>M&&px>min){px-=.5;e.style.fontSize=px+"px";}}s(b.querySelector(".toaddr"),10.7);s(b.querySelector(".toname"),13);s(b.querySelector(".frdet"),10);var a=b.querySelector(".toaddr");if(a&&b.scrollHeight>M){var h=a.offsetHeight-(b.scrollHeight-M)-1;if(h>20){a.style.maxHeight=h+"px";}}});setTimeout(function(){window.print();},500);};';
+// v14.54.0: same fit rule as before, now run inside the app before printing
+function _vlShrink(root){ // v14.54.2: overflow is read from the address row, which clips it (the box never showed it)
+  const M=3.7795276*128;
+  root.querySelectorAll('.box').forEach(b=>{
+    const mid=b.querySelector('.mid');
+    const over=()=>b.scrollHeight>M+1||(!!mid&&mid.scrollHeight>mid.clientHeight+1);
+    const s=(e,min)=>{if(!e)return;let px=parseFloat(getComputedStyle(e).fontSize);while(over()&&px-.5>=min){px-=.5;e.style.fontSize=px+'px';}};
+    s(b.querySelector('.toaddr'),10.7);s(b.querySelector('.toname'),13);s(b.querySelector('.frdet'),10);
+    const a=b.querySelector('.toaddr');
+    if(a&&over()){const extra=Math.max(b.scrollHeight-M,mid?mid.scrollHeight-mid.clientHeight:0);const h=a.offsetHeight-extra-1;if(h>20)a.style.maxHeight=h+'px';}
+  });
+}
 function _vlBox(d,parcel,inv){
   const m=_sbMoney;
   let ord='';
@@ -17986,13 +18018,7 @@ function _vlBox(d,parcel,inv){
     +ord+'<div class="ty"><span class="tytext">Thank you for shopping with us!</span></div>'
     +'<div class="bot"><div class="botm">'+logo+'</div><div class="botr"><div class="frlbl">From</div><div class="frname">Vismaad Creations</div><div class="frdet">'+esc(d.fromAddr||'').replace(/\n/g,'<br/>')+(d.fromPh?'<br/>&#9990; '+esc(d.fromPh):'')+'</div>'+(parcel&&parcel.units.length?'<div class="cv">Cont. val: '+esc(vcWordsLower(vlGoodsValue(parcel)))+'</div>':'')+'</div></div></div><div class="cut">✂ cut here</div></div>';
 }
-function _vlOpen(body){
-  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"/><link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet"/><style>'+_VL_CSS+'</style><script>'+_VL_SCRIPT+'<\/script></head><body>'+body+'</body></html>';
-  const url=URL.createObjectURL(new Blob([html],{type:'text/html'}));
-  const w=window.open(url,'_blank');
-  if(!w){toast('⚠️ Popup blocked. Allow popups for this app and try again.',5000);URL.revokeObjectURL(url);return false;}
-  setTimeout(()=>URL.revokeObjectURL(url),60000);return true;
-}
+function _vlOpen(body){return vcPrintInApp(_VL_CSS,body,{prep:_vlShrink});} // v14.54.0: printed in the app
 function _vlInvData(inv,i){
   const tr=String(inv.tracking||'').split(',').map(x=>x.trim()).filter(Boolean);
   return{name:inv.custName||'',addr:inv.custAddress||'',pin:inv.custPin||'',phone:inv.custPhone||'',wa:inv.custWhatsapp||'',invNo:inv.invNo||'',invDate:inv.invDate||'',track:tr[i]||'',fromAddr:S.address||'',fromPh:S.phone||''};
