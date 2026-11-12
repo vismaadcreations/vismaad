@@ -3,10 +3,16 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.57.0
+APP: Vismaad Creations v14.58.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 12-Nov-2026 - v14.57.0: IPHONE PRINTING OF INVOICES AND LABELS BACK TO HOW IT WAS BEFORE v14.54, TAGS OFFER BOTH WAYS. No Code.gs change. Upload index.html only.
+LAST_CHANGE: 12-Nov-2026 - v14.58.0: EVERY PRINT FROM THE IPHONE HOME-SCREEN APP GOES THROUGH SAFARI (NEW print.html). No Code.gs change. Upload index.html AND print.html.
+(H1) BUG FIX. In the home-screen app iPhone ignores printing (invoices did nothing) and its own pages give "URL is invalid" (labels). Print Lab v1.0 and v1.1 on the phone: only "jump to Safari and print there" worked, and links up to 2 MB arrived whole. Now every print in the home-screen app (invoices, bill copies, notes, order slips, QR bills, parcel bills, labels, tags, Sales Book, multiple invoices, price list, catalogue) packs itself into a link of print.html and iPhone opens it in Safari (x-safari-), where it prints by itself.
+(H2) HOW. _vcPrintPayload: #print-area, the app's print styles (_vcPrintCss), the page size (_vcPageSpec), Google font links; each data: picture travels once (vcimg:N). _vcB64u encodes it after # (never sent to the website). Over 1.8 MB: a message and the v14.56.0 Save as PDF page (_vcOpenSavePdfPage).
+(H3) In iPhone Safari: invoices and other bills print in place and labels open their self-printing page, as in v14.57.0; Sales Book, multiple invoices, price list, catalogue and tags open print.html in a new tab. Tags no longer ask which way (G4 removed).
+(H4) Computers and Android print in place exactly as before (checked in Chrome as a computer and as an Android phone: invoice A4, Sales Book A4 sideways, tags 55 x 89 mm, label A4).
+(H5) print.html v1.0: code lock (Content-Security-Policy, only its own script by hash; no frames, forms, connections, outside scripts), cleans the content (scripts, frames, forms, on... handlers, javascript: links removed), keeps nothing on the phone, turns sideways pages (Sales Book) a quarter to fit upright A4 because Safari ignores the size asked for, shows "Print again".
+PREV_CHANGE: 12-Nov-2026 - v14.57.0: IPHONE PRINTING OF INVOICES AND LABELS BACK TO HOW IT WAS BEFORE v14.54, TAGS OFFER BOTH WAYS. No Code.gs change. Upload index.html only.
 (G1) BUG FIX. v14.56.0's print page could not reach Canon PRINT (Share hands Canon only the page address, a blob: address it cannot open: "URL is invalid"). Checked against GitHub history (v14.36 to v14.53.2): invoices printed inside the app with the print screen, labels on their own page that opens the print screen by itself. Both are restored on iPhone.
 (G2) vcPrint(name,true) prints straight from the app on every device: single invoice, invoice from the list, invoice PDF share, credit note, Save + Print All, walk-in QR bill, bill copies, debit note, order slip, parcel bills.
 (G3) Single, multiple and parcel labels on iPhone open their own page again with the pre-v14.54 print script and timing (fonts, then 0.6 s; parcel 0.5 s), Great Vibes font, page kept 30 s (parcel 60 s). New _vcLegacyPage; the address shrink (_vcLabelFit, _vlShrink) and the v14.54 security fixes run in the app first, so the page carries the finished layout.
@@ -6100,7 +6106,7 @@ function vcPrintInApp(css,body,opt){
       try{o.prep(root);}catch(e){console.warn('print prep',e);}
       area.removeAttribute('style');
     }
-    if(o.legacy&&_vcUsePdf()){_vcLegacyPage(css,root.innerHTML,o.legacy);return;} // v14.57.0: labels and tags on iPhone, as before v14.54
+    if(o.legacy&&_vcUsePdf()&&!_vcIsIosApp()){_vcLegacyPage(css,root.innerHTML,o.legacy);return;} // v14.57.0: labels in iPhone Safari, as before v14.54 (v14.58.0: home-screen app goes through Safari)
     vcPrint(o.name); // v14.55.0: a PDF on iPhone/iPad
   };
   const imgs=[...root.querySelectorAll('img')].filter(im=>!im.complete);
@@ -6339,15 +6345,50 @@ function _vcOpenPage(url){
   m.style.zIndex='100000';m.classList.add('open');
   m.querySelector('#vc-open-go').onclick=()=>{m.classList.remove('open');if(!window.open(url,'_blank'))toast('⚠️ Allow pop-ups for this app and try again.',5000);};
 }
-// Every print in the app goes through here.
-// direct=true: the print screen straight from the app on every device (invoices, notes, order slips, as before v14.54).
-function vcPrint(name,direct){
-  if(direct||!_vcUsePdf()){window.print();return;}
+// ── v14.58.0: PRINTING FROM THE IPHONE HOME-SCREEN APP GOES THROUGH SAFARI ──
+// The home-screen app cannot print (iPhone ignores it there, and its own pages give "URL is invalid"), but Safari can.
+// The print is packed into the link of print.html (uploaded next to index.html) and iPhone opens it in Safari,
+// which prints it by itself. Print Lab v1.0/1.1 (12-Nov-2026): only this way worked; links up to 2 MB arrived whole.
+const _VC_LINK_MAX=1800000;
+const _VC_IMG_RE=/data:image\/(?:png|jpe?g|gif|webp|svg\+xml);base64,[A-Za-z0-9+\/=]+/g;
+function _vcPrintPayload(name){
+  _vcPdocBeforePrint(); // same clean-up a real print does
+  const area=document.getElementById('print-area');
+  const {css,pageCss}=_vcPrintCss();
+  const imgs=[],seen=new Map();
+  const take=u=>{if(!seen.has(u)){seen.set(u,imgs.length);imgs.push(u);}return 'vcimg:'+seen.get(u);}; // a picture used on many pages travels once
+  return {v:1,n:String(name||''),page:_vcPageSpec(pageCss),
+    css:(css+'\n#print-area{display:block!important;position:static!important;}').replace(_VC_IMG_RE,take),
+    fonts:[...document.querySelectorAll('link[rel="stylesheet"]')].map(l=>l.href).filter(h=>/^https:\/\/fonts\.googleapis\.com\//.test(h)),
+    imgs,html:'<div id="print-area">'+area.innerHTML.replace(_VC_IMG_RE,take)+'</div>'};
+}
+function _vcB64u(str){
+  const u=new TextEncoder().encode(str);let b='';
+  for(let i=0;i<u.length;i+=8192)b+=String.fromCharCode.apply(null,u.subarray(i,i+8192));
+  return btoa(b).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function _vcSafariPrint(name){
+  let link;
+  try{link=new URL('print.html',location.href).href.split('#')[0]+'#'+_vcB64u(JSON.stringify(_vcPrintPayload(name)));}
+  catch(e){console.warn('print link',e);toast('⚠️ Could not prepare the print. Please try again.',5000);return;}
+  if(link.length>_VC_LINK_MAX){toast('⚠️ This print is too big to send to Safari. Use Save as PDF on the next page.',6000);_vcOpenSavePdfPage(name);return;}
+  if(_vcIsIosApp()){const u='x-safari-'+link;const w=window.open(u,'_blank');if(!w)location.href=u;return;}
+  _vcOpenPage(link); // iPhone Safari: a new tab
+}
+// v14.56.0 print page with Save as PDF: now only for prints too big for a link
+function _vcOpenSavePdfPage(name){
   let html;
   try{html=_vcBuildPrintPage(name);}catch(e){console.warn('print page',e);toast('⚠️ Could not prepare the print. Please try again.',5000);return;}
   if(_vcLastPageUrl)URL.revokeObjectURL(_vcLastPageUrl);
   _vcLastPageUrl=URL.createObjectURL(new Blob([html],{type:'text/html'}));
   _vcOpenPage(_vcLastPageUrl);
+}
+// Every print in the app goes through here. direct=true: invoices, notes, order slips (print in place where that works).
+function vcPrint(name,direct){
+  if(!_vcUsePdf()){window.print();return;}     // computers and Android: print in place
+  if(_vcIsIosApp()){_vcSafariPrint(name);return;} // iPhone/iPad home-screen app: every print through Safari
+  if(direct){window.print();return;}           // iPhone/iPad Safari: invoices print in place, as before
+  _vcSafariPrint(name);                        // iPhone/iPad Safari: Sales Book, lists, tags in a print.html tab
 }
 function _bulkPrintRun(sel,which){
   // v14.54.0: printed from the app itself, like a single invoice. A separate page cannot be printed from the iPhone home-screen app.
@@ -13459,13 +13500,6 @@ function printInvTags() {
       + 'white-space:nowrap;'
     + '}';
   const tname='Tags-'+today();
-  if(_vcUsePdf()){ // v14.57.0: on iPhone both ways are offered; Print now is the way tags printed before v14.54
-    uiSheet('How do you want to print the tags?',[
-      {label:'🖨️ Print now (opens the print screen)',fn:()=>vcPrintInApp(css, tagDivs, {name:tname,legacy:_VC_LG_TAGS})},
-      {label:'📄 Print page / Save as PDF',fn:()=>vcPrintInApp(css, tagDivs, {name:tname})}
-    ]);
-    return;
-  }
   vcPrintInApp(css, tagDivs, {name:tname});
 
 }
