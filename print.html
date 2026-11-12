@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="referrer" content="no-referrer"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-YSAHONI827UNlG2vGMb3w4SpWrcE1yLR+XobReqvNh0='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data: https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'; frame-src 'none'; connect-src 'none'; object-src 'none'"/>
+<title>Vismaad print</title>
+<!--
+  Vismaad print page v1.0 (12-Nov-2026). Upload next to index.html. Used by the app from v14.58.0.
+  WHY: from the iPhone home-screen app, iPhone ignores printing and cannot print pages the app makes itself.
+  The app packs the print into this page's link and asks iPhone to open it in Safari, which prints it.
+  LINK: print.html#<base64url of JSON {v:1, n:name, css, page:{w,h,mt,mr,mb,ml} in mm, fonts:[urls], imgs:[data urls], html}>.
+  The part after # is never sent to the website. Pictures used many times travel once (vcimg:N in html and css).
+  SAFETY: the code lock (Content-Security-Policy) lets only this page's own script run; no outside script, frame,
+  form or connection. The html is also cleaned before it is shown (scripts, frames, forms, on... handlers and
+  javascript: links removed). Nothing is kept on the phone.
+  PAGES: Safari ignores the page size the app asks for, so sideways pages (Sales Book) are turned a quarter
+  to fit upright A4. Other sizes print as laid out.
+-->
+<style>
+body{margin:0;background:#fff;}
+#pp-bar{font-family:-apple-system,Arial,sans-serif;background:#fff8e1;border:2px solid #f5c26b;border-radius:12px;padding:12px 14px;margin:10px;color:#5c3d1e;font-size:16px;line-height:1.45;}
+#pp-bar button{font-size:16px;padding:10px 18px;margin-top:8px;border-radius:10px;border:0;background:#5c3d1e;color:#fff;}
+.pp-rot{position:relative;overflow:hidden;page-break-after:always;break-after:page;}
+.pp-rot:last-child{page-break-after:auto;break-after:auto;}
+.pp-rot>.pp-in{position:absolute;top:0;left:0;transform-origin:top left;}
+@media print{#pp-bar{display:none!important;}}
+</style>
+<style id="pp-css"></style>
+<style id="pp-page"></style>
+</head>
+<body>
+<div id="pp-bar"><div id="pp-msg">Preparing the print…</div><button id="pp-again" type="button" style="display:none">🖨️ Print again</button></div>
+<div id="pp-root"></div>
+<script>
+(function(){
+'use strict';
+var bar=document.getElementById('pp-msg'),again=document.getElementById('pp-again'),root=document.getElementById('pp-root');
+function fail(m){bar.textContent=m;}
+function b64d(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';var bin=atob(s),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return new TextDecoder().decode(u);}
+var raw=location.hash.slice(1);
+if(!raw){fail('Nothing to print. Open this page from the Vismaad app.');return;}
+var d;
+try{d=JSON.parse(b64d(raw));}catch(e){fail('This print link could not be read. Please print again from the app.');return;}
+if(!d||d.v!==1||typeof d.html!=='string'||typeof d.css!=='string'||!d.page||typeof d.page!=='object'){fail('This print link could not be read. Please print again from the app.');return;}
+var imgs=Array.isArray(d.imgs)?d.imgs.filter(function(x){return typeof x==='string'&&/^data:image\/(png|jpe?g|gif|webp|svg\+xml);base64,[A-Za-z0-9+\/=]+$/.test(x);}):[];
+function img(n){var i=parseInt(n,10);return imgs[i]||'';}
+var num=function(v,lo,hi,def){v=Number(v);return isFinite(v)&&v>=lo&&v<=hi?v:def;};
+var P={w:num(d.page.w,20,1000,210),h:num(d.page.h,20,1000,297),mt:num(d.page.mt,0,50,0),mr:num(d.page.mr,0,50,0),mb:num(d.page.mb,0,50,0),ml:num(d.page.ml,0,50,0)};
+document.title=String(d.n||'Vismaad print').slice(0,120);
+// fonts: Google Fonts style sheets only
+(Array.isArray(d.fonts)?d.fonts:[]).forEach(function(f){if(typeof f==='string'&&/^https:\/\/fonts\.googleapis\.com\/css2?\?[^"'<>\s]*$/.test(f)){var l=document.createElement('link');l.rel='stylesheet';l.href=f;document.head.appendChild(l);}});
+// styles: no @import, pictures put back
+// url(...) may only point at pictures that travel in the link or at the app's photo store
+function urls(t){return t.replace(/url\(\s*(['"]?)([^'")]*)\1\s*\)/gi,function(m,q,u){u=u.trim();return /^vcimg:\d+$/.test(u)||/^data:image\//i.test(u)||/^https:\/\/raw\.githubusercontent\.com\//i.test(u)?m:'none';});}
+var css=urls(d.css.replace(/@import[^;]*;?/gi,'').replace(/<\/?style/gi,'')).replace(/vcimg:(\d+)/g,function(m,n){return img(n);});
+document.getElementById('pp-css').textContent=css;
+// content: parsed without running anything, then cleaned
+var doc=new DOMParser().parseFromString('<!DOCTYPE html><body>'+d.html+'</body>','text/html');
+var BAD='script,iframe,frame,frameset,object,embed,applet,link,meta,base,form,input,button,select,textarea,noscript,template,portal,foreignObject,animate,set,animateMotion,animateTransform,use';
+[].slice.call(doc.querySelectorAll(BAD)).forEach(function(e){e.parentNode&&e.parentNode.removeChild(e);});
+[].slice.call(doc.body.querySelectorAll('*')).forEach(function(e){
+  [].slice.call(e.attributes).forEach(function(a){
+    var n=a.name.toLowerCase(),v=a.value;
+    if(n.indexOf('on')===0){e.removeAttribute(a.name);return;}
+    if(n==='src'||n==='href'||n==='xlink:href'||n==='srcset'||n==='action'||n==='formaction'||n==='poster'||n==='background'||n==='data'){
+      var t=v.replace(/[\s\u0000-\u001f]/g,'');
+      var m=/^vcimg:(\d+)$/.exec(t);
+      if(m&&img(m[1])&&n==='src'){e.setAttribute('src',img(m[1]));return;}
+      if(n==='src'&&/^data:image\/(png|jpe?g|gif|webp);base64,/i.test(t))return;
+      if((n==='src'||n==='href')&&/^https:\/\//i.test(t))return;
+      e.removeAttribute(a.name);return;
+    }
+    if(n==='style')e.setAttribute('style',urls(v).replace(/vcimg:(\d+)/g,function(x,k){return img(k);}));
+  });
+});
+root.innerHTML=doc.body.innerHTML;
+// page size; sideways pages are turned a quarter to fit upright paper, because Safari ignores the size asked for
+var land=P.w>P.h;
+if(land){
+  var MM=96/25.4,cw=(P.w-P.ml-P.mr)*MM,ch=(P.h-P.mt-P.mb)*MM;
+  document.getElementById('pp-page').textContent='@page{size:'+P.h+'mm '+P.w+'mm;margin:'+P.ml+'mm '+P.mt+'mm '+P.mr+'mm '+P.mb+'mm;}';
+  var pages=[],all=root.querySelectorAll('*');
+  [].forEach.call(all,function(e){var cs=getComputedStyle(e);if(/page|always/.test(cs.breakAfter||'')||cs.pageBreakAfter==='always')pages.push(e);});
+  pages=pages.filter(function(e){return !pages.some(function(o){return o!==e&&o.contains(e);});});
+  // the last page usually has no break after it: take its siblings of the same kind too
+  pages.slice().forEach(function(pg){[].forEach.call(pg.parentNode.children,function(c){if(c.className===pg.className&&c.tagName===pg.tagName&&pages.indexOf(c)<0)pages.push(c);});});
+  pages.sort(function(a,b){return a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1;});
+  if(!pages.length){var one=document.createElement('div');while(root.firstChild)one.appendChild(root.firstChild);root.appendChild(one);pages=[one];}
+  // each page is wrapped where it stands, so the styles that reach it from its containers still apply
+  pages.forEach(function(pg){
+    // styles set on the elements themselves, so the app's own reset rules cannot undo them
+    var wrap=document.createElement('div');wrap.className='pp-rot';
+    wrap.style.cssText='display:block;position:relative;overflow:hidden;margin:0;padding:0;width:'+ch+'px;height:'+cw+'px;';
+    var inner=document.createElement('div');inner.className='pp-in';
+    inner.style.cssText='display:block;position:absolute;top:0;left:0;margin:0;padding:0;width:'+cw+'px;height:'+ch+'px;transform-origin:top left;transform:translateX('+ch+'px) rotate(90deg);';
+    pg.style.pageBreakAfter='auto';pg.style.breakAfter='auto';
+    pg.parentNode.replaceChild(wrap,pg);inner.appendChild(pg);wrap.appendChild(inner);
+  });
+  pages.forEach(function(pg,i){var w=pg.parentNode.parentNode;if(i<pages.length-1){w.style.pageBreakAfter='always';w.style.breakAfter='page';}});
+}else{
+  document.getElementById('pp-page').textContent='@page{size:'+P.w+'mm '+P.h+'mm;margin:'+P.mt+'mm '+P.mr+'mm '+P.mb+'mm '+P.ml+'mm;}';
+  root.style.width=((P.w-P.ml-P.mr)*96/25.4)+'px';
+}
+function go(){bar.textContent='Printing… If nothing appears, tap Print again.';again.style.display='inline-block';window.print();}
+again.addEventListener('click',function(){window.print();});
+var pics=[].slice.call(root.querySelectorAll('img')).filter(function(i){return !i.complete;});
+var waited=false,fire=function(){if(waited)return;waited=true;setTimeout(go,600);};
+setTimeout(fire,4000);
+Promise.all([document.fonts?document.fonts.ready:null].concat(pics.map(function(i){return new Promise(function(r){i.addEventListener('load',r);i.addEventListener('error',r);});}))).then(fire,fire);
+})();
+</script>
+</body>
+</html>
