@@ -3,10 +3,13 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.58.0
+APP: Vismaad Creations v14.58.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 12-Nov-2026 - v14.58.0: EVERY PRINT FROM THE IPHONE HOME-SCREEN APP GOES THROUGH SAFARI (NEW print.html). No Code.gs change. Upload index.html AND print.html.
+LAST_CHANGE: 12-Nov-2026 - v14.58.1: print.html v1.1 ONLY (no change to this file's code). Upload print.html; index.html for the version number.
+(I1) BUG FIX in print.html: Safari on iPhone keeps its own top and bottom margins (web address, date, page number) and ignores the page's, so a turned Sales Book page planned at 281 mm spilled its last strip onto an extra sheet (2 pages printed on 4 sheets). Turned pages are now shrunk to 90%.
+(I2) SECURITY in print.html (Low): the print content travelled in the address, so Safari printed it in the footer of every sheet and kept it in History. print.html now takes it out of the address as soon as it has read it. Applies to every print through Safari (invoices, labels, tags, Sales Book, lists).
+PREV_CHANGE: 12-Nov-2026 - v14.58.0: EVERY PRINT FROM THE IPHONE HOME-SCREEN APP GOES THROUGH SAFARI (NEW print.html). No Code.gs change. Upload index.html AND print.html.
 (H1) BUG FIX. In the home-screen app iPhone ignores printing (invoices did nothing) and its own pages give "URL is invalid" (labels). Print Lab v1.0 and v1.1 on the phone: only "jump to Safari and print there" worked, and links up to 2 MB arrived whole. Now every print in the home-screen app (invoices, bill copies, notes, order slips, QR bills, parcel bills, labels, tags, Sales Book, multiple invoices, price list, catalogue) packs itself into a link of print.html and iPhone opens it in Safari (x-safari-), where it prints by itself.
 (H2) HOW. _vcPrintPayload: #print-area, the app's print styles (_vcPrintCss), the page size (_vcPageSpec), Google font links; each data: picture travels once (vcimg:N). _vcB64u encodes it after # (never sent to the website). Over 1.8 MB: a message and the v14.56.0 Save as PDF page (_vcOpenSavePdfPage).
 (H3) In iPhone Safari: invoices and other bills print in place and labels open their self-printing page, as in v14.57.0; Sales Book, multiple invoices, price list, catalogue and tags open print.html in a new tab. Tags no longer ask which way (G4 removed).
