@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.58.1
+APP: Vismaad Creations v14.59.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 12-Nov-2026 - v14.58.1: print.html v1.1 ONLY (no change to this file's code). Upload print.html; index.html for the version number.
+LAST_CHANGE: 14-Nov-2026 - v14.59.0: SALES BOOK PAGE HEADER SHOWS THE TRADE NAME (VISMAAD CREATIONS) AS THE HEADLINE, WITH THE LEGAL NAME BELOW IT IN SMALLER TYPE. Print layout only; no calculation, data or Code.gs change. Upload index.html only.
+PREV_CHANGE: 12-Nov-2026 - v14.58.1: print.html v1.1 ONLY (no change to this file's code). Upload print.html; index.html for the version number.
 (I1) BUG FIX in print.html: Safari on iPhone keeps its own top and bottom margins (web address, date, page number) and ignores the page's, so a turned Sales Book page planned at 281 mm spilled its last strip onto an extra sheet (2 pages printed on 4 sheets). Turned pages are now shrunk to 90%.
 (I2) SECURITY in print.html (Low): the print content travelled in the address, so Safari printed it in the footer of every sheet and kept it in History. print.html now takes it out of the address as soon as it has read it. Applies to every print through Safari (invoices, labels, tags, Sales Book, lists).
 PREV_CHANGE: 12-Nov-2026 - v14.58.0: EVERY PRINT FROM THE IPHONE HOME-SCREEN APP GOES THROUGH SAFARI (NEW print.html). No Code.gs change. Upload index.html AND print.html.
@@ -18025,7 +18026,7 @@ const _SB_CSS='*{box-sizing:border-box;margin:0;padding:0;}@page{size:A4 landsca
   +'body{font-family:Arial,Helvetica,sans-serif;color:#111;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
   +'.sb-page{width:281mm;height:194mm;display:flex;flex-direction:column;page-break-after:always;break-after:page;overflow:hidden;}.sb-page:last-child{page-break-after:auto;break-after:auto;}'
   +'.h{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1.5px solid #111;padding-bottom:1.5mm;margin-bottom:1.5mm;font-size:8.5pt;line-height:1.35;}'
-  +'.h1{font-size:13pt;font-weight:700;}.ttl{font-size:12pt;font-weight:700;text-transform:uppercase;letter-spacing:.5px;}.rt{text-align:right;}.rp{color:#c0392b;font-weight:700;}'
+  +'.h1{font-size:13pt;font-weight:700;}.lg{font-size:10pt;font-weight:700;}.ttl{font-size:12pt;font-weight:700;text-transform:uppercase;letter-spacing:.5px;}.rt{text-align:right;}.rp{color:#c0392b;font-weight:700;}'
   +'table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:7.6pt;line-height:1.25;}th,td{border:.5px solid #666;padding:.7mm 1mm;vertical-align:top;word-wrap:break-word;overflow-wrap:anywhere;}th{background:#eee;font-weight:700;text-align:left;}th.n{white-space:normal;text-align:right;}'
   +'.n{text-align:right;white-space:nowrap;overflow:hidden;}.t td{font-weight:700;background:#f6f6f6;}'
   +'.fill{flex:1;min-height:0;position:relative;}.fill svg{position:absolute;inset:0;width:100%;height:100%;}'
@@ -18041,7 +18042,7 @@ function sbPageHtml(p,opt){
   const rows=p.rows.map(r=>'<tr><td>'+esc(r.serial)+'</td><td>'+esc(fmtDate(r.date))+'</td><td>'+esc(r.docNo)+'</td><td>'+esc(r.cust)+'</td><td>'+esc(r.pos)+'</td><td>'+esc(r.items)+'</td><td class="n">'+(parseInt(r.qty)||'')+'</td>'
     +['tax5','tax18','cgst','sgst','igst','total'].map(k=>'<td class="n">'+_sbMoney(r[k])+'</td>').join('')+'<td>'+esc(r.remarks)+'</td></tr>').join('');
   const cross=used<SB_LINES-1?'<div class="fill"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><line x1="1" y1="99" x2="99" y2="1" stroke="#888" stroke-width="1" vector-effect="non-scaling-stroke"/></svg></div>':'<div class="fill"></div>';
-  return'<div class="sb-page"><div class="h"><div><div class="h1">'+esc(o.legal)+'</div><div>Trade name: Vismaad Creations · GSTIN: '+esc(S.gstin||'')+'</div><div>'+esc(S.address||'')+'</div></div>'
+  return'<div class="sb-page"><div class="h"><div><div class="h1">Vismaad Creations</div><div class="lg">Legal name: '+esc(o.legal)+'</div><div>GSTIN: '+esc(S.gstin||'')+'</div><div>'+esc(S.address||'')+'</div></div>'
     +'<div class="rt"><div class="ttl">Sales Book</div>'+(o.reprint?'<div class="rp">Reprint</div>':'')+'<div>FY '+esc(p.fy)+' · Volume '+esc(p.vol)+' · Page '+esc(p.page)+'</div></div></div>'
     +'<table>'+_SB_COLS+'<thead><tr><th>S.No</th><th>Date</th><th>Bill / Note No.</th><th>Customer</th><th>Place of Supply</th><th>Goods and HSN</th><th>Qty</th><th class="n">Taxable 5%</th><th class="n">Taxable 18%</th><th class="n">CGST</th><th class="n">SGST</th><th class="n">IGST</th><th class="n">Total</th><th>Remarks</th></tr></thead><tbody>'
     +_sbTotalRow('Brought forward',p.bf)+rows+_sbTotalRow('Page total',p.pageTotal)+_sbTotalRow('Carried forward',p.cf)+'</tbody></table>'
