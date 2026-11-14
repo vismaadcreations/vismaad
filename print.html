@@ -4,10 +4,13 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <meta name="referrer" content="no-referrer"/>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-YSAHONI827UNlG2vGMb3w4SpWrcE1yLR+XobReqvNh0='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data: https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'; frame-src 'none'; connect-src 'none'; object-src 'none'"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-RkcDIVTNXlmTPh1oqUC3RZU7P5l6T6J0i1lCr13ZcAI='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data: https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'; frame-src 'none'; connect-src 'none'; object-src 'none'"/>
 <title>Vismaad print</title>
 <!--
-  Vismaad print page v1.0 (12-Nov-2026). Upload next to index.html. Used by the app from v14.58.0.
+  Vismaad print page v1.1 (12-Nov-2026). Upload next to index.html. Used by the app from v14.58.0.
+  v1.1: sideways pages shrunk to 90% so they fit inside Safari's own header and footer margins (2 Sales Book pages
+  had come out on 4 sheets); the print content is taken out of the address once read, so Safari's footer and
+  history show only print.html.
   WHY: from the iPhone home-screen app, iPhone ignores printing and cannot print pages the app makes itself.
   The app packs the print into this page's link and asks iPhone to open it in Safari, which prints it.
   LINK: print.html#<base64url of JSON {v:1, n:name, css, page:{w,h,mt,mr,mb,ml} in mm, fonts:[urls], imgs:[data urls], html}>.
@@ -15,8 +18,8 @@
   SAFETY: the code lock (Content-Security-Policy) lets only this page's own script run; no outside script, frame,
   form or connection. The html is also cleaned before it is shown (scripts, frames, forms, on... handlers and
   javascript: links removed). Nothing is kept on the phone.
-  PAGES: Safari ignores the page size the app asks for, so sideways pages (Sales Book) are turned a quarter
-  to fit upright A4. Other sizes print as laid out.
+  PAGES: Safari ignores the page size and margins the app asks for, so sideways pages (Sales Book) are turned a
+  quarter and shrunk to 90% to fit upright A4 inside Safari's margins. Other sizes print as laid out.
 -->
 <style>
 body{margin:0;background:#fff;}
@@ -44,6 +47,8 @@ if(!raw){fail('Nothing to print. Open this page from the Vismaad app.');return;}
 var d;
 try{d=JSON.parse(b64d(raw));}catch(e){fail('This print link could not be read. Please print again from the app.');return;}
 if(!d||d.v!==1||typeof d.html!=='string'||typeof d.css!=='string'||!d.page||typeof d.page!=='object'){fail('This print link could not be read. Please print again from the app.');return;}
+// the content has been read: take it out of the address, so Safari's printed footer and its history show only print.html
+try{history.replaceState(null,'',location.pathname+location.search);}catch(e){}
 var imgs=Array.isArray(d.imgs)?d.imgs.filter(function(x){return typeof x==='string'&&/^data:image\/(png|jpe?g|gif|webp|svg\+xml);base64,[A-Za-z0-9+\/=]+$/.test(x);}):[];
 function img(n){var i=parseInt(n,10);return imgs[i]||'';}
 var num=function(v,lo,hi,def){v=Number(v);return isFinite(v)&&v>=lo&&v<=hi?v:def;};
@@ -79,7 +84,7 @@ root.innerHTML=doc.body.innerHTML;
 // page size; sideways pages are turned a quarter to fit upright paper, because Safari ignores the size asked for
 var land=P.w>P.h;
 if(land){
-  var MM=96/25.4,cw=(P.w-P.ml-P.mr)*MM,ch=(P.h-P.mt-P.mb)*MM;
+  var MM=96/25.4,cw=(P.w-P.ml-P.mr)*MM,ch=(P.h-P.mt-P.mb)*MM,K=0.9; // K: room for Safari's own header and footer
   document.getElementById('pp-page').textContent='@page{size:'+P.h+'mm '+P.w+'mm;margin:'+P.ml+'mm '+P.mt+'mm '+P.mr+'mm '+P.mb+'mm;}';
   var pages=[],all=root.querySelectorAll('*');
   [].forEach.call(all,function(e){var cs=getComputedStyle(e);if(/page|always/.test(cs.breakAfter||'')||cs.pageBreakAfter==='always')pages.push(e);});
@@ -92,9 +97,9 @@ if(land){
   pages.forEach(function(pg){
     // styles set on the elements themselves, so the app's own reset rules cannot undo them
     var wrap=document.createElement('div');wrap.className='pp-rot';
-    wrap.style.cssText='display:block;position:relative;overflow:hidden;margin:0;padding:0;width:'+ch+'px;height:'+cw+'px;';
+    wrap.style.cssText='display:block;position:relative;overflow:hidden;margin:0 auto;padding:0;width:'+(ch*K)+'px;height:'+(cw*K)+'px;';
     var inner=document.createElement('div');inner.className='pp-in';
-    inner.style.cssText='display:block;position:absolute;top:0;left:0;margin:0;padding:0;width:'+cw+'px;height:'+ch+'px;transform-origin:top left;transform:translateX('+ch+'px) rotate(90deg);';
+    inner.style.cssText='display:block;position:absolute;top:0;left:0;margin:0;padding:0;width:'+cw+'px;height:'+ch+'px;transform-origin:top left;transform:translateX('+(ch*K)+'px) rotate(90deg) scale('+K+');';
     pg.style.pageBreakAfter='auto';pg.style.breakAfter='auto';
     pg.parentNode.replaceChild(wrap,pg);inner.appendChild(pg);wrap.appendChild(inner);
   });
