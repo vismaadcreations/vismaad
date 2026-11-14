@@ -3,10 +3,14 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.60.0
+APP: Vismaad Creations v14.60.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 14-Nov-2026 - v14.60.0: INVOICE PRINTING FROM THE IPHONE HOME-SCREEN APP FIXED, NEW SEND PDF ON WHATSAPP. No Code.gs or print.html change. Upload index.html only.
+LAST_CHANGE: 14-Nov-2026 - v14.60.1: COPY MENU (ORIGINAL / ALL THREE) WORKS ON IPHONE, ERRORS SHOWN. No Code.gs or print.html change. Upload index.html only.
+(Y1) BUG FIX. On iPhone, 'Which copy to print?' closed on every window resize. In Safari a tap near the bottom brings the toolbar back (a resize), so the menu vanished before the tap landed: Original for Recipient and All three did nothing. The bottom menu on phones no longer closes on resize; the small pop-up menu on computers still does. Applies to every menu built by uiSheet.
+(Y2) A menu choice now runs before its menu is removed; a menu opened by the choice stays open.
+(Y3) If a menu choice or a print fails, a message shows the error (⚠️ That did not work: ... / ⚠️ Could not print: ...) instead of nothing happening.
+PREV_CHANGE: 14-Nov-2026 - v14.60.0: INVOICE PRINTING FROM THE IPHONE HOME-SCREEN APP FIXED, NEW SEND PDF ON WHATSAPP. No Code.gs or print.html change. Upload index.html only.
 (W1) BUG FIX. From the home-screen app, Print / Save Invoice as PDF, Print Invoice (Original, Duplicate, Triplicate, All three) and every other bill print did nothing. _vcIsIosApp only read navigator.standalone, which iPhone sets only for pages with Apple's old home-screen meta line; this app installs through manifest.json, so it was taken for Safari and used window.print(), which iPhone ignores there. It now also counts the full-screen display mode (standalone or fullscreen) on iPhone/iPad, so every print goes to Safari through print.html as planned in v14.58.0. Android and computers unchanged (checked only on iPhone/iPad). The same check also fixes labels and file saving from the home-screen app.
 (W2) NEW. Share Invoice box: 📎 Send PDF on WhatsApp. Makes the customer's copy (Original for Recipient on a Tax Invoice) as an A4 PDF inside the app (_vcInvPdfBlob: hidden frame with the print styles, built-in PDF tools), then 📤 Share PDF opens the share sheet: pick WhatsApp, then the customer. WhatsApp lets no app attach a file to a number directly. Computers that cannot share files: Save PDF and open the customer's chat (number from the bill). File name Invoice-<number>.pdf. One PDF at a time; a cancelled share does nothing.
 PREV_CHANGE: 14-Nov-2026 - v14.59.0: SALES BOOK PAGE HEADER SHOWS THE TRADE NAME (VISMAAD CREATIONS) AS THE HEADLINE, WITH THE LEGAL NAME BELOW IT IN SMALLER TYPE. Print layout only; no calculation, data or Code.gs change. Upload index.html only.
@@ -6403,10 +6407,12 @@ function _vcOpenSavePdfPage(name){
 }
 // Every print in the app goes through here. direct=true: invoices, notes, order slips (print in place where that works).
 function vcPrint(name,direct){
-  if(!_vcUsePdf()){window.print();return;}     // computers and Android: print in place
-  if(_vcIsIosApp()){_vcSafariPrint(name);return;} // iPhone/iPad home-screen app: every print through Safari
-  if(direct){window.print();return;}           // iPhone/iPad Safari: invoices print in place, as before
-  _vcSafariPrint(name);                        // iPhone/iPad Safari: Sales Book, lists, tags in a print.html tab
+  try{
+    if(!_vcUsePdf()){window.print();return;}     // computers and Android: print in place
+    if(_vcIsIosApp()){_vcSafariPrint(name);return;} // iPhone/iPad home-screen app: every print through Safari
+    if(direct){window.print();return;}           // iPhone/iPad Safari: invoices print in place, as before
+    _vcSafariPrint(name);                        // iPhone/iPad Safari: Sales Book, lists, tags in a print.html tab
+  }catch(e){console.warn('print',e);toast('⚠️ Could not print: '+((e&&e.message)||e),8000);} // v14.60.1: say why
 }
 function _bulkPrintRun(sel,which){
   // v14.54.0: printed from the app itself, like a single invoice. A separate page cannot be printed from the iPhone home-screen app.
@@ -17863,7 +17869,10 @@ function uiSheet(title,items,anchor){
   items.forEach(it=>{
     const b=document.createElement('button');b.type='button';b.setAttribute('role','menuitem');
     b.className='ui-sheet-item'+(it.danger?' danger':'');b.textContent=it.label;
-    b.addEventListener('click',()=>{uiCloseSheet();it.fn();});
+    b.addEventListener('click',()=>{ // v14.60.1: the choice runs first, then this menu goes (a menu it opened stays)
+      try{it.fn();}catch(e){console.warn('menu choice',e);toast('⚠️ That did not work: '+((e&&e.message)||e),8000);}
+      if(bg.isConnected){bg.remove();if(!_ui$('ui-sheet-bg'))document.removeEventListener('keydown',_uiSheetKey);}
+    });
     box.appendChild(b);
   });
   bg.appendChild(box);
@@ -17881,7 +17890,10 @@ function uiSheet(title,items,anchor){
   document.addEventListener('keydown',_uiSheetKey);
   const first=box.querySelector('.ui-sheet-item');if(first&&wide)first.focus();
 }
-window.addEventListener('resize',uiCloseSheet);
+// v14.60.1 BUG FIX: on iPhone a tap near the bottom brings Safari's toolbar back, which is a resize; closing the menu
+// then swallowed the tap (Original for Recipient / All three did nothing). Only the small pop-up menu on wide screens
+// closes on resize now, because it is placed beside its button.
+window.addEventListener('resize',()=>{const bg=_ui$('ui-sheet-bg');if(bg&&bg.classList.contains('pop'))uiCloseSheet();});
 
 // Invoice card "..." menu. The labels follow the same state the old buttons showed.
 function uiInvMenu(idx,btn){
