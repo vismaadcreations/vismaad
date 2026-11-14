@@ -3,10 +3,13 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.59.0
+APP: Vismaad Creations v14.60.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 14-Nov-2026 - v14.59.0: SALES BOOK PAGE HEADER SHOWS THE TRADE NAME (VISMAAD CREATIONS) AS THE HEADLINE, WITH THE LEGAL NAME BELOW IT IN SMALLER TYPE. Print layout only; no calculation, data or Code.gs change. Upload index.html only.
+LAST_CHANGE: 14-Nov-2026 - v14.60.0: INVOICE PRINTING FROM THE IPHONE HOME-SCREEN APP FIXED, NEW SEND PDF ON WHATSAPP. No Code.gs or print.html change. Upload index.html only.
+(W1) BUG FIX. From the home-screen app, Print / Save Invoice as PDF, Print Invoice (Original, Duplicate, Triplicate, All three) and every other bill print did nothing. _vcIsIosApp only read navigator.standalone, which iPhone sets only for pages with Apple's old home-screen meta line; this app installs through manifest.json, so it was taken for Safari and used window.print(), which iPhone ignores there. It now also counts the full-screen display mode (standalone or fullscreen) on iPhone/iPad, so every print goes to Safari through print.html as planned in v14.58.0. Android and computers unchanged (checked only on iPhone/iPad). The same check also fixes labels and file saving from the home-screen app.
+(W2) NEW. Share Invoice box: 📎 Send PDF on WhatsApp. Makes the customer's copy (Original for Recipient on a Tax Invoice) as an A4 PDF inside the app (_vcInvPdfBlob: hidden frame with the print styles, built-in PDF tools), then 📤 Share PDF opens the share sheet: pick WhatsApp, then the customer. WhatsApp lets no app attach a file to a number directly. Computers that cannot share files: Save PDF and open the customer's chat (number from the bill). File name Invoice-<number>.pdf. One PDF at a time; a cancelled share does nothing.
+PREV_CHANGE: 14-Nov-2026 - v14.59.0: SALES BOOK PAGE HEADER SHOWS THE TRADE NAME (VISMAAD CREATIONS) AS THE HEADLINE, WITH THE LEGAL NAME BELOW IT IN SMALLER TYPE. Print layout only; no calculation, data or Code.gs change. Upload index.html only.
 PREV_CHANGE: 12-Nov-2026 - v14.58.1: print.html v1.1 ONLY (no change to this file's code). Upload print.html; index.html for the version number.
 (I1) BUG FIX in print.html: Safari on iPhone keeps its own top and bottom margins (web address, date, page number) and ignores the page's, so a turned Sales Book page planned at 281 mm spilled its last strip onto an extra sheet (2 pages printed on 4 sheets). Turned pages are now shrunk to 90%.
 (I2) SECURITY in print.html (Low): the print content travelled in the address, so Safari printed it in the footer of every sheet and kept it in History. print.html now takes it out of the address as soon as it has read it. Applies to every print through Safari (invoices, labels, tags, Sales Book, lists).
@@ -2318,6 +2321,11 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
         <span style="font-size:20px;">📄</span>
         <div><div class="share-pdf-title" style="font-weight:700;">Print / Save Bill as PDF</div>
         <div style="font-size:12px;opacity:.8;font-weight:400;">Then share from PDF viewer</div></div>
+      </button>
+      <button id="share-pdfwa-btn" class="btn btn-g" style="text-align:left;justify-content:flex-start;gap:12px;" onclick="shareInvoicePdfWhatsApp()">
+        <span style="font-size:20px;">📎</span>
+        <div><div style="font-weight:700;">Send PDF on WhatsApp</div>
+        <div style="font-size:12px;opacity:.8;font-weight:400;">Makes the bill PDF, then pick WhatsApp and the customer</div></div>
       </button>
       <button class="btn btn-o" id="share-tracking-btn" style="text-align:left;justify-content:flex-start;gap:12px;" onclick="shareTrackingWhatsApp()">
         <span style="font-size:20px;">🚚</span>
@@ -6133,7 +6141,13 @@ function _vcSafeUrl(u){
 }
 // A home-screen app on iPhone cannot download a blob: link, so there the file goes to the share sheet
 // (Save to Files, WhatsApp, Mail). Computers and the Safari browser download as before.
-function _vcIsIosApp(){return window.navigator.standalone===true;}
+// v14.60.0 BUG FIX: navigator.standalone is only true when the page has Apple's old home-screen meta line, which this
+// app does not have (it installs through manifest.json). So on iPhone/iPad the full-screen display mode counts too.
+function _vcIsIosApp(){
+  if(window.navigator.standalone===true)return true;
+  if(!_vcUsePdf())return false; // Android and computers: unchanged
+  try{return !!(window.matchMedia&&(matchMedia('(display-mode: standalone)').matches||matchMedia('(display-mode: fullscreen)').matches));}catch(e){return false;}
+}
 function _vcDownload(blob,name){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
   document.body.appendChild(a);a.click();
@@ -6830,6 +6844,91 @@ function shareInvoicePDF(){
   document.getElementById('print-area').innerHTML=
     '<div class="print-page">'+getInvHtml(inv,isBillLocked(inv)?'ORIGINAL FOR RECIPIENT':'')+'</div>'; // v14.48.0
   vcPrint('Invoice-'+(inv.invNo||''),true);
+}
+
+// ── v14.60.0: SEND BILL PDF ON WHATSAPP ──
+// WhatsApp lets no app put a file straight into one number's chat, so the PDF goes to the share sheet and the
+// customer is picked in WhatsApp. Computers that cannot share files save the PDF and open the customer's chat.
+function _vcInvPdfHtml(inv){ // the customer's copy: Original for Recipient on a Tax Invoice
+  return '<div class="print-page">'+getInvHtml(inv,isBillLocked(inv)?'ORIGINAL FOR RECIPIENT':'')+'</div>';
+}
+function _vcPdfWaPhone(inv){
+  const box=document.getElementById('share-phone-input');
+  let ph=phoneKey(inv.custWhatsapp||inv.custPhone||(box?box.value:'')||'');
+  if(isIndianPhoneKey(ph))ph='91'+ph;
+  return /^\d{8,15}$/.test(ph)?ph:'';
+}
+// Draws the bill in a hidden frame with the app's print styles and returns the PDF (A4, as the bill prints).
+async function _vcInvPdfBlob(inv,progress){
+  _vcPdocClear(); // a label or tag print must not leave its page size behind
+  const {css,pageCss}=_vcPrintCss(),sp=Object.assign(_vcPageSpec(pageCss),{w:210,h:297});
+  const cw=Math.ceil((sp.w-sp.ml-sp.mr)*96/25.4);
+  const old=document.getElementById('vc-pdfwa-frame');if(old)old.remove();
+  const fr=document.createElement('iframe');fr.id='vc-pdfwa-frame';fr.setAttribute('aria-hidden','true');fr.tabIndex=-1;
+  fr.style.cssText='position:fixed;left:-10000px;top:0;width:'+cw+'px;height:1200px;border:0;pointer-events:none;';
+  document.body.appendChild(fr);
+  const w=fr.contentWindow,d=w.document;
+  const links=[...document.querySelectorAll('link[rel="stylesheet"]')].map(l=>'<link rel="stylesheet" href="'+esc(l.href)+'"/>').join('');
+  d.open();
+  d.write('<!DOCTYPE html><html><head><meta charset="UTF-8"/>'+links+'<style>'+css
+    +'\nhtml,body{margin:0!important;padding:0!important;background:#fff!important;height:auto!important;overflow:visible!important;}'
+    +'body{width:'+cw+'px!important;display:block!important;}#print-area{display:block!important;position:static!important;}</style></head>'
+    +'<body><div id="print-area"></div></body></html>');
+  d.close();
+  d.getElementById('print-area').innerHTML=_vcInvPdfHtml(inv); // the same bill HTML the app prints
+  _vcLib('vc-lib-h2c',w);_vcLib('vc-lib-jspdf',w);
+  return await _vcRenderPdf(w,d.getElementById('print-area'),sp,progress);
+}
+let _vcPdfWaBusy=false;
+async function shareInvoicePdfWhatsApp(){
+  if(_sharingInvId)sharingInv=invoices.find(i=>String(i.id)===_sharingInvId)||sharingInv;
+  const inv=sharingInv;if(!inv||_vcPdfWaBusy)return;
+  _vcPdfWaBusy=true;
+  const phone=_vcPdfWaPhone(inv);
+  closeShareModal();
+  const name=_vcPdfName('Invoice-'+(inv.invNo||today()));
+  const close="document.getElementById('vc-pdfwa-modal').classList.remove('open')";
+  const m=_vcEnsureModal('vc-pdfwa-modal','<div class="modal"><button class="modal-close" onclick="'+close+'">✕</button>'
+    +'<div class="modal-title">📎 Bill PDF for WhatsApp</div>'
+    +'<div style="font-size:13px;color:#888;margin-bottom:10px;word-break:break-word;">'+esc(inv.custName||'')+' · '+esc(name)+'</div>'
+    +'<div id="vc-pdfwa-st" style="font-size:14px;margin-bottom:14px;">Making PDF…</div>'
+    +'<button class="btn btn-g" id="vc-pdfwa-go" style="width:100%;display:none;"></button>'
+    +'<div id="vc-pdfwa-note" style="font-size:12px;color:#888;margin-top:10px;line-height:1.5;"></div></div>');
+  m.style.zIndex='100000';m.classList.add('open');
+  const st=m.querySelector('#vc-pdfwa-st'),go=m.querySelector('#vc-pdfwa-go'),note=m.querySelector('#vc-pdfwa-note');
+  try{
+    const blob=await _vcInvPdfBlob(inv,t=>{st.textContent=t;});
+    let file=null;try{file=new File([blob],name,{type:'application/pdf'});}catch(e){}
+    const nav=window.navigator;
+    const canFile=!!(file&&nav.share&&nav.canShare&&nav.canShare({files:[file]}));
+    st.textContent='PDF ready.';
+    if(canFile){
+      go.textContent='📤 Share PDF';
+      note.textContent='Choose WhatsApp, then '+(inv.custName||'the customer')+(phone?' (+'+phone+')':'')+'.';
+      go.onclick=()=>{
+        nav.share({files:[file]}).then(()=>m.classList.remove('open')).catch(e=>{
+          if(e&&e.name==='NotAllowedError'){st.textContent='Tap Share PDF again.';return;}
+          m.classList.remove('open');
+          if(e&&e.name!=='AbortError')_vcDownload(blob,name);
+        });
+      };
+    }else{
+      go.textContent=phone?'⬇️ Save PDF and open WhatsApp':'⬇️ Save PDF';
+      note.textContent=phone?'The customer\'s chat opens. Attach the saved PDF there.':'This bill has no WhatsApp number. Send the saved PDF from WhatsApp.';
+      go.onclick=()=>{
+        m.classList.remove('open');
+        _vcDownload(blob,name);
+        if(phone)window.open('https://wa.me/'+phone+'?text='+encodeURIComponent('Dear '+(inv.custName||'Customer')+', please find your bill '+(inv.invNo||'')+' attached. Vismaad Creations'),'_blank');
+      };
+    }
+    go.style.display='block';
+  }catch(e){
+    console.warn('bill pdf',e);
+    st.textContent='Could not make the PDF. Please try again.';
+  }finally{
+    const fr=document.getElementById('vc-pdfwa-frame');if(fr)fr.remove();
+    _vcPdfWaBusy=false;
+  }
 }
 
 function shareTrackingWhatsApp(){
