@@ -3,16 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.60.2
+APP: Vismaad Creations v14.61.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 14-Nov-2026 - v14.60.2: WALK-IN BILLS PRINT AGAIN (PAYMENT QR). No Code.gs or print.html change. Upload index.html only.
-(Z1) BUG FIX. _upiQrWhich (added v14.49.1 for walk-in Original / All three with the payment QR) was never declared. The app runs in strict mode, so openUpiQrModal stopped at its first line on every device ("Can't find variable: _upiQrWhich"): on walk-in bills with a UPI ID, Original for Recipient, All three and Share Invoice > Print / Save as PDF did nothing. Declared next to _upiQrInv. The QR box opens again; Original prints with the QR, All three adds Duplicate and Triplicate without it.
-(Z2) Whole-file scan for names used without being declared (ESLint no-undef over all scripts together): no other app value affected (the rest belong to the built-in QR library, the separate print page and SheetJS).
-PREV_CHANGE: 14-Nov-2026 - v14.60.1: COPY MENU (ORIGINAL / ALL THREE) WORKS ON IPHONE, ERRORS SHOWN. No Code.gs or print.html change. Upload index.html only.
-(Y1) BUG FIX. On iPhone, 'Which copy to print?' closed on every window resize. In Safari a tap near the bottom brings the toolbar back (a resize), so the menu vanished before the tap landed: Original for Recipient and All three did nothing. The bottom menu on phones no longer closes on resize; the small pop-up menu on computers still does. Applies to every menu built by uiSheet.
-(Y2) A menu choice now runs before its menu is removed; a menu opened by the choice stays open.
-(Y3) If a menu choice or a print fails, a message shows the error (⚠️ That did not work: ... / ⚠️ Could not print: ...) instead of nothing happening.
+LAST_CHANGE: 15-Nov-2026 - v14.61.0: SEND PDF ON WHATSAPP COPIES THE CUSTOMER'S NUMBER. No Code.gs or print.html change. Upload index.html only.
+(C1) NEW. Tapping 📎 Send PDF on WhatsApp copies the customer's number exactly as saved on the bill (WhatsApp number, else phone, else the number typed in the Share box; spaces and + kept) so it can be pasted in WhatsApp search to find the chat. Copied during that tap (iPhone allows copying only then), before the PDF is made, so Share PDF is untouched. A toast and the PDF box show the copied number; with no number nothing is copied and it says so. Number shown as text only, capped at 100 characters.
 PREV_CHANGE: 14-Nov-2026 - v14.60.0: INVOICE PRINTING FROM THE IPHONE HOME-SCREEN APP FIXED, NEW SEND PDF ON WHATSAPP. No Code.gs or print.html change. Upload index.html only.
 (W1) BUG FIX. From the home-screen app, Print / Save Invoice as PDF, Print Invoice (Original, Duplicate, Triplicate, All three) and every other bill print did nothing. _vcIsIosApp only read navigator.standalone, which iPhone sets only for pages with Apple's old home-screen meta line; this app installs through manifest.json, so it was taken for Safari and used window.print(), which iPhone ignores there. It now also counts the full-screen display mode (standalone or fullscreen) on iPhone/iPad, so every print goes to Safari through print.html as planned in v14.58.0. Android and computers unchanged (checked only on iPhone/iPad). The same check also fixes labels and file saving from the home-screen app.
 (W2) NEW. Share Invoice box: 📎 Send PDF on WhatsApp. Makes the customer's copy (Original for Recipient on a Tax Invoice) as an A4 PDF inside the app (_vcInvPdfBlob: hidden frame with the print styles, built-in PDF tools), then 📤 Share PDF opens the share sheet: pick WhatsApp, then the customer. WhatsApp lets no app attach a file to a number directly. Computers that cannot share files: Save PDF and open the customer's chat (number from the bill). File name Invoice-<number>.pdf. One PDF at a time; a cancelled share does nothing.
@@ -6410,12 +6405,10 @@ function _vcOpenSavePdfPage(name){
 }
 // Every print in the app goes through here. direct=true: invoices, notes, order slips (print in place where that works).
 function vcPrint(name,direct){
-  try{
-    if(!_vcUsePdf()){window.print();return;}     // computers and Android: print in place
-    if(_vcIsIosApp()){_vcSafariPrint(name);return;} // iPhone/iPad home-screen app: every print through Safari
-    if(direct){window.print();return;}           // iPhone/iPad Safari: invoices print in place, as before
-    _vcSafariPrint(name);                        // iPhone/iPad Safari: Sales Book, lists, tags in a print.html tab
-  }catch(e){console.warn('print',e);toast('⚠️ Could not print: '+((e&&e.message)||e),8000);} // v14.60.1: say why
+  if(!_vcUsePdf()){window.print();return;}     // computers and Android: print in place
+  if(_vcIsIosApp()){_vcSafariPrint(name);return;} // iPhone/iPad home-screen app: every print through Safari
+  if(direct){window.print();return;}           // iPhone/iPad Safari: invoices print in place, as before
+  _vcSafariPrint(name);                        // iPhone/iPad Safari: Sales Book, lists, tags in a print.html tab
 }
 function _bulkPrintRun(sel,which){
   // v14.54.0: printed from the app itself, like a single invoice. A separate page cannot be printed from the iPhone home-screen app.
@@ -6888,12 +6881,31 @@ async function _vcInvPdfBlob(inv,progress){
   _vcLib('vc-lib-h2c',w);_vcLib('vc-lib-jspdf',w);
   return await _vcRenderPdf(w,d.getElementById('print-area'),sp,progress);
 }
+// v14.61.0: the number exactly as saved on the bill (WhatsApp, else phone, else the Share box), for WhatsApp search.
+function _vcPdfWaRawPhone(inv,boxVal){
+  const pick=v=>String(v==null?'':v).trim();
+  return (pick(inv&&inv.custWhatsapp)||pick(inv&&inv.custPhone)||pick(boxVal)).slice(0,100);
+}
+// Copies text during the tap (iPhone allows copying only then). Returns true if it was copied.
+function _vcCopyNow(t){
+  let ok=false;
+  try{const ta=document.createElement('textarea');ta.value=t;ta.setAttribute('readonly','');
+    ta.style.cssText='position:fixed;left:-9999px;top:0;opacity:0;';document.body.appendChild(ta);
+    ta.select();ta.setSelectionRange(0,t.length);ok=document.execCommand('copy');ta.remove();}catch(e){}
+  try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).catch(()=>{});ok=true;}}catch(e){}
+  return ok;
+}
 let _vcPdfWaBusy=false;
 async function shareInvoicePdfWhatsApp(){
   if(_sharingInvId)sharingInv=invoices.find(i=>String(i.id)===_sharingInvId)||sharingInv;
   const inv=sharingInv;if(!inv||_vcPdfWaBusy)return;
   _vcPdfWaBusy=true;
   const phone=_vcPdfWaPhone(inv);
+  const _box=document.getElementById('share-phone-input');
+  const rawPh=_vcPdfWaRawPhone(inv,_box?_box.value:'');
+  const copied=rawPh?_vcCopyNow(rawPh):false;
+  const copyMsg=rawPh?(copied?'📋 Copied '+rawPh+'. In WhatsApp, paste it in search to find the chat.':'Number: '+rawPh+' (could not copy).'):'No number on this bill, nothing copied.';
+  toast(copyMsg,5000);
   closeShareModal();
   const name=_vcPdfName('Invoice-'+(inv.invNo||today()));
   const close="document.getElementById('vc-pdfwa-modal').classList.remove('open')";
@@ -6902,9 +6914,11 @@ async function shareInvoicePdfWhatsApp(){
     +'<div style="font-size:13px;color:#888;margin-bottom:10px;word-break:break-word;">'+esc(inv.custName||'')+' · '+esc(name)+'</div>'
     +'<div id="vc-pdfwa-st" style="font-size:14px;margin-bottom:14px;">Making PDF…</div>'
     +'<button class="btn btn-g" id="vc-pdfwa-go" style="width:100%;display:none;"></button>'
-    +'<div id="vc-pdfwa-note" style="font-size:12px;color:#888;margin-top:10px;line-height:1.5;"></div></div>');
+    +'<div id="vc-pdfwa-note" style="font-size:12px;color:#888;margin-top:10px;line-height:1.5;"></div>'
+    +'<div id="vc-pdfwa-copy" style="font-size:12px;color:#1a7f37;margin-top:8px;line-height:1.5;word-break:break-word;"></div></div>');
   m.style.zIndex='100000';m.classList.add('open');
   const st=m.querySelector('#vc-pdfwa-st'),go=m.querySelector('#vc-pdfwa-go'),note=m.querySelector('#vc-pdfwa-note');
+  const cp=m.querySelector('#vc-pdfwa-copy');if(cp)cp.textContent=copyMsg; // textContent: the number is never read as HTML
   try{
     const blob=await _vcInvPdfBlob(inv,t=>{st.textContent=t;});
     let file=null;try{file=new File([blob],name,{type:'application/pdf'});}catch(e){}
@@ -15704,7 +15718,6 @@ async function confirmCleanup() {
 // UPI QR — WALK-IN INVOICE PRINT
 // ═══════════════════════════════════════════
 let _upiQrInv=null;
-let _upiQrWhich=''; // v14.60.2 BUG FIX: never declared since v14.49.1; strict mode stopped every walk-in bill print here
 
 function ensureQRLib(){
   // v14.50.1: the QR library is built into this file, so nothing is downloaded
@@ -17873,10 +17886,7 @@ function uiSheet(title,items,anchor){
   items.forEach(it=>{
     const b=document.createElement('button');b.type='button';b.setAttribute('role','menuitem');
     b.className='ui-sheet-item'+(it.danger?' danger':'');b.textContent=it.label;
-    b.addEventListener('click',()=>{ // v14.60.1: the choice runs first, then this menu goes (a menu it opened stays)
-      try{it.fn();}catch(e){console.warn('menu choice',e);toast('⚠️ That did not work: '+((e&&e.message)||e),8000);}
-      if(bg.isConnected){bg.remove();if(!_ui$('ui-sheet-bg'))document.removeEventListener('keydown',_uiSheetKey);}
-    });
+    b.addEventListener('click',()=>{uiCloseSheet();it.fn();});
     box.appendChild(b);
   });
   bg.appendChild(box);
@@ -17894,10 +17904,7 @@ function uiSheet(title,items,anchor){
   document.addEventListener('keydown',_uiSheetKey);
   const first=box.querySelector('.ui-sheet-item');if(first&&wide)first.focus();
 }
-// v14.60.1 BUG FIX: on iPhone a tap near the bottom brings Safari's toolbar back, which is a resize; closing the menu
-// then swallowed the tap (Original for Recipient / All three did nothing). Only the small pop-up menu on wide screens
-// closes on resize now, because it is placed beside its button.
-window.addEventListener('resize',()=>{const bg=_ui$('ui-sheet-bg');if(bg&&bg.classList.contains('pop'))uiCloseSheet();});
+window.addEventListener('resize',uiCloseSheet);
 
 // Invoice card "..." menu. The labels follow the same state the old buttons showed.
 function uiInvMenu(idx,btn){
