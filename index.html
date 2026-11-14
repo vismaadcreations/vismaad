@@ -3,10 +3,13 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.60.1
+APP: Vismaad Creations v14.60.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 14-Nov-2026 - v14.60.1: COPY MENU (ORIGINAL / ALL THREE) WORKS ON IPHONE, ERRORS SHOWN. No Code.gs or print.html change. Upload index.html only.
+LAST_CHANGE: 14-Nov-2026 - v14.60.2: WALK-IN BILLS PRINT AGAIN (PAYMENT QR). No Code.gs or print.html change. Upload index.html only.
+(Z1) BUG FIX. _upiQrWhich (added v14.49.1 for walk-in Original / All three with the payment QR) was never declared. The app runs in strict mode, so openUpiQrModal stopped at its first line on every device ("Can't find variable: _upiQrWhich"): on walk-in bills with a UPI ID, Original for Recipient, All three and Share Invoice > Print / Save as PDF did nothing. Declared next to _upiQrInv. The QR box opens again; Original prints with the QR, All three adds Duplicate and Triplicate without it.
+(Z2) Whole-file scan for names used without being declared (ESLint no-undef over all scripts together): no other app value affected (the rest belong to the built-in QR library, the separate print page and SheetJS).
+PREV_CHANGE: 14-Nov-2026 - v14.60.1: COPY MENU (ORIGINAL / ALL THREE) WORKS ON IPHONE, ERRORS SHOWN. No Code.gs or print.html change. Upload index.html only.
 (Y1) BUG FIX. On iPhone, 'Which copy to print?' closed on every window resize. In Safari a tap near the bottom brings the toolbar back (a resize), so the menu vanished before the tap landed: Original for Recipient and All three did nothing. The bottom menu on phones no longer closes on resize; the small pop-up menu on computers still does. Applies to every menu built by uiSheet.
 (Y2) A menu choice now runs before its menu is removed; a menu opened by the choice stays open.
 (Y3) If a menu choice or a print fails, a message shows the error (⚠️ That did not work: ... / ⚠️ Could not print: ...) instead of nothing happening.
@@ -15701,6 +15704,7 @@ async function confirmCleanup() {
 // UPI QR — WALK-IN INVOICE PRINT
 // ═══════════════════════════════════════════
 let _upiQrInv=null;
+let _upiQrWhich=''; // v14.60.2 BUG FIX: never declared since v14.49.1; strict mode stopped every walk-in bill print here
 
 function ensureQRLib(){
   // v14.50.1: the QR library is built into this file, so nothing is downloaded
