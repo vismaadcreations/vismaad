@@ -3,11 +3,20 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.61.0
+APP: Vismaad Creations v14.60.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 15-Nov-2026 - v14.61.0: SEND PDF ON WHATSAPP COPIES THE CUSTOMER'S NUMBER. No Code.gs or print.html change. Upload index.html only.
-(C1) NEW. Tapping 📎 Send PDF on WhatsApp copies the customer's number exactly as saved on the bill (WhatsApp number, else phone, else the number typed in the Share box; spaces and + kept) so it can be pasted in WhatsApp search to find the chat. Copied during that tap (iPhone allows copying only then), before the PDF is made, so Share PDF is untouched. A toast and the PDF box show the copied number; with no number nothing is copied and it says so. Number shown as text only, capped at 100 characters.
+LAST_CHANGE: 15-Nov-2026 - v14.60.2: NO "EXACTLY" IN PAYMENT QRS AND MESSAGES, SHARE QR / SHARE ALL COPY THE CUSTOMER'S NUMBER, SPLIT PAYMENT EXPLAINED, WHATSAPP LINK AND SECURITY FIXES. No Code.gs or print.html change. Upload index.html only.
+(Y1) WORDING. The word "exactly" is gone from everything the customer sees: single-QR message now "Please pay ₹X by UPI to Name (UPI ID). Scan the QR, or pay this amount to the UPI ID."; QR picture heading "Amount to pay"; part pictures "Part 1 of 3"; Take payment screen "Customer pays".
+(Y2) NEW. Share QR and Share all copy the customer's number from the Customer WhatsApp number box, in full with country code (+919876543210; a 10-digit Indian mobile gets +91), so it can be pasted in WhatsApp search. A note says so. Empty or unreadable box: nothing copied, sharing as before. Where there is no share sheet (computers) the message is still copied as before.
+(Y3) Share QR and Share all now open the share sheet straight from the tap (pictures become files at once); before, they waited for the picture, which iPhone may refuse.
+(Y4) NEW. Split payment message (Send on WhatsApp and Share all) adds: "UPI apps allow only up to ₹2,000 when paying from a QR saved on the same phone, so we have split the amount into smaller parts." (PAY_SPLIT_WHY).
+(Y5) BUG FIX. WhatsApp links from Take payment, Send receipt and Open chat used a 10-digit number as typed (wa.me/9876543210), which WhatsApp reads as country code 98, so the wrong or no chat opened. payWaLink now adds 91 to 10-digit Indian mobiles (payFullNumber), as the rest of the app does. Numbers filled in the box show with +91.
+(Y6) SECURITY (Low). The bill number is now escaped on the printed bill like the customer fields (a bill number edited in the Google Sheet could carry code).
+(Y7) SECURITY (Low). Walk-in UPI QR box refuses a zero, negative or blank amount; Payee Name, Note and Ref are limited to 100 characters, and details too long for a QR give a clear message instead of an unclear error.
+PREV_CHANGE: 15-Nov-2026 - v14.60.1: WALK-IN BILL PRINTING FIXED (ORIGINAL FOR RECIPIENT AND ALL THREE DID NOTHING). No Code.gs or print.html change. Upload index.html only.
+(X1) BUG FIX. On a walk-in Tax Invoice with a UPI ID in Settings, Print Invoice then Original for Recipient or All three did nothing on every device (iPhone app, Safari, computers, Android). These choices open the UPI Payment QR box, whose first line stored the choice in _upiQrWhich, a name never declared; the app runs in strict mode, so it stopped with an error before the box opened. Now declared next to _upiQrInv. Duplicate and Triplicate were never affected.
+(X2) BUG FIX. Print Invoice with QR waited (0.4 s plus a hidden QR build) before printing; iPhone ignores a print, or the jump to Safari from the home-screen app, that does not follow a tap straight away. The QR picture is now made at once (the QR library is built in) and the print leaves straight from the tap. Same bill, same QR, same three copies for All three. Closing or cancelling the box clears the stored choice.
 PREV_CHANGE: 14-Nov-2026 - v14.60.0: INVOICE PRINTING FROM THE IPHONE HOME-SCREEN APP FIXED, NEW SEND PDF ON WHATSAPP. No Code.gs or print.html change. Upload index.html only.
 (W1) BUG FIX. From the home-screen app, Print / Save Invoice as PDF, Print Invoice (Original, Duplicate, Triplicate, All three) and every other bill print did nothing. _vcIsIosApp only read navigator.standalone, which iPhone sets only for pages with Apple's old home-screen meta line; this app installs through manifest.json, so it was taken for Safari and used window.print(), which iPhone ignores there. It now also counts the full-screen display mode (standalone or fullscreen) on iPhone/iPad, so every print goes to Safari through print.html as planned in v14.58.0. Android and computers unchanged (checked only on iPhone/iPad). The same check also fixes labels and file saving from the home-screen app.
 (W2) NEW. Share Invoice box: 📎 Send PDF on WhatsApp. Makes the customer's copy (Original for Recipient on a Tax Invoice) as an A4 PDF inside the app (_vcInvPdfBlob: hidden frame with the print styles, built-in PDF tools), then 📤 Share PDF opens the share sheet: pick WhatsApp, then the customer. WhatsApp lets no app attach a file to a number directly. Computers that cannot share files: Save PDF and open the customer's chat (number from the bill). File name Invoice-<number>.pdf. One PDF at a time; a cancelled share does nothing.
@@ -2440,11 +2449,11 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <div class="modal-title">💳 UPI Payment QR</div>
     <div style="font-size:12px;color:#888;margin-bottom:14px;">These details will be embedded in the QR code on the printed invoice.</div>
     <div class="fg"><label>UPI ID *</label><input id="upi-qr-id" placeholder="e.g. yourshop@okaxis" oninput="previewUpiQr()"/></div>
-    <div class="fg"><label>Payee Name *</label><input id="upi-qr-name" placeholder="e.g. Vismaad Creations" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>Payee Name *</label><input id="upi-qr-name" maxlength="100" placeholder="e.g. Vismaad Creations" oninput="previewUpiQr()"/></div>
     <div class="fg"><label>UPI Phone Number</label><input id="upi-qr-phone" placeholder="e.g. 9876543210" type="tel" inputmode="numeric" oninput="previewUpiQr()"/></div>
     <div class="fg"><label>Amount (₹) <span style="font-weight:400;color:#888;">— auto-filled from invoice</span></label><input id="upi-qr-amount" type="number" inputmode="decimal" placeholder="0.00" oninput="previewUpiQr()"/></div>
-    <div class="fg"><label>Transaction Note</label><input id="upi-qr-tn" placeholder="e.g. INV-001" oninput="previewUpiQr()"/></div>
-    <div class="fg"><label>Transaction Ref (Invoice No.)</label><input id="upi-qr-tr" placeholder="e.g. INV-001" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>Transaction Note</label><input id="upi-qr-tn" maxlength="100" placeholder="e.g. INV-001" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>Transaction Ref (Invoice No.)</label><input id="upi-qr-tr" maxlength="100" placeholder="e.g. INV-001" oninput="previewUpiQr()"/></div>
     <div id="upi-qr-preview" style="text-align:center;margin:14px 0 6px;min-height:140px;"></div>
     <div class="btn-row">
       <button class="btn btn-p" style="flex:1;" onclick="doUpiQrPrint()">🖨 Print Invoice with QR</button>
@@ -2943,9 +2952,9 @@ function payClipPlatform(ua,touch){
   if(/iPhone|iPad|iPod/.test(u)||(/Macintosh/.test(u)&&Number(touch)>1))return'ios';
   return'other';
 }
-function payWaLink(phone,text){return'https://wa.me/'+payWaPhone(phone)+'?text='+encodeURIComponent(text||'');}
+function payWaLink(phone,text){return'https://wa.me/'+payFullNumber(phone).slice(1)+'?text='+encodeURIComponent(text||'');} // v14.60.2: 10-digit Indian numbers get 91
 function payQrMsg(amount,upiName,upiId){
-  return'Please pay exactly '+_payInr(amount)+' by UPI to '+(upiName||'')+' ('+(upiId||'')+'). Scan the QR, or pay to the UPI ID with this exact amount. - Vismaad Creations';
+  return'Please pay '+_payInr(amount)+' by UPI to '+(upiName||'')+' ('+(upiId||'')+'). Scan the QR, or pay this amount to the UPI ID. - Vismaad Creations'; // v14.60.2: no "exactly"
 }
 function payRefLine(refs){
   const u=String(refs||'').split(',').map(payCleanUtr).filter(Boolean);
@@ -3030,8 +3039,9 @@ function payNotifyList(view,nowMs,hours){
 }
 function payQrMsgSplit(parts,upiName,upiId){
   const tot=(parts||[]).reduce((s,x)=>s+_payCents(x),0)/100;
-  return'Please pay '+_payInr(tot)+' in '+parts.length+' payments: '+parts.map(_payInr).join(' + ')+', by UPI to '+(upiName||'')+' ('+(upiId||'')+'). Scan each QR once, in any order. - Vismaad Creations';
+  return'Please pay '+_payInr(tot)+' in '+parts.length+' payments: '+parts.map(_payInr).join(' + ')+', by UPI to '+(upiName||'')+' ('+(upiId||'')+'). Scan each QR once, in any order. '+PAY_SPLIT_WHY+' - Vismaad Creations';
 }
+var PAY_SPLIT_WHY='UPI apps allow only up to ₹2,000 when paying from a QR saved on the same phone, so we have split the amount into smaller parts.'; // v14.60.2
 // Words for the parcel label: lower case, Indian counting, rupees only.
 function vcWordsLower(n){
   const v=Math.floor(parseFloat(n));
@@ -5724,7 +5734,7 @@ function buildInvoiceHTML(data){
       </div>
       <div style="text-align:right;">
         <div style="font-size:16px;font-weight:700;color:#5c3d1e;text-transform:uppercase;letter-spacing:1.5px;">${gstMode?'Tax Invoice':'Bill of Supply'}</div>${gstMode&&data.copyLabel?'<div style="font-size:10px;font-weight:700;letter-spacing:.5px;margin-top:2px;">'+esc(data.copyLabel)+'</div>':''}
-        <div style="font-size:12px;color:#555;margin-top:3px;"><strong>${gstMode?'Invoice No.':'Bill No.'}:</strong> ${data.invNo}</div>
+        <div style="font-size:12px;color:#555;margin-top:3px;"><strong>${gstMode?'Invoice No.':'Bill No.'}:</strong> ${esc(data.invNo)}</div>
         <div style="font-size:12px;color:#555;"><strong>Date:</strong> ${fd(data.invDate)}</div>
         <div style="font-size:12px;color:#555;"><strong>FY:</strong> ${data.fy||''}</div>
         ${gstMode?'<div style="font-size:11px;color:#555;margin-top:4px;"><strong>Place of Supply:</strong> '+esc(data.custState||'—')+' ('+getStateCode(data.custState||'')+')</div>':''}
@@ -6881,31 +6891,12 @@ async function _vcInvPdfBlob(inv,progress){
   _vcLib('vc-lib-h2c',w);_vcLib('vc-lib-jspdf',w);
   return await _vcRenderPdf(w,d.getElementById('print-area'),sp,progress);
 }
-// v14.61.0: the number exactly as saved on the bill (WhatsApp, else phone, else the Share box), for WhatsApp search.
-function _vcPdfWaRawPhone(inv,boxVal){
-  const pick=v=>String(v==null?'':v).trim();
-  return (pick(inv&&inv.custWhatsapp)||pick(inv&&inv.custPhone)||pick(boxVal)).slice(0,100);
-}
-// Copies text during the tap (iPhone allows copying only then). Returns true if it was copied.
-function _vcCopyNow(t){
-  let ok=false;
-  try{const ta=document.createElement('textarea');ta.value=t;ta.setAttribute('readonly','');
-    ta.style.cssText='position:fixed;left:-9999px;top:0;opacity:0;';document.body.appendChild(ta);
-    ta.select();ta.setSelectionRange(0,t.length);ok=document.execCommand('copy');ta.remove();}catch(e){}
-  try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).catch(()=>{});ok=true;}}catch(e){}
-  return ok;
-}
 let _vcPdfWaBusy=false;
 async function shareInvoicePdfWhatsApp(){
   if(_sharingInvId)sharingInv=invoices.find(i=>String(i.id)===_sharingInvId)||sharingInv;
   const inv=sharingInv;if(!inv||_vcPdfWaBusy)return;
   _vcPdfWaBusy=true;
   const phone=_vcPdfWaPhone(inv);
-  const _box=document.getElementById('share-phone-input');
-  const rawPh=_vcPdfWaRawPhone(inv,_box?_box.value:'');
-  const copied=rawPh?_vcCopyNow(rawPh):false;
-  const copyMsg=rawPh?(copied?'📋 Copied '+rawPh+'. In WhatsApp, paste it in search to find the chat.':'Number: '+rawPh+' (could not copy).'):'No number on this bill, nothing copied.';
-  toast(copyMsg,5000);
   closeShareModal();
   const name=_vcPdfName('Invoice-'+(inv.invNo||today()));
   const close="document.getElementById('vc-pdfwa-modal').classList.remove('open')";
@@ -6914,11 +6905,9 @@ async function shareInvoicePdfWhatsApp(){
     +'<div style="font-size:13px;color:#888;margin-bottom:10px;word-break:break-word;">'+esc(inv.custName||'')+' · '+esc(name)+'</div>'
     +'<div id="vc-pdfwa-st" style="font-size:14px;margin-bottom:14px;">Making PDF…</div>'
     +'<button class="btn btn-g" id="vc-pdfwa-go" style="width:100%;display:none;"></button>'
-    +'<div id="vc-pdfwa-note" style="font-size:12px;color:#888;margin-top:10px;line-height:1.5;"></div>'
-    +'<div id="vc-pdfwa-copy" style="font-size:12px;color:#1a7f37;margin-top:8px;line-height:1.5;word-break:break-word;"></div></div>');
+    +'<div id="vc-pdfwa-note" style="font-size:12px;color:#888;margin-top:10px;line-height:1.5;"></div></div>');
   m.style.zIndex='100000';m.classList.add('open');
   const st=m.querySelector('#vc-pdfwa-st'),go=m.querySelector('#vc-pdfwa-go'),note=m.querySelector('#vc-pdfwa-note');
-  const cp=m.querySelector('#vc-pdfwa-copy');if(cp)cp.textContent=copyMsg; // textContent: the number is never read as HTML
   try{
     const blob=await _vcInvPdfBlob(inv,t=>{st.textContent=t;});
     let file=null;try{file=new File([blob],name,{type:'application/pdf'});}catch(e){}
@@ -15718,6 +15707,7 @@ async function confirmCleanup() {
 // UPI QR — WALK-IN INVOICE PRINT
 // ═══════════════════════════════════════════
 let _upiQrInv=null;
+let _upiQrWhich=''; // v14.60.1 BUG FIX: was never declared, so in strict mode the QR box crashed before opening
 
 function ensureQRLib(){
   // v14.50.1: the QR library is built into this file, so nothing is downloaded
@@ -15741,7 +15731,19 @@ function openUpiQrModal(inv,which){
 
 function closeUpiQrModal(){
   document.getElementById('upi-qr-modal').classList.remove('open');
-  _upiQrInv=null;
+  _upiQrInv=null;_upiQrWhich='';
+}
+// v14.60.1: the QR picture is made at once (the QR library is built in), so the print leaves straight from the tap.
+// iPhone ignores a print, or the jump to Safari, that comes after a wait.
+function _upiQrDataUrl(text,size){
+  const tmp=document.createElement('div');
+  tmp.style.cssText='position:fixed;left:-9999px;top:0;';
+  document.body.appendChild(tmp);
+  try{
+    new QRCode(tmp,{text:text,width:size,height:size,colorDark:'#1a1208',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+    const canvas=tmp.querySelector('canvas');
+    return canvas?canvas.toDataURL('image/png'):'';
+  }finally{tmp.remove();}
 }
 
 function buildUpiUrl(){
@@ -15776,30 +15778,19 @@ async function previewUpiQr(){
   }catch(e){prev.innerHTML='<div style="color:#c0392b;font-size:12px;">QR generation failed. Check internet connection.</div>';}
 }
 
-async function doUpiQrPrint(){
+function doUpiQrPrint(){ // v14.60.1: no waiting between the tap and the print
   const inv=_upiQrInv;if(!inv)return;
+  const which=_upiQrWhich;
   const pa=document.getElementById('upi-qr-id').value.trim();
   if(!pa){toast('⚠️ Enter UPI ID');return;}
-  showLoading('Generating QR…');
+  const _am=parseFloat(document.getElementById('upi-qr-amount').value);
+  if(!(isFinite(_am)&&_am>0)){toast('⚠️ Enter an amount above ₹0',5000);return;} // v14.60.2
   try{
-    await ensureQRLib();
-    // Generate QR as data URL
-    const tmp=document.createElement('div');
-    tmp.style.cssText='position:fixed;left:-9999px;top:0;';
-    document.body.appendChild(tmp);
-    await new Promise((res,rej)=>{
-      try{
-        new QRCode(tmp,{text:buildUpiUrl(),width:160,height:160,colorDark:'#1a1208',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
-        setTimeout(res,400);
-      }catch(e){rej(e);}
-    });
-    const canvas=tmp.querySelector('canvas');
-    const img=tmp.querySelector('img');
-    const qrDataUrl=canvas?canvas.toDataURL('image/png'):(img?img.src:'');
-    document.body.removeChild(tmp);
-    hideLoading();
+    if(!window.QRCode)throw new Error('QR library missing');
+    let qrDataUrl;
+    try{qrDataUrl=_upiQrDataUrl(buildUpiUrl(),160);}
+    catch(e){toast('⚠️ The details are too long for a QR. Shorten the Payee Name, Transaction Note or Ref.',6000);return;} // v14.60.2
     if(!qrDataUrl){toast('⚠️ QR generation failed');return;}
-    closeUpiQrModal();
     const upiName=document.getElementById('upi-qr-name')?.value.trim()||S.upiName||'';
     const upiPhone=document.getElementById('upi-qr-phone')?.value.trim()||S.upiPhone||'';
     const upiId=pa;
@@ -15818,11 +15809,12 @@ async function doUpiQrPrint(){
     // Inject QR block just before closing div of invoice
     const injected=invHtml.replace(/(<div style="text-align:center;margin-top:14px[^"]*"[^>]*>[\s\S]*?<\/div>)\s*<\/div>\s*`?$/,
       (m,thankYou)=>thankYou+qrBlock+'</div>');
-    const _rest=_upiQrWhich==='all'?['DUPLICATE FOR TRANSPORTER','TRIPLICATE FOR SUPPLIER'].map(l=>'<div class="print-page">'+getInvHtml(inv,l)+'</div>').join(''):''; // v14.49.1
-    _upiQrWhich='';
+    closeUpiQrModal();
+    const _rest=which==='all'?['DUPLICATE FOR TRANSPORTER','TRIPLICATE FOR SUPPLIER'].map(l=>'<div class="print-page">'+getInvHtml(inv,l)+'</div>').join(''):''; // v14.49.1
+    _vcPdocClear();
     document.getElementById('print-area').innerHTML='<div class="print-page">'+(injected===invHtml?invHtml+qrBlock:injected)+'</div>'+_rest;
     vcPrint('Invoice-'+(inv.invNo||''),true);
-  }catch(e){hideLoading();toast('⚠️ Error: '+e.message);}
+  }catch(e){toast('⚠️ Error: '+e.message);}
 }
 
 // ═══════════════════════════════════════════
@@ -18600,7 +18592,7 @@ function vcPayOpenTake(opts){
     +'<button class="btn btn-p" style="width:100%;" onclick="vcPayMakeQr()">Show QR</button>'
     +'<div id="vc-take-out" style="display:none;text-align:center;margin-top:16px;">'
     +'<div id="vc-take-single">'
-    +'<div style="font-size:13px;color:#636366;">Customer pays exactly</div>'
+    +'<div style="font-size:13px;color:#636366;">Customer pays</div>'
     +'<div id="vc-take-amount" style="font-size:34px;font-weight:700;letter-spacing:-.5px;margin:2px 0 10px;"></div>'
     +'<div id="vc-take-qr" style="display:inline-block;background:#fff;padding:10px;border-radius:12px;"></div>'
     +'<div id="vc-take-payee" style="font-size:13px;color:#636366;margin:6px 0 12px;word-break:break-all;"></div>'
@@ -18614,7 +18606,7 @@ function vcPayOpenTake(opts){
     +'</div></div>');
   m.classList.add('open');
   const pre=payWaPhone(opts.phone); // v14.53.0: opened from the Dashboard with a copied number
-  if(pre){const ph=document.getElementById('vc-take-phone');if(ph)ph.value='+'+pre;vcPayClipNote('Number filled from what you copied.');}
+  if(pre){const ph=document.getElementById('vc-take-phone');if(ph)ph.value=payFullNumber(pre);vcPayClipNote('Number filled from what you copied.');}
   setTimeout(()=>{const ph=document.getElementById('vc-take-phone'),i=document.getElementById(ph&&String(ph.value).trim()?'vc-take-price':'vc-take-phone');if(i)i.focus();},50);
   if(!pre&&!opts.noClip&&_payClipPlat()==='android')vcPayClipAuto();
 }
@@ -18632,7 +18624,7 @@ async function vcPayClipAuto(){
     if(!m||!ph||!m.classList.contains('open')||_vcTakeId)return;
     const d=payClipAutoFill(txt,ph.value,payClaims,Date.now());
     if(!d)return;
-    ph.value='+'+d;vcPayClipNote('Number filled from what you copied.');
+    ph.value=payFullNumber(d);vcPayClipNote('Number filled from what you copied.');
     const p=document.getElementById('vc-take-price');if(p&&(document.activeElement===ph||document.activeElement===document.body))p.focus();
   }catch(e){}
 }
@@ -18644,7 +18636,7 @@ async function vcPayPasteNum(){
   let txt;try{txt=await navigator.clipboard.readText();}catch(e){_payClipFail();return;}
   const r=payClipPaste(txt,ph.value);
   if(!r.ok){toast('⚠️ '+r.msg,5000);return;}
-  ph.value='+'+r.digits;vcPayClipNote('');
+  ph.value=payFullNumber(r.digits);vcPayClipNote('');
   const p=document.getElementById('vc-take-price');if(p)p.focus();
 }
 // Dashboard: iPhone / computer button "Paste number and take payment".
@@ -18692,7 +18684,7 @@ function vcPayReopen(id){
   const c=_payClaim(id);if(!c)return;
   vcPayOpenTake({noClip:true});
   const i=document.getElementById('vc-take-price');if(i)i.value=c.price||'';
-  const ph=document.getElementById('vc-take-phone'),pn=payWaPhone(c.phone);if(ph)ph.value=pn?'+'+pn:'';
+  const ph=document.getElementById('vc-take-phone');if(ph)ph.value=payFullNumber(c.phone);
   _vcTakeId=c.id;vcPayShowQr(c);
 }
 async function vcPayShowQr(c){
@@ -18769,7 +18761,7 @@ function _payImage(src,amount,top,bottom){
   x.font='20px Arial';x.fillText(bottom,W/2,760);
   return cv;
 }
-function _payPartImage(c,i){const p=payParts(c);return i<p.length?_payImage(_payPartCanvas(i),p[i],'Part '+(i+1)+' of '+p.length+' · pay exactly','Scan with any UPI app, then pay the next part'):null;}
+function _payPartImage(c,i){const p=payParts(c);return i<p.length?_payImage(_payPartCanvas(i),p[i],'Part '+(i+1)+' of '+p.length,'Scan with any UPI app, then pay the next part'):null;}
 // Copies one picture inside the tap (iPhone rule). Returns true when the copy started.
 function _payCopyCanvas(cv,okMsg){
   try{
@@ -18786,6 +18778,33 @@ function vcPayCopyPart(i){
   const n=payParts(c).length;
   if(!_payCopyCanvas(_payPartImage(c,i),'Part '+(i+1)+' QR copied. In WhatsApp, long-press the message box, tap Paste, then send.'+(i+1<n?' Then come back for part '+(i+2)+'.':'')))toast('⚠️ This browser cannot copy images. Use Share all instead.',6000);
 }
+// v14.60.2: Share QR / Share all copy the customer's number (for WhatsApp search) and open the share sheet straight from
+// the tap: the pictures become files at once, as iPhone may refuse a share sheet that opens after a wait.
+function _payFileFromCanvas(cv,name){
+  try{
+    const u=cv.toDataURL('image/png'),bin=atob(u.split(',')[1]),arr=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+    return new File([arr],name,{type:'image/png'});
+  }catch(e){return null;}
+}
+function payFullNumber(raw){ // '+' and country code; a 10-digit Indian mobile gets +91, as elsewhere in the app
+  const d=payWaPhone(raw);if(!d)return'';
+  return'+'+(isIndianPhoneKey(d)?'91'+d:d);
+}
+function _payCopyTakeNumber(){
+  const el=document.getElementById('vc-take-phone'),n=payFullNumber(el&&el.value);
+  if(!n)return'';
+  try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(n).catch(()=>{});return n;}}catch(e){}
+  return'';
+}
+function _payShareNow(files,text,fallback){
+  const n=_payCopyTakeNumber();
+  try{
+    const ok=files.length&&navigator.canShare&&navigator.canShare({files});
+    navigator.share(ok?{files,text}:{text}).catch(()=>{});
+  }catch(e){fallback();return;}
+  if(n)toast('Number copied ('+n+'). Paste it in WhatsApp search.',6000);
+}
 function vcPayShareParts(){
   const c=_payClaim(_vcTakeId);if(!c)return;
   const parts=payParts(c),text=payQrMsgSplit(parts,S.upiName,S.upiId);
@@ -18796,13 +18815,7 @@ function vcPayShareParts(){
     toast('QR images saved and message copied. Send them on WhatsApp.',5000);
   };
   if(!cvs.length||!navigator.share){fallback();return;}
-  Promise.all(cvs.map((cv,i)=>new Promise(res=>cv.toBlob(b=>res(b?new File([b],'pay-part-'+(i+1)+'.png',{type:'image/png'}):null),'image/png')))).then(files=>{
-    files=files.filter(Boolean);
-    try{
-      if(navigator.canShare&&navigator.canShare({files}))navigator.share({files,text}).catch(()=>{});
-      else navigator.share({text}).catch(()=>{});
-    }catch(e){fallback();}
-  });
+  _payShareNow(cvs.map((cv,i)=>_payFileFromCanvas(cv,'pay-part-'+(i+1)+'.png')).filter(Boolean),text,fallback);
 }
 function vcPayTakeStatus(){
   const el=document.getElementById('vc-take-status');if(!el||!_vcTakeId)return;
@@ -18833,7 +18846,7 @@ function vcPayShareImage(c){
   x.fillStyle='#ffffff';x.fillRect(0,0,W,H);
   x.fillStyle='#1c1c1e';x.textAlign='center';
   x.font='bold 30px Arial';x.fillText('Vismaad Creations',W/2,60);
-  x.font='24px Arial';x.fillText('Pay exactly',W/2,120);
+  x.font='24px Arial';x.fillText('Amount to pay',W/2,120);
   x.font='bold 56px Arial';x.fillText(_payInr(c.amount),W/2,185);
   try{x.drawImage(src,100,220,400,400);}catch(e){}
   x.font='22px Arial';x.fillStyle='#444';
@@ -18851,13 +18864,8 @@ function vcPayShare(){
     toast('QR image saved and message copied. Send both on WhatsApp.',5000);
   };
   if(!cv||!navigator.share){fallback();return;}
-  cv.toBlob(b=>{
-    try{
-      const f=new File([b],'pay-vismaad.png',{type:'image/png'});
-      if(navigator.canShare&&navigator.canShare({files:[f]}))navigator.share({files:[f],text}).catch(()=>{});
-      else navigator.share({text}).catch(()=>{});
-    }catch(e){fallback();}
-  },'image/png');
+  const f=_payFileFromCanvas(cv,'pay-vismaad.png');
+  _payShareNow(f?[f]:[],text,fallback);
 }
 // v14.51.0: one tap copies the QR image and opens the customer's chat with the message typed in.
 // The copy starts inside the tap (iPhone rule); the chat opens in a new tab so the app stays as it was.
@@ -19113,7 +19121,7 @@ function _payRowHtml(r){
 function vcPayRowMenu(key,btn){
   const r=_payRowByKey(key);if(!r)return;
   const opts=r.utrs.map(u=>({label:'Unlink Ref '+u,fn:()=>vcPayUnlink(u)}));
-  const ph=r.claim?payWaPhone(r.claim.phone):'';if(ph)opts.unshift({label:'Open chat +'+ph,fn:()=>window.open(payWaLink(ph,''),'_blank')}); // v14.51.0
+  const ph=r.claim?payWaPhone(r.claim.phone):'';if(ph)opts.unshift({label:'Open chat '+payFullNumber(ph),fn:()=>window.open(payWaLink(ph,''),'_blank')}); // v14.51.0
   if(r.claim&&!r.pays.length)opts.push({label:'Undo Mark paid',fn:()=>vcPayUnmark(r.claim.id)});
   if(!opts.length)return;
   uiSheet('Payment',opts,btn);
