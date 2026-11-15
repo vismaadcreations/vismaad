@@ -3,20 +3,15 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.60.2
+APP: Vismaad Creations v14.61.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 15-Nov-2026 - v14.60.2: NO "EXACTLY" IN PAYMENT QRS AND MESSAGES, SHARE QR / SHARE ALL COPY THE CUSTOMER'S NUMBER, SPLIT PAYMENT EXPLAINED, WHATSAPP LINK AND SECURITY FIXES. No Code.gs or print.html change. Upload index.html only.
-(Y1) WORDING. The word "exactly" is gone from everything the customer sees: single-QR message now "Please pay ₹X by UPI to Name (UPI ID). Scan the QR, or pay this amount to the UPI ID."; QR picture heading "Amount to pay"; part pictures "Part 1 of 3"; Take payment screen "Customer pays".
-(Y2) NEW. Share QR and Share all copy the customer's number from the Customer WhatsApp number box, in full with country code (+919876543210; a 10-digit Indian mobile gets +91), so it can be pasted in WhatsApp search. A note says so. Empty or unreadable box: nothing copied, sharing as before. Where there is no share sheet (computers) the message is still copied as before.
-(Y3) Share QR and Share all now open the share sheet straight from the tap (pictures become files at once); before, they waited for the picture, which iPhone may refuse.
-(Y4) NEW. Split payment message (Send on WhatsApp and Share all) adds: "UPI apps allow only up to ₹2,000 when paying from a QR saved on the same phone, so we have split the amount into smaller parts." (PAY_SPLIT_WHY).
-(Y5) BUG FIX. WhatsApp links from Take payment, Send receipt and Open chat used a 10-digit number as typed (wa.me/9876543210), which WhatsApp reads as country code 98, so the wrong or no chat opened. payWaLink now adds 91 to 10-digit Indian mobiles (payFullNumber), as the rest of the app does. Numbers filled in the box show with +91.
-(Y6) SECURITY (Low). The bill number is now escaped on the printed bill like the customer fields (a bill number edited in the Google Sheet could carry code).
-(Y7) SECURITY (Low). Walk-in UPI QR box refuses a zero, negative or blank amount; Payee Name, Note and Ref are limited to 100 characters, and details too long for a QR give a clear message instead of an unclear error.
-PREV_CHANGE: 15-Nov-2026 - v14.60.1: WALK-IN BILL PRINTING FIXED (ORIGINAL FOR RECIPIENT AND ALL THREE DID NOTHING). No Code.gs or print.html change. Upload index.html only.
-(X1) BUG FIX. On a walk-in Tax Invoice with a UPI ID in Settings, Print Invoice then Original for Recipient or All three did nothing on every device (iPhone app, Safari, computers, Android). These choices open the UPI Payment QR box, whose first line stored the choice in _upiQrWhich, a name never declared; the app runs in strict mode, so it stopped with an error before the box opened. Now declared next to _upiQrInv. Duplicate and Triplicate were never affected.
-(X2) BUG FIX. Print Invoice with QR waited (0.4 s plus a hidden QR build) before printing; iPhone ignores a print, or the jump to Safari from the home-screen app, that does not follow a tap straight away. The QR picture is now made at once (the QR library is built in) and the print leaves straight from the tap. Same bill, same QR, same three copies for All three. Closing or cancelling the box clears the stored choice.
+LAST_CHANGE: 15-Nov-2026 - v14.61.0: DISCOUNT ON EACH SUIT. No Code.gs or print.html change. Upload index.html only.
+(X1) NEW. Invoice page: when a bill has 2 or more suits, each suit card gets "Discount on this suit" in ₹ or %. The card total shows the amount after its discount. A % discount follows qty and price changes. A suit discount can never be below 0 or above that suit's amount (% is capped at 100).
+(X2) The old Discount box is now "Overall discount (₹)" and works as before (a negative figure now counts as 0). Summary shows Suit discounts, Overall discount and Total discount. Removing suits down to one moves that suit's discount into Overall discount, so nothing stays hidden.
+(X3) STORAGE. The bill's discount field = suit discounts + overall discount + UPI adjustment, exactly as before, so the GST split, P&L, exports, Sales Book, labels, payment linking and Tax Invoice locks are unchanged. Each item also keeps discType, discVal and disc (frozen ₹ amount) inside itemsArr; expandItems keeps them through the sheet round trip.
+(X4) PRINTED BILL. A "Disc (₹)" column appears only when at least one suit has a discount; Amount shows each suit after its discount, and the separate row reads "Less: Overall discount". Line taxables are shared on the discounted values and still add up to the GST summary to the paisa. If the total discount was later lowered in Edit Invoice below the suit discounts, the bill prints the old way (one Less: Discount line).
+(X5) Order Slip and payment linking use the total discount. A slip keeps the overall discount apart from the suit discounts, so loading it back does not count them twice.
 PREV_CHANGE: 14-Nov-2026 - v14.60.0: INVOICE PRINTING FROM THE IPHONE HOME-SCREEN APP FIXED, NEW SEND PDF ON WHATSAPP. No Code.gs or print.html change. Upload index.html only.
 (W1) BUG FIX. From the home-screen app, Print / Save Invoice as PDF, Print Invoice (Original, Duplicate, Triplicate, All three) and every other bill print did nothing. _vcIsIosApp only read navigator.standalone, which iPhone sets only for pages with Apple's old home-screen meta line; this app installs through manifest.json, so it was taken for Safari and used window.print(), which iPhone ignores there. It now also counts the full-screen display mode (standalone or fullscreen) on iPhone/iPad, so every print goes to Safari through print.html as planned in v14.58.0. Android and computers unchanged (checked only on iPhone/iPad). The same check also fixes labels and file saving from the home-screen app.
 (W2) NEW. Share Invoice box: 📎 Send PDF on WhatsApp. Makes the customer's copy (Original for Recipient on a Tax Invoice) as an A4 PDF inside the app (_vcInvPdfBlob: hidden frame with the print styles, built-in PDF tools), then 📤 Share PDF opens the share sheet: pick WhatsApp, then the customer. WhatsApp lets no app attach a file to a number directly. Computers that cannot share files: Save PDF and open the customer's chat (number from the bill). File name Invoice-<number>.pdf. One PDF at a time; a cancelled share does nothing.
@@ -1327,7 +1322,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <div class="card-title">🚚 Shipping & Extras</div>
     <div class="row2">
       <div class="fg"><label>Shipping charged to customer (₹)</label><input type="number" id="shipping" value="0" oninput="_shipManual=true;recalc()"/></div>
-      <div class="fg"><label>Discount (₹)</label><input type="number" id="discount" value="0" oninput="recalc()"/></div>
+      <div class="fg"><label>Overall discount (₹)</label><input type="number" id="discount" value="0" min="0" oninput="recalc()"/></div>
     </div>
     <div class="fg"><label>Actual shipping cost paid (₹) <span style="font-weight:400;color:#aaa;">(for P&L only)</span></label><input type="number" id="shipping-cost" value="0" placeholder="What courier charged you"/></div>
     <div class="fg">
@@ -2449,11 +2444,11 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <div class="modal-title">💳 UPI Payment QR</div>
     <div style="font-size:12px;color:#888;margin-bottom:14px;">These details will be embedded in the QR code on the printed invoice.</div>
     <div class="fg"><label>UPI ID *</label><input id="upi-qr-id" placeholder="e.g. yourshop@okaxis" oninput="previewUpiQr()"/></div>
-    <div class="fg"><label>Payee Name *</label><input id="upi-qr-name" maxlength="100" placeholder="e.g. Vismaad Creations" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>Payee Name *</label><input id="upi-qr-name" placeholder="e.g. Vismaad Creations" oninput="previewUpiQr()"/></div>
     <div class="fg"><label>UPI Phone Number</label><input id="upi-qr-phone" placeholder="e.g. 9876543210" type="tel" inputmode="numeric" oninput="previewUpiQr()"/></div>
     <div class="fg"><label>Amount (₹) <span style="font-weight:400;color:#888;">— auto-filled from invoice</span></label><input id="upi-qr-amount" type="number" inputmode="decimal" placeholder="0.00" oninput="previewUpiQr()"/></div>
-    <div class="fg"><label>Transaction Note</label><input id="upi-qr-tn" maxlength="100" placeholder="e.g. INV-001" oninput="previewUpiQr()"/></div>
-    <div class="fg"><label>Transaction Ref (Invoice No.)</label><input id="upi-qr-tr" maxlength="100" placeholder="e.g. INV-001" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>Transaction Note</label><input id="upi-qr-tn" placeholder="e.g. INV-001" oninput="previewUpiQr()"/></div>
+    <div class="fg"><label>Transaction Ref (Invoice No.)</label><input id="upi-qr-tr" placeholder="e.g. INV-001" oninput="previewUpiQr()"/></div>
     <div id="upi-qr-preview" style="text-align:center;margin:14px 0 6px;min-height:140px;"></div>
     <div class="btn-row">
       <button class="btn btn-p" style="flex:1;" onclick="doUpiQrPrint()">🖨 Print Invoice with QR</button>
@@ -2952,9 +2947,9 @@ function payClipPlatform(ua,touch){
   if(/iPhone|iPad|iPod/.test(u)||(/Macintosh/.test(u)&&Number(touch)>1))return'ios';
   return'other';
 }
-function payWaLink(phone,text){return'https://wa.me/'+payFullNumber(phone).slice(1)+'?text='+encodeURIComponent(text||'');} // v14.60.2: 10-digit Indian numbers get 91
+function payWaLink(phone,text){return'https://wa.me/'+payWaPhone(phone)+'?text='+encodeURIComponent(text||'');}
 function payQrMsg(amount,upiName,upiId){
-  return'Please pay '+_payInr(amount)+' by UPI to '+(upiName||'')+' ('+(upiId||'')+'). Scan the QR, or pay this amount to the UPI ID. - Vismaad Creations'; // v14.60.2: no "exactly"
+  return'Please pay exactly '+_payInr(amount)+' by UPI to '+(upiName||'')+' ('+(upiId||'')+'). Scan the QR, or pay to the UPI ID with this exact amount. - Vismaad Creations';
 }
 function payRefLine(refs){
   const u=String(refs||'').split(',').map(payCleanUtr).filter(Boolean);
@@ -3039,9 +3034,8 @@ function payNotifyList(view,nowMs,hours){
 }
 function payQrMsgSplit(parts,upiName,upiId){
   const tot=(parts||[]).reduce((s,x)=>s+_payCents(x),0)/100;
-  return'Please pay '+_payInr(tot)+' in '+parts.length+' payments: '+parts.map(_payInr).join(' + ')+', by UPI to '+(upiName||'')+' ('+(upiId||'')+'). Scan each QR once, in any order. '+PAY_SPLIT_WHY+' - Vismaad Creations';
+  return'Please pay '+_payInr(tot)+' in '+parts.length+' payments: '+parts.map(_payInr).join(' + ')+', by UPI to '+(upiName||'')+' ('+(upiId||'')+'). Scan each QR once, in any order. - Vismaad Creations';
 }
-var PAY_SPLIT_WHY='UPI apps allow only up to ₹2,000 when paying from a QR saved on the same phone, so we have split the amount into smaller parts.'; // v14.60.2
 // Words for the parcel label: lower case, Indian counting, rupees only.
 function vcWordsLower(n){
   const v=Math.floor(parseFloat(n));
@@ -3575,6 +3569,9 @@ function expandItems(arr){
     dsUpfront:i.dsUpfront||false,
     variantId:i.variantId||'', // v14.26.0: was stripped here — sync merge lost variant links, breaking variant stock restores cross-device
     spill:Array.isArray(i.spill)?i.spill:[], // v14.27.0: units taken from LINKED products — must survive the sheet round-trip or restores can't reverse the pool
+    discType:i.discType==='pct'?'pct':'rs', // v14.61.0: per-suit discount survives the sheet round trip
+    discVal:(i.discVal===''||i.discVal==null)?'':Math.max(0,_discNum(i.discVal)),
+    disc:Math.max(0,_discNum(i.disc)),
     countKept:i.countKept===true||i.countKept==='true', // v14.46.0: this line's piece is settled by a stock count; its stock is never moved again
   }));
 }
@@ -5014,7 +5011,7 @@ function recalcAutoShipping(){
 }
 function addItem(){
   itemId++;
-  items.push({id:itemId,prodNo:'',desc:'Unstitched Suit',hsn:'540754',qty:1,unitPrice:0});
+  items.push({id:itemId,prodNo:'',desc:'Unstitched Suit',hsn:'540754',qty:1,unitPrice:0,discType:'rs',discVal:''});
   recalcAutoShipping();
   renderItems();
 }
@@ -5025,12 +5022,13 @@ function removeItem(id){
 }
 function renderItems(){
   const c=document.getElementById('items-container');if(!c)return;
+  _foldSuitDisc(); // v14.61.0: one suit left, its discount goes to Overall discount
   c.innerHTML=items.map((it,idx)=>`
     <div class="item-row" id="irow-${it.id}">
       <div class="item-row-header">
         <span class="item-num">Suit ${idx+1}</span>
         <div style="display:flex;align-items:center;gap:8px;">
-          <span class="item-total" id="itot-${it.id}">₹${((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN')}</span>
+          <span class="item-total" id="itot-${it.id}">${_itemNetTxt(it)}</span>
           ${items.length>1?`<button class="btn btn-d btn-sm" onclick="removeItem(${it.id})">✕</button>`:''}
         </div>
       </div>
@@ -5062,6 +5060,19 @@ function renderItems(){
             oninput="updateItem(${it.id},'unitPrice',this.value)" style="padding:11px 12px;"/>
         </div>
       </div>
+      ${items.length>=2?`<div class="row2" style="margin-top:10px;">
+        <div class="fg" style="margin-bottom:0;"><label>Discount on this suit</label>
+          <input type="number" id="idisc-${it.id}" min="0" step="any" inputmode="decimal" value="${it.discVal!=null&&it.discVal!==''?esc(String(it.discVal)):''}" placeholder="0"
+            oninput="updateItem(${it.id},'discVal',this.value)" style="padding:11px 12px;"/>
+        </div>
+        <div class="fg" style="margin-bottom:0;"><label>Discount in</label>
+          <select id="idisctype-${it.id}" onchange="updateItem(${it.id},'discType',this.value)" style="padding:11px 12px;">
+            <option value="rs" ${it.discType!=='pct'?'selected':''}>₹ Rupees</option>
+            <option value="pct" ${it.discType==='pct'?'selected':''}>% Percent</option>
+          </select>
+        </div>
+      </div>
+      <div id="idiscamt-${it.id}" style="font-size:12px;color:#c0392b;margin-top:4px;min-height:0;">${_itemDiscNote(it)}</div>`:''}
       <div class="fg" style="margin-bottom:0;margin-top:10px;"><label>Cost Price (₹ incl.GST) <span style="font-weight:400;color:#aaa;text-transform:none;letter-spacing:0;">— for P&amp;L</span></label>
         <input type="number" id="icost-${it.id}" value="${it.costPrice||''}" placeholder="0 (optional)"
           oninput="updateItem(${it.id},'costPrice',this.value)" style="padding:11px 12px;${it.costPrice?'background:#f0faf4;':''}"/>
@@ -5111,9 +5122,12 @@ function updateItem(id,f,v){
   const it=items.find(i=>i.id===id);if(!it)return;
   if(f==='qty'||f==='unitPrice'||f==='costPrice')it[f]=parseFloat(v)||0;
   else if(f==='prodNo')it[f]=v?parseInt(v)||'':'';
+  else if(f==='discType')it[f]=v==='pct'?'pct':'rs'; // v14.61.0
+  else if(f==='discVal')it[f]=(v===''||v==null)?'':Math.max(0,_discNum(v));
   else it[f]=v;
   const tot=document.getElementById('itot-'+id);
-  if(tot)tot.textContent='₹'+((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN');
+  if(tot)tot.textContent=_itemNetTxt(it);
+  const dn=document.getElementById('idiscamt-'+id);if(dn)dn.textContent=_itemDiscNote(it);
   // Re-run auto-shipping when qty changes
   if(f==='qty')recalcAutoShipping();
   recalc();
@@ -5348,6 +5362,36 @@ function vcExportDeliveryStatus(inv){
 }
 function isVoidInvoice(inv){const st=invStatusOf(inv);return st==='Cancelled'||st==='Returned';}
 
+// v14.61.0: per-suit discount. it.discType 'rs'|'pct', it.discVal as typed, it.disc = frozen ₹ amount on a saved bill.
+function _discNum(v){const n=typeof v==='number'?v:parseFloat(v);return isFinite(n)?n:0;}
+function itemDisc(it){
+  if(!it)return 0;
+  const line=Math.max(0,(parseInt(it.qty)||1)*_discNum(it.unitPrice));
+  if(line<=0)return 0;
+  let d;
+  if(it.discVal!=null&&it.discVal!==''){
+    const v=Math.max(0,_discNum(it.discVal));
+    d=it.discType==='pct'?line*Math.min(100,v)/100:v;
+  }else d=Math.max(0,_discNum(it.disc));
+  return Math.round(Math.min(line,d)*100)/100;
+}
+function formDiscParts(){
+  const it=Math.round(items.reduce((s,i)=>s+itemDisc(i),0)*100)/100;
+  const ov=Math.max(0,_discNum(document.getElementById('discount')?.value));
+  return{items:it,overall:ov,total:Math.round((it+ov)*100)/100};
+}
+function _itemNetTxt(it){const line=(it.qty||1)*(it.unitPrice||0);return'₹'+(Math.round((line-itemDisc(it))*100)/100).toLocaleString('en-IN');}
+function _itemDiscNote(it){const d=itemDisc(it);if(d<=0)return'';const line=(it.qty||1)*(it.unitPrice||0);return'−₹'+d.toLocaleString('en-IN')+' off ₹'+line.toLocaleString('en-IN');}
+function _foldSuitDisc(){
+  if(items.length>=2)return;
+  const moved=Math.round(items.reduce((s,i)=>s+itemDisc(i),0)*100)/100;
+  items.forEach(i=>{i.discVal='';i.disc=0;i.discType='rs';});
+  if(moved>0){
+    const d=document.getElementById('discount');
+    if(d)d.value=String(Math.round((Math.max(0,_discNum(d.value))+moved)*100)/100);
+    toast('ℹ️ Suit discount ₹'+moved.toLocaleString('en-IN')+' moved to Overall discount');
+  }
+}
 function calcTotals(arr,ship,disc){
   const suits=arr.reduce((s,i)=>s+(i.qty||1)*(i.unitPrice||0),0);
   // Suits taxed at 5% GST (HSN 540754); shipping taxed at 18% GST (SAC 9965)
@@ -5364,13 +5408,17 @@ function calcTotals(arr,ship,disc){
 }
 function recalc(){
   const ship=parseFloat(document.getElementById('shipping')?.value)||0;
-  const disc=parseFloat(document.getElementById('discount')?.value)||0;
+  const _dp=formDiscParts(),disc=_dp.total; // v14.61.0: suit discounts + overall discount
   const{suitsTotal,grandIncl,taxableExcl,gstAmt,suitTaxable,suitGST,shipTaxable,shipGST}=calcTotals(items,ship,disc);
   const isIntra=document.getElementById('c-state')?.value==='Punjab';
   const f=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2});
   let h=`<div class="list-row"><span>Suits subtotal</span><strong>${f(suitsTotal)}</strong></div>
     <div class="list-row"><span>Shipping charged</span><strong>${f(ship)}</strong></div>`;
-  if(disc>0)h+=`<div class="list-row" style="color:#c0392b;"><span>Discount</span><strong>−${f(disc)}</strong></div>`;
+  if(_dp.items>0){
+    h+=`<div class="list-row" style="color:#c0392b;"><span>Suit discounts</span><strong>−${f(_dp.items)}</strong></div>`;
+    if(_dp.overall>0)h+=`<div class="list-row" style="color:#c0392b;"><span>Overall discount</span><strong>−${f(_dp.overall)}</strong></div>`;
+    h+=`<div class="list-row" style="color:#c0392b;font-weight:600;"><span>Total discount</span><strong>−${f(disc)}</strong></div>`;
+  }else if(disc>0)h+=`<div class="list-row" style="color:#c0392b;"><span>Discount</span><strong>−${f(disc)}</strong></div>`;
   h+=`<div class="list-row" style="color:#888;font-size:13px;"><span>Taxable (excl. GST)</span><span>${f(taxableExcl)}</span></div>`;
   if(isGSTEnabled()){
     if(isIntra){
@@ -5471,7 +5519,7 @@ async function generateInvoice(){
 
   const invDate=document.getElementById('inv-date')?.value||today();
   const ship=parseFloat(document.getElementById('shipping')?.value)||0;
-  const disc=(parseFloat(document.getElementById('discount')?.value)||0)+(_pl?_pl.adj:0); // v14.50.0: the QR paise join the discount, recorded apart in qrAdj
+  const disc=formDiscParts().total+(_pl?_pl.adj:0); // v14.61.0: suit + overall discount · v14.50.0: the QR paise join the discount, recorded apart in qrAdj
   const shippingCost=parseFloat(document.getElementById('shipping-cost')?.value)||0;
   const tracking=document.getElementById('tracking')?.value||'';
   const dispatchDate=document.getElementById('dispatch-date')?.value||'';
@@ -5487,6 +5535,7 @@ async function generateInvoice(){
 
   const{grandIncl,gstAmt,taxableExcl,suitsTotal}=calcTotals(items,ship,disc);
   const validItems=items.filter(i=>i.unitPrice>0);
+  validItems.forEach(it=>{it.disc=itemDisc(it);if(it.discType!=='pct')it.discType='rs';}); // v14.61.0: freeze each suit's ₹ discount on the bill
   const itemsCostTotal=parseFloat(validItems.reduce((s,i)=>s+(parseFloat(i.costPrice)||0)*(parseInt(i.qty)||1),0).toFixed(2));
 
   // v14.27.0: deduct stock BEFORE building `saved` — deductStock now returns a spill
@@ -5657,10 +5706,18 @@ function buildInvoiceHTML(data){
   // pre-GST discount was never reflected per line. We now allocate the authoritative
   // suit taxable across lines in proportion to each line's inclusive value, and give the
   // LAST line the residual so the column sums EXACTLY to displaySuitTaxable to the paisa.
-  const _suitInclTotal=validItems.reduce((s,it)=>s+(it.qty||1)*(it.unitPrice||0),0);
+  // v14.61.0: per-suit discounts. Shown in a Disc column only when one exists, and only when they fit
+  // inside the stored total discount (a later Edit Invoice may have lowered it; then print the old way).
+  const _qrAdj0=Math.max(0,Math.min(storedDiscount,parseFloat(data.qrAdj)||0));
+  let _lineDisc=validItems.map(it=>itemDisc(it));
+  let _lineDiscSum=Math.round(_lineDisc.reduce((s,x)=>s+x,0)*100)/100;
+  if(_itemsLost||_lineDiscSum>storedDiscount-_qrAdj0+0.005){_lineDisc=_lineDisc.map(()=>0);_lineDiscSum=0;}
+  const _showDisc=_lineDiscSum>0;
+  const _discTd=v=>_showDisc?'<td style="padding:6px 8px;text-align:right;color:#c0392b;">'+(v>0?'−'+f(v):'-')+'</td>':'';
+  const _suitInclTotal=validItems.reduce((s,it,i)=>s+(it.qty||1)*(it.unitPrice||0)-_lineDisc[i],0);
   let _taxAllocated=0;
   const itemRows=validItems.map((it,i)=>{
-    const lineIncl=(it.qty||1)*(it.unitPrice||0);
+    const lineIncl=Math.round(((it.qty||1)*(it.unitPrice||0)-_lineDisc[i])*100)/100; // after this suit's discount
     let lineTax;
     if(!gstMode||_suitInclTotal<=0){
       lineTax=parseFloat((lineIncl/1.05).toFixed(2));
@@ -5676,6 +5733,7 @@ function buildInvoiceHTML(data){
       +(gstMode?'<td style="padding:6px 8px;">'+esc(it.hsn||'540754')+'</td>':'')
       +'<td style="padding:6px 8px;text-align:center;">'+(it.qty||1)+'</td>'
       +'<td style="padding:6px 8px;text-align:right;">'+f(it.unitPrice||0)+'</td>'
+      +_discTd(_lineDisc[i])
       +(gstMode?'<td style="padding:6px 8px;text-align:right;">'+f(lineTax)+'</td>':'')
       +'<td style="padding:6px 8px;text-align:right;font-weight:600;">'+f(lineIncl)+'</td>'
       +'</tr>';
@@ -5687,15 +5745,16 @@ function buildInvoiceHTML(data){
       +(gstMode?'<td style="padding:6px 8px;">9965</td>':'')
       +'<td style="padding:6px 8px;text-align:center;">1</td>'
       +'<td style="padding:6px 8px;text-align:right;">'+f(storedShipping)+'</td>'
+      +_discTd(0)
       +(gstMode?'<td style="padding:6px 8px;text-align:right;">'+f(displayShipTaxable)+'</td>':'')
       +'<td style="padding:6px 8px;text-align:right;font-weight:600;">'+f(storedShipping)+'</td>'
       +'</tr>'
     :'';
-  const discColspan=gstMode?6:4;
+  const discColspan=(gstMode?6:4)+(_showDisc?1:0);
   // H3: discount shown above GST summary (pre-tax deduction)
   // v14.50.0: the UPI paise adjustment is part of the discount figure but printed on its own line
-  const _qrAdj=Math.max(0,Math.min(storedDiscount,parseFloat(data.qrAdj)||0)),_manDisc=Math.round((storedDiscount-_qrAdj)*100)/100;
-  const discRow=(_manDisc>0?'<tr><td colspan="'+discColspan+'" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: Discount (pre-GST)</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−'+f(_manDisc)+'</td></tr>':'')
+  const _qrAdj=_qrAdj0,_manDisc=Math.max(0,Math.round((storedDiscount-_qrAdj-_lineDiscSum)*100)/100);
+  const discRow=(_manDisc>0?'<tr><td colspan="'+discColspan+'" style="padding:5px 8px;text-align:right;color:#c0392b;">'+(_showDisc?'Less: Overall discount (pre-GST)':'Less: Discount (pre-GST)')+'</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−'+f(_manDisc)+'</td></tr>':'')
     +(_qrAdj>0?'<tr><td colspan="'+discColspan+'" style="padding:5px 8px;text-align:right;color:#c0392b;">Less: UPI payment adjustment (pre-GST)</td><td style="padding:5px 8px;text-align:right;color:#c0392b;">−'+f(_qrAdj)+'</td></tr>':'');
   const hsnSuit=esc([...new Set(validItems.map(i=>i.hsn||'540754'))].join('/'));
   const gstRows=_isIntra
@@ -5734,7 +5793,7 @@ function buildInvoiceHTML(data){
       </div>
       <div style="text-align:right;">
         <div style="font-size:16px;font-weight:700;color:#5c3d1e;text-transform:uppercase;letter-spacing:1.5px;">${gstMode?'Tax Invoice':'Bill of Supply'}</div>${gstMode&&data.copyLabel?'<div style="font-size:10px;font-weight:700;letter-spacing:.5px;margin-top:2px;">'+esc(data.copyLabel)+'</div>':''}
-        <div style="font-size:12px;color:#555;margin-top:3px;"><strong>${gstMode?'Invoice No.':'Bill No.'}:</strong> ${esc(data.invNo)}</div>
+        <div style="font-size:12px;color:#555;margin-top:3px;"><strong>${gstMode?'Invoice No.':'Bill No.'}:</strong> ${data.invNo}</div>
         <div style="font-size:12px;color:#555;"><strong>Date:</strong> ${fd(data.invDate)}</div>
         <div style="font-size:12px;color:#555;"><strong>FY:</strong> ${data.fy||''}</div>
         ${gstMode?'<div style="font-size:11px;color:#555;margin-top:4px;"><strong>Place of Supply:</strong> '+esc(data.custState||'—')+' ('+getStateCode(data.custState||'')+')</div>':''}
@@ -5760,6 +5819,7 @@ function buildInvoiceHTML(data){
         ${gstMode?'<th style="padding:7px 8px;font-size:10px;text-align:left;">HSN</th>':''}
         <th style="padding:7px 8px;font-size:10px;text-align:center;">Qty</th>
         <th style="padding:7px 8px;font-size:10px;text-align:right;">Unit (₹)</th>
+        ${_showDisc?'<th style="padding:7px 8px;font-size:10px;text-align:right;">Disc (₹)</th>':''}
         ${gstMode?'<th style="padding:7px 8px;font-size:10px;text-align:right;">Taxable</th>':''}
         <th style="padding:7px 8px;font-size:10px;text-align:right;">Amount</th>
       </tr></thead>
@@ -15707,7 +15767,6 @@ async function confirmCleanup() {
 // UPI QR — WALK-IN INVOICE PRINT
 // ═══════════════════════════════════════════
 let _upiQrInv=null;
-let _upiQrWhich=''; // v14.60.1 BUG FIX: was never declared, so in strict mode the QR box crashed before opening
 
 function ensureQRLib(){
   // v14.50.1: the QR library is built into this file, so nothing is downloaded
@@ -15731,19 +15790,7 @@ function openUpiQrModal(inv,which){
 
 function closeUpiQrModal(){
   document.getElementById('upi-qr-modal').classList.remove('open');
-  _upiQrInv=null;_upiQrWhich='';
-}
-// v14.60.1: the QR picture is made at once (the QR library is built in), so the print leaves straight from the tap.
-// iPhone ignores a print, or the jump to Safari, that comes after a wait.
-function _upiQrDataUrl(text,size){
-  const tmp=document.createElement('div');
-  tmp.style.cssText='position:fixed;left:-9999px;top:0;';
-  document.body.appendChild(tmp);
-  try{
-    new QRCode(tmp,{text:text,width:size,height:size,colorDark:'#1a1208',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
-    const canvas=tmp.querySelector('canvas');
-    return canvas?canvas.toDataURL('image/png'):'';
-  }finally{tmp.remove();}
+  _upiQrInv=null;
 }
 
 function buildUpiUrl(){
@@ -15778,19 +15825,30 @@ async function previewUpiQr(){
   }catch(e){prev.innerHTML='<div style="color:#c0392b;font-size:12px;">QR generation failed. Check internet connection.</div>';}
 }
 
-function doUpiQrPrint(){ // v14.60.1: no waiting between the tap and the print
+async function doUpiQrPrint(){
   const inv=_upiQrInv;if(!inv)return;
-  const which=_upiQrWhich;
   const pa=document.getElementById('upi-qr-id').value.trim();
   if(!pa){toast('⚠️ Enter UPI ID');return;}
-  const _am=parseFloat(document.getElementById('upi-qr-amount').value);
-  if(!(isFinite(_am)&&_am>0)){toast('⚠️ Enter an amount above ₹0',5000);return;} // v14.60.2
+  showLoading('Generating QR…');
   try{
-    if(!window.QRCode)throw new Error('QR library missing');
-    let qrDataUrl;
-    try{qrDataUrl=_upiQrDataUrl(buildUpiUrl(),160);}
-    catch(e){toast('⚠️ The details are too long for a QR. Shorten the Payee Name, Transaction Note or Ref.',6000);return;} // v14.60.2
+    await ensureQRLib();
+    // Generate QR as data URL
+    const tmp=document.createElement('div');
+    tmp.style.cssText='position:fixed;left:-9999px;top:0;';
+    document.body.appendChild(tmp);
+    await new Promise((res,rej)=>{
+      try{
+        new QRCode(tmp,{text:buildUpiUrl(),width:160,height:160,colorDark:'#1a1208',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+        setTimeout(res,400);
+      }catch(e){rej(e);}
+    });
+    const canvas=tmp.querySelector('canvas');
+    const img=tmp.querySelector('img');
+    const qrDataUrl=canvas?canvas.toDataURL('image/png'):(img?img.src:'');
+    document.body.removeChild(tmp);
+    hideLoading();
     if(!qrDataUrl){toast('⚠️ QR generation failed');return;}
+    closeUpiQrModal();
     const upiName=document.getElementById('upi-qr-name')?.value.trim()||S.upiName||'';
     const upiPhone=document.getElementById('upi-qr-phone')?.value.trim()||S.upiPhone||'';
     const upiId=pa;
@@ -15809,12 +15867,11 @@ function doUpiQrPrint(){ // v14.60.1: no waiting between the tap and the print
     // Inject QR block just before closing div of invoice
     const injected=invHtml.replace(/(<div style="text-align:center;margin-top:14px[^"]*"[^>]*>[\s\S]*?<\/div>)\s*<\/div>\s*`?$/,
       (m,thankYou)=>thankYou+qrBlock+'</div>');
-    closeUpiQrModal();
-    const _rest=which==='all'?['DUPLICATE FOR TRANSPORTER','TRIPLICATE FOR SUPPLIER'].map(l=>'<div class="print-page">'+getInvHtml(inv,l)+'</div>').join(''):''; // v14.49.1
-    _vcPdocClear();
+    const _rest=_upiQrWhich==='all'?['DUPLICATE FOR TRANSPORTER','TRIPLICATE FOR SUPPLIER'].map(l=>'<div class="print-page">'+getInvHtml(inv,l)+'</div>').join(''):''; // v14.49.1
+    _upiQrWhich='';
     document.getElementById('print-area').innerHTML='<div class="print-page">'+(injected===invHtml?invHtml+qrBlock:injected)+'</div>'+_rest;
     vcPrint('Invoice-'+(inv.invNo||''),true);
-  }catch(e){toast('⚠️ Error: '+e.message);}
+  }catch(e){hideLoading();toast('⚠️ Error: '+e.message);}
 }
 
 // ═══════════════════════════════════════════
@@ -18289,11 +18346,11 @@ function vcSlipsRender(){
   c.innerHTML='<div class="card-title">🧾 Open Order Slips ('+open.length+')</div>'+open.map(s=>'<div class="list-row"><div><div class="list-main">₹'+esc(_sbMoney(s.total))+(s.custName?' · '+esc(s.custName):'')+'</div><div class="list-sub">'+esc(fmtDate(s.date))+' · no bill yet</div></div><div style="display:flex;gap:6px;"><button class="btn btn-o btn-sm" onclick="vcSlipLoad(\''+_vcIdArg(s.id)+'\')">Bill</button><button class="btn btn-d btn-sm" onclick="vcSlipDrop(\''+_vcIdArg(s.id)+'\')">Drop</button></div></div>').join('');
 }
 async function vcMakeOrderSlip(){
-  const ship=parseFloat(document.getElementById('shipping')?.value)||0,disc=parseFloat(document.getElementById('discount')?.value)||0;
+  const ship=parseFloat(document.getElementById('shipping')?.value)||0,_dp=formDiscParts(),disc=_dp.total; // v14.61.0
   const t=slipTotals(items,ship,disc);
   if(!t){toast('⚠️ Add at least one suit with price');return;}
   const custName=(document.getElementById('c-name')?.value||'').trim().slice(0,80);
-  const rec={id:uid(),date:today(),custName,status:'open',invNo:'',shipping:ship,discount:disc,total:t.total,itemsArr:items.filter(i=>(parseFloat(i.unitPrice)||0)>0).map(i=>({...i}))};
+  const rec={id:uid(),date:today(),custName,status:'open',invNo:'',shipping:ship,discount:_dp.overall,total:t.total, /* v14.61.0: overall only, suit discounts ride on itemsArr */ itemsArr:items.filter(i=>(parseFloat(i.unitPrice)||0)>0).map(i=>({...i}))};
   vcxStore('slip',rec);vcxPush();
   _vcActiveSlip=rec.id;
   vcSlipsRender();
@@ -18592,7 +18649,7 @@ function vcPayOpenTake(opts){
     +'<button class="btn btn-p" style="width:100%;" onclick="vcPayMakeQr()">Show QR</button>'
     +'<div id="vc-take-out" style="display:none;text-align:center;margin-top:16px;">'
     +'<div id="vc-take-single">'
-    +'<div style="font-size:13px;color:#636366;">Customer pays</div>'
+    +'<div style="font-size:13px;color:#636366;">Customer pays exactly</div>'
     +'<div id="vc-take-amount" style="font-size:34px;font-weight:700;letter-spacing:-.5px;margin:2px 0 10px;"></div>'
     +'<div id="vc-take-qr" style="display:inline-block;background:#fff;padding:10px;border-radius:12px;"></div>'
     +'<div id="vc-take-payee" style="font-size:13px;color:#636366;margin:6px 0 12px;word-break:break-all;"></div>'
@@ -18606,7 +18663,7 @@ function vcPayOpenTake(opts){
     +'</div></div>');
   m.classList.add('open');
   const pre=payWaPhone(opts.phone); // v14.53.0: opened from the Dashboard with a copied number
-  if(pre){const ph=document.getElementById('vc-take-phone');if(ph)ph.value=payFullNumber(pre);vcPayClipNote('Number filled from what you copied.');}
+  if(pre){const ph=document.getElementById('vc-take-phone');if(ph)ph.value='+'+pre;vcPayClipNote('Number filled from what you copied.');}
   setTimeout(()=>{const ph=document.getElementById('vc-take-phone'),i=document.getElementById(ph&&String(ph.value).trim()?'vc-take-price':'vc-take-phone');if(i)i.focus();},50);
   if(!pre&&!opts.noClip&&_payClipPlat()==='android')vcPayClipAuto();
 }
@@ -18624,7 +18681,7 @@ async function vcPayClipAuto(){
     if(!m||!ph||!m.classList.contains('open')||_vcTakeId)return;
     const d=payClipAutoFill(txt,ph.value,payClaims,Date.now());
     if(!d)return;
-    ph.value=payFullNumber(d);vcPayClipNote('Number filled from what you copied.');
+    ph.value='+'+d;vcPayClipNote('Number filled from what you copied.');
     const p=document.getElementById('vc-take-price');if(p&&(document.activeElement===ph||document.activeElement===document.body))p.focus();
   }catch(e){}
 }
@@ -18636,7 +18693,7 @@ async function vcPayPasteNum(){
   let txt;try{txt=await navigator.clipboard.readText();}catch(e){_payClipFail();return;}
   const r=payClipPaste(txt,ph.value);
   if(!r.ok){toast('⚠️ '+r.msg,5000);return;}
-  ph.value=payFullNumber(r.digits);vcPayClipNote('');
+  ph.value='+'+r.digits;vcPayClipNote('');
   const p=document.getElementById('vc-take-price');if(p)p.focus();
 }
 // Dashboard: iPhone / computer button "Paste number and take payment".
@@ -18684,7 +18741,7 @@ function vcPayReopen(id){
   const c=_payClaim(id);if(!c)return;
   vcPayOpenTake({noClip:true});
   const i=document.getElementById('vc-take-price');if(i)i.value=c.price||'';
-  const ph=document.getElementById('vc-take-phone');if(ph)ph.value=payFullNumber(c.phone);
+  const ph=document.getElementById('vc-take-phone'),pn=payWaPhone(c.phone);if(ph)ph.value=pn?'+'+pn:'';
   _vcTakeId=c.id;vcPayShowQr(c);
 }
 async function vcPayShowQr(c){
@@ -18761,7 +18818,7 @@ function _payImage(src,amount,top,bottom){
   x.font='20px Arial';x.fillText(bottom,W/2,760);
   return cv;
 }
-function _payPartImage(c,i){const p=payParts(c);return i<p.length?_payImage(_payPartCanvas(i),p[i],'Part '+(i+1)+' of '+p.length,'Scan with any UPI app, then pay the next part'):null;}
+function _payPartImage(c,i){const p=payParts(c);return i<p.length?_payImage(_payPartCanvas(i),p[i],'Part '+(i+1)+' of '+p.length+' · pay exactly','Scan with any UPI app, then pay the next part'):null;}
 // Copies one picture inside the tap (iPhone rule). Returns true when the copy started.
 function _payCopyCanvas(cv,okMsg){
   try{
@@ -18778,33 +18835,6 @@ function vcPayCopyPart(i){
   const n=payParts(c).length;
   if(!_payCopyCanvas(_payPartImage(c,i),'Part '+(i+1)+' QR copied. In WhatsApp, long-press the message box, tap Paste, then send.'+(i+1<n?' Then come back for part '+(i+2)+'.':'')))toast('⚠️ This browser cannot copy images. Use Share all instead.',6000);
 }
-// v14.60.2: Share QR / Share all copy the customer's number (for WhatsApp search) and open the share sheet straight from
-// the tap: the pictures become files at once, as iPhone may refuse a share sheet that opens after a wait.
-function _payFileFromCanvas(cv,name){
-  try{
-    const u=cv.toDataURL('image/png'),bin=atob(u.split(',')[1]),arr=new Uint8Array(bin.length);
-    for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
-    return new File([arr],name,{type:'image/png'});
-  }catch(e){return null;}
-}
-function payFullNumber(raw){ // '+' and country code; a 10-digit Indian mobile gets +91, as elsewhere in the app
-  const d=payWaPhone(raw);if(!d)return'';
-  return'+'+(isIndianPhoneKey(d)?'91'+d:d);
-}
-function _payCopyTakeNumber(){
-  const el=document.getElementById('vc-take-phone'),n=payFullNumber(el&&el.value);
-  if(!n)return'';
-  try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(n).catch(()=>{});return n;}}catch(e){}
-  return'';
-}
-function _payShareNow(files,text,fallback){
-  const n=_payCopyTakeNumber();
-  try{
-    const ok=files.length&&navigator.canShare&&navigator.canShare({files});
-    navigator.share(ok?{files,text}:{text}).catch(()=>{});
-  }catch(e){fallback();return;}
-  if(n)toast('Number copied ('+n+'). Paste it in WhatsApp search.',6000);
-}
 function vcPayShareParts(){
   const c=_payClaim(_vcTakeId);if(!c)return;
   const parts=payParts(c),text=payQrMsgSplit(parts,S.upiName,S.upiId);
@@ -18815,7 +18845,13 @@ function vcPayShareParts(){
     toast('QR images saved and message copied. Send them on WhatsApp.',5000);
   };
   if(!cvs.length||!navigator.share){fallback();return;}
-  _payShareNow(cvs.map((cv,i)=>_payFileFromCanvas(cv,'pay-part-'+(i+1)+'.png')).filter(Boolean),text,fallback);
+  Promise.all(cvs.map((cv,i)=>new Promise(res=>cv.toBlob(b=>res(b?new File([b],'pay-part-'+(i+1)+'.png',{type:'image/png'}):null),'image/png')))).then(files=>{
+    files=files.filter(Boolean);
+    try{
+      if(navigator.canShare&&navigator.canShare({files}))navigator.share({files,text}).catch(()=>{});
+      else navigator.share({text}).catch(()=>{});
+    }catch(e){fallback();}
+  });
 }
 function vcPayTakeStatus(){
   const el=document.getElementById('vc-take-status');if(!el||!_vcTakeId)return;
@@ -18846,7 +18882,7 @@ function vcPayShareImage(c){
   x.fillStyle='#ffffff';x.fillRect(0,0,W,H);
   x.fillStyle='#1c1c1e';x.textAlign='center';
   x.font='bold 30px Arial';x.fillText('Vismaad Creations',W/2,60);
-  x.font='24px Arial';x.fillText('Amount to pay',W/2,120);
+  x.font='24px Arial';x.fillText('Pay exactly',W/2,120);
   x.font='bold 56px Arial';x.fillText(_payInr(c.amount),W/2,185);
   try{x.drawImage(src,100,220,400,400);}catch(e){}
   x.font='22px Arial';x.fillStyle='#444';
@@ -18864,8 +18900,13 @@ function vcPayShare(){
     toast('QR image saved and message copied. Send both on WhatsApp.',5000);
   };
   if(!cv||!navigator.share){fallback();return;}
-  const f=_payFileFromCanvas(cv,'pay-vismaad.png');
-  _payShareNow(f?[f]:[],text,fallback);
+  cv.toBlob(b=>{
+    try{
+      const f=new File([b],'pay-vismaad.png',{type:'image/png'});
+      if(navigator.canShare&&navigator.canShare({files:[f]}))navigator.share({files:[f],text}).catch(()=>{});
+      else navigator.share({text}).catch(()=>{});
+    }catch(e){fallback();}
+  },'image/png');
 }
 // v14.51.0: one tap copies the QR image and opens the customer's chat with the message typed in.
 // The copy starts inside the tap (iPhone rule); the chat opens in a new tab so the app stays as it was.
@@ -19121,7 +19162,7 @@ function _payRowHtml(r){
 function vcPayRowMenu(key,btn){
   const r=_payRowByKey(key);if(!r)return;
   const opts=r.utrs.map(u=>({label:'Unlink Ref '+u,fn:()=>vcPayUnlink(u)}));
-  const ph=r.claim?payWaPhone(r.claim.phone):'';if(ph)opts.unshift({label:'Open chat '+payFullNumber(ph),fn:()=>window.open(payWaLink(ph,''),'_blank')}); // v14.51.0
+  const ph=r.claim?payWaPhone(r.claim.phone):'';if(ph)opts.unshift({label:'Open chat +'+ph,fn:()=>window.open(payWaLink(ph,''),'_blank')}); // v14.51.0
   if(r.claim&&!r.pays.length)opts.push({label:'Undo Mark paid',fn:()=>vcPayUnmark(r.claim.id)});
   if(!opts.length)return;
   uiSheet('Payment',opts,btn);
@@ -19208,7 +19249,7 @@ function _payAsk(title,body){
 }
 // Called by generateInvoice before anything is saved. false = stop. null = no payment. {adj,refs,link} = linked payment.
 async function vcPayGate(){
-  const ship=parseFloat(document.getElementById('shipping')?.value)||0,disc=parseFloat(document.getElementById('discount')?.value)||0;
+  const ship=parseFloat(document.getElementById('shipping')?.value)||0,disc=formDiscParts().total; // v14.61.0
   const grand=calcTotals(items,ship,disc).grandIncl;
   if(_vcPayLink){
     const r=vcPayViewNow().toBill.find(x=>x.key===_vcPayLink.key);
@@ -19233,7 +19274,7 @@ function vcPayBilled(inv,pl){
 }
 function vcPayRecalcNote(){
   const sb=document.getElementById('summary-box');if(!sb||!_vcPayLink)return;
-  const ship=parseFloat(document.getElementById('shipping')?.value)||0,disc=parseFloat(document.getElementById('discount')?.value)||0;
+  const ship=parseFloat(document.getElementById('shipping')?.value)||0,disc=formDiscParts().total; // v14.61.0
   if(!items.some(i=>i.unitPrice>0))return;
   const lr=_payRowByKey(_vcPayLink.key);
   const g=calcTotals(items,ship,disc).grandIncl,a=payBillAdj(g,_vcPayLink.paid,payOwnGap(lr&&lr.claim));
