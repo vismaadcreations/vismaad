@@ -3,10 +3,12 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.60.1
+APP: Vismaad Creations v14.60.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 16-Nov-2026 - v14.60.1: CAMERA SCANNER OPENED BEHIND THE EDIT INVOICE WINDOW. No Code.gs or print.html change. Upload index.html only.
+LAST_CHANGE: 16-Nov-2026 - v14.60.2: CAMERA SCANNER STILL HIDDEN BEHIND EDIT INVOICE IN THE IPHONE HOME-SCREEN APP. No Code.gs or print.html change. Upload index.html only.
+(X2) BUG FIX. v14.60.1 fixed it in Safari but not in the home-screen app. Opening the scanner now hides every other open window (Edit Invoice, Batch Ship, bottom sheets); Use This Number, Cancel or ✕ brings it back exactly as it was, typed text kept and the scanned number filled in. The higher layer from v14.60.1 stays.
+PREV_CHANGE: 16-Nov-2026 - v14.60.1: CAMERA SCANNER OPENED BEHIND THE EDIT INVOICE WINDOW. No Code.gs or print.html change. Upload index.html only.
 (X1) BUG FIX. Tapping 📷 next to Tracking Number in Edit Invoice opened the camera behind the edit window (both on the same layer, and the edit window comes later in the file), so it was only visible after closing Edit Invoice. The scanner window now sits on its own higher layer (300), above every invoice, edit and bottom-sheet window and below the loading screen, so it opens on top wherever it is started from.
 PREV_CHANGE: 14-Nov-2026 - v14.60.0: INVOICE PRINTING FROM THE IPHONE HOME-SCREEN APP FIXED, NEW SEND PDF ON WHATSAPP. No Code.gs or print.html change. Upload index.html only.
 (W1) BUG FIX. From the home-screen app, Print / Save Invoice as PDF, Print Invoice (Original, Duplicate, Triplicate, All three) and every other bill print did nothing. _vcIsIosApp only read navigator.standalone, which iPhone sets only for pages with Apple's old home-screen meta line; this app installs through manifest.json, so it was taken for Safari and used window.print(), which iPhone ignores there. It now also counts the full-screen display mode (standalone or fullscreen) on iPhone/iPad, so every print goes to Safari through print.html as planned in v14.58.0. Android and computers unchanged (checked only on iPhone/iPad). The same check also fixes labels and file saving from the home-screen app.
@@ -15974,10 +15976,26 @@ function _loadScript(src){
   });
 }
 
+// v14.60.2: in the iPhone home-screen app the camera stayed hidden behind the Edit Invoice window even on a
+// higher layer. While the scanner is open, every other open window (modals and bottom sheets) is hidden with
+// visibility, so its contents, typed text and scroll position stay as they were; closing the scanner restores it.
+let _scanHidden=[];
+function _scanHideOthers(){
+  document.querySelectorAll('.modal-bg.open,.ui-sheet-bg').forEach(el=>{
+    if(el.id==='scan-modal'||_scanHidden.some(h=>h.el===el))return;
+    _scanHidden.push({el,vis:el.style.visibility});
+    el.style.visibility='hidden';
+  });
+}
+function _scanRestoreOthers(){
+  _scanHidden.forEach(h=>{try{h.el.style.visibility=h.vis;}catch(e){}});
+  _scanHidden=[];
+}
 function openTrackScanner(targetId){
   _scanTarget=targetId;_scanHit=null;_scanStop=false;
   const res=document.getElementById('scan-result');if(res)res.style.display='none';
   const acc=document.getElementById('scan-accept');if(acc)acc.style.display='none';
+  _scanHideOthers();
   document.getElementById('scan-modal').classList.add('open');
   _scanSay('Starting camera…','Hold the barcode on the receipt inside the frame.');
   _startScanCamera();
@@ -16185,6 +16203,7 @@ function closeTrackScanner(){
   if(_scanStream){try{_scanStream.getTracks().forEach(t=>t.stop());}catch(e){}_scanStream=null;}
   const v=document.getElementById('scan-video');if(v)v.srcObject=null;
   document.getElementById('scan-modal').classList.remove('open');
+  _scanRestoreOthers();
   _scanHit=null;_scanTarget=null;
 }
 
