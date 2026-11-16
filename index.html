@@ -6,10 +6,14 @@
 APP: Vismaad Creations v14.60.2
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 16-Nov-2026 - v14.60.2: CAMERA SCANNER STILL HIDDEN BEHIND EDIT INVOICE IN THE IPHONE HOME-SCREEN APP. No Code.gs or print.html change. Upload index.html only.
-(X2) BUG FIX. v14.60.1 fixed it in Safari but not in the home-screen app. Opening the scanner now hides every other open window (Edit Invoice, Batch Ship, bottom sheets); Use This Number, Cancel or ✕ brings it back exactly as it was, typed text kept and the scanned number filled in. The higher layer from v14.60.1 stays.
-PREV_CHANGE: 16-Nov-2026 - v14.60.1: CAMERA SCANNER OPENED BEHIND THE EDIT INVOICE WINDOW. No Code.gs or print.html change. Upload index.html only.
-(X1) BUG FIX. Tapping 📷 next to Tracking Number in Edit Invoice opened the camera behind the edit window (both on the same layer, and the edit window comes later in the file), so it was only visible after closing Edit Invoice. The scanner window now sits on its own higher layer (300), above every invoice, edit and bottom-sheet window and below the loading screen, so it opens on top wherever it is started from.
+LAST_CHANGE: 16-Nov-2026 - v14.60.2: print.html v1.2 ONLY (no change to this file's code). Upload print.html; index.html for the version number. Delete print-test.html from GitHub.
+(Y1) BUG FIX in print.html: from the iPhone, 2 Sales Book pages still came out on 4 sheets. Measured on his iPhone 16 Pro with print-test.html: Safari's A4 sheet holds 920 px of height at 660 px width, and a turned page at 90% was 956 px. Turned pages are now shrunk to 84% (892 x 616 px, about 7 mm to spare). The script fingerprint in the code lock is updated. Computers and Android are unaffected (they do not use print.html).
+PREV_CHANGE: 16-Nov-2026 - v14.60.1: EXPECTED DELIVERY WAS MISSING FROM THE DISPATCH WHATSAPP MESSAGE. No Code.gs or print.html change. Upload index.html only.
+(X1) BUG FIX. Code.gs hands a date cell back as long text ("Sat Nov 14 2026 00:00:00 GMT+0530 ..."). Sync copied it onto the invoice as is, then buildDeliveryWindowText added 'T00:00:00', got an invalid date and silently dropped the "Expected delivery between ..." line. parseInvoiceRow and both sync merge branches now store dispatchDate as YYYY-MM-DD (toISODate); buildDeliveryWindowText reads any date shape and counts from today when the date is blank or unreadable, as a blank one always did.
+(X2) toISODate reads the long sheet form by the date written in it, so a phone set to another time zone cannot shift it a day. Also helps inventory and settings dates, which already go through it.
+(X3) "X days ahead of schedule!" in the delivered message now counts against the LAST day of the range quoted at dispatch for that parcel's courier (all couriers on the bill when no parcel is named), not dispatch + 10 days for every courier. New deliveryWindowRange and deliveryAheadDays; the line had the same long-date fault and was also being dropped.
+(X5) SECURITY (Low x3). deliveryAheadDays says nothing when the delivered date is before dispatch (a bad courier date read "46343 days ahead"). toISODate rejects impossible dates (30 Feb, 31 Apr, month 13) through _ymdReal instead of passing or rolling them into the next month. deliveryWindowRange reads only its own courier keys, so a code like __proto__ cannot print "NaN undefined".
+(X4) One-time repair normaliseDispatchDatesOnce (flag vc_disp_date_norm_v1) fixes dispatch dates already saved on the device, locally only, edit times untouched.
 PREV_CHANGE: 14-Nov-2026 - v14.60.0: INVOICE PRINTING FROM THE IPHONE HOME-SCREEN APP FIXED, NEW SEND PDF ON WHATSAPP. No Code.gs or print.html change. Upload index.html only.
 (W1) BUG FIX. From the home-screen app, Print / Save Invoice as PDF, Print Invoice (Original, Duplicate, Triplicate, All three) and every other bill print did nothing. _vcIsIosApp only read navigator.standalone, which iPhone sets only for pages with Apple's old home-screen meta line; this app installs through manifest.json, so it was taken for Safari and used window.print(), which iPhone ignores there. It now also counts the full-screen display mode (standalone or fullscreen) on iPhone/iPad, so every print goes to Safari through print.html as planned in v14.58.0. Android and computers unchanged (checked only on iPhone/iPad). The same check also fixes labels and file saving from the home-screen app.
 (W2) NEW. Share Invoice box: 📎 Send PDF on WhatsApp. Makes the customer's copy (Original for Recipient on a Tax Invoice) as an A4 PDF inside the app (_vcInvPdfBlob: hidden frame with the print styles, built-in PDF tools), then 📤 Share PDF opens the share sheet: pick WhatsApp, then the customer. WhatsApp lets no app attach a file to a number directly. Computers that cannot share files: Save PDF and open the customer's chat (number from the bill). File name Invoice-<number>.pdf. One PDF at a time; a cancelled share does nothing.
@@ -1120,7 +1124,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
 
 <!-- ════ PARTNER REPORT MODAL (v14.28.0) ════ -->
 <!-- ════ TRACKING NUMBER SCANNER (v14.36.0 D4) ════ -->
-<div class="modal-bg" id="scan-modal" style="z-index:300;">
+<div class="modal-bg" id="scan-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeTrackScanner()">✕</button>
     <div class="modal-title">📷 Scan Tracking Number</div>
@@ -3413,14 +3417,25 @@ function today(){
 // The sheet can round-trip dateAdded as an ISO datetime, a dd-mmm-yyyy display string,
 // or a localized string; the price-list date filter compares against <input type=date>
 // (always YYYY-MM-DD), so everything must be coerced to that shape first.
+// v14.60.1: '2026-02-30' is not a date. Before, it passed as is or rolled into March.
+function _ymdReal(y,m,d){
+  y=+y;m=+m;d=+d;
+  if(!(m>=1&&m<=12&&d>=1))return'';
+  if(d>new Date(Date.UTC(y,m,0)).getUTCDate())return'';
+  return String(y).padStart(4,'0')+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+}
 function toISODate(d){
   if(!d)return'';
   const str=String(d).trim();
-  if(/^\d{4}-\d{2}-\d{2}$/.test(str))return str;                 // already ISO date
-  if(/^\d{4}-\d{2}-\d{2}T/.test(str))return str.slice(0,10);     // ISO datetime
+  let m=str.match(/^(\d{4})-(\d{2})-(\d{2})(T|$)/);            // ISO date or ISO datetime
+  if(m)return _ymdReal(m[1],m[2],m[3]);
   const MONTHS={jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
-  let m=str.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);           // dd-mmm-yyyy
-  if(m){const mm=MONTHS[m[2].toLowerCase()];if(mm)return m[3]+'-'+mm+'-'+String(m[1]).padStart(2,'0');}
+  m=str.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);               // dd-mmm-yyyy
+  if(m){const mm=MONTHS[m[2].toLowerCase()];if(mm)return _ymdReal(m[3],mm,m[1]);}
+  // v14.60.1: Code.gs long form "Sat Nov 14 2026 00:00:00 GMT+0530 ..." read as written, so a phone
+  // set to another time zone cannot shift it a day. An unknown month falls through to ''.
+  m=str.match(/^[A-Za-z]{3},? ([A-Za-z]{3}) (\d{1,2}) (\d{4})\b/);
+  if(m){const mm=MONTHS[m[1].toLowerCase()];return mm?_ymdReal(m[3],mm,m[2]):'';}
   const dt=new Date(str);
   if(!isNaN(dt.getTime())){
     return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
@@ -3855,6 +3870,8 @@ function parseInvoiceRow(r){
   if(r.itemCount!==undefined&&r.itemCount!=='')out.itemCount=parseInt(r.itemCount)||0;
   out.itemsArr=expandItems(r.itemsArr);
   out.courierOverride=expandCourierOverride(r.courierOverride);
+  // v14.60.1: the sheet hands dispatchDate back as long text; keep it YYYY-MM-DD like every stored date
+  if(r.dispatchDate)out.dispatchDate=toISODate(r.dispatchDate)||r.dispatchDate;
   return out;
 }
 
@@ -4009,7 +4026,7 @@ async function syncAll(manual){
             if(r.custWhatsapp)local.custWhatsapp=r.custWhatsapp;
             if(r.custPin)local.custPin=r.custPin;
             if(r.custState)local.custState=r.custState;
-            if(r.dispatchDate)local.dispatchDate=r.dispatchDate;
+            if(r.dispatchDate)local.dispatchDate=toISODate(r.dispatchDate)||r.dispatchDate; // v14.60.1
             local.stockKeptOnVoid=_pBool(r.stockKeptOnVoid); // v14.46.0
           } else if(!locTime&&!remTime){
             // No timestamps on either side — remote wins only if not locally shipped
@@ -4031,7 +4048,7 @@ async function syncAll(manual){
             // v14.35.0 A4: fill-blank only — a void status is never reverted to Active here, since
             // with no timestamps on either side there is nothing to say which change came later.
             if(r.invoiceStatus&&r.invoiceStatus!=='Active'&&(local.invoiceStatus||'Active')==='Active')local.invoiceStatus=r.invoiceStatus;
-            if(r.dispatchDate&&!local.dispatchDate)local.dispatchDate=r.dispatchDate;
+            if(r.dispatchDate&&!local.dispatchDate)local.dispatchDate=toISODate(r.dispatchDate)||r.dispatchDate; // v14.60.1
             if(r.custWhatsapp&&!local.custWhatsapp)local.custWhatsapp=r.custWhatsapp;
             if(r.custPin&&!local.custPin)local.custPin=r.custPin;
             // Merge itemsArr DS fields if local has none tagged and remote has some
@@ -4671,6 +4688,7 @@ function initContinue(){
     // numeric-year store by the time the delivery/festival popups fire after that sync.
     normaliseMsgLogOnce();
     normaliseInvDatesOnce(); // v14.41.0
+    normaliseDispatchDatesOnce(); // v14.60.1
     setTimeout(()=>syncAll(),1000);
     // Outreach — popups fire inside syncAll() after remote PopupState is merged
     setTimeout(()=>{
@@ -4872,7 +4890,7 @@ async function completeSetup(){
     lsSet('vc_s',S);gsWriteConfirmed(SHEETS.settings,settingsForSheet()).then(ok=>{if(!ok)toast('⚠️ Settings saved locally but sheet sync failed — tap sync to retry');});
   }
   const el=document.getElementById('setup-screen');if(el)el.style.display='none';
-  normaliseMsgLogOnce();normaliseInvDatesOnce();
+  normaliseMsgLogOnce();normaliseInvDatesOnce();normaliseDispatchDatesOnce();
   applyGSTMode();loadSettings();setInvNumber();setDates();addItem();renderDashboard();loadAssetThumbs();
   setTimeout(()=>syncAll(),1000);
   toast('✅ Setup complete! Welcome to Vismaad Creations');
@@ -10553,28 +10571,25 @@ function getFestivalMessage(festKey,custName,approx,inv,trackNo,trackIndex,total
     // Days early calculation — for this specific tracking number if provided, else earliest
     let daysEarlyLine='';
     try{
+      // v14.60.1: measured against the last day of the range quoted in the dispatch message,
+      // for this parcel's courier (or all couriers on the bill when no parcel is named).
       const dispRaw=inv&&inv.dispatchDate;
       if(dispRaw){
-        const promised=new Date(dispRaw+'T00:00:00');
-        promised.setDate(promised.getDate()+10);
-        let deliveredDate=null;
+        let deliveredIso='',nos=[];
         if(trackNo&&tdGet(trackNo)){
-          const td=tdGet(trackNo);
-          if(td.deliveredOn)deliveredDate=new Date(td.deliveredOn+'T00:00:00');
+          nos=[String(trackNo).trim()];
+          deliveredIso=toISODate(tdGet(trackNo).deliveredOn);
         } else {
-          const trackNos=(inv&&inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
-          trackNos.forEach(t=>{
+          nos=(inv&&inv.tracking||'').split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
+          nos.forEach(t=>{
             const td=tdGet(t);
-            if(td&&td.deliveredOn){
-              const d=new Date(td.deliveredOn+'T00:00:00');
-              if(!deliveredDate||d<deliveredDate)deliveredDate=d;
-            }
+            const d=td?toISODate(td.deliveredOn):'';
+            if(d&&(!deliveredIso||d<deliveredIso))deliveredIso=d;
           });
         }
-        if(deliveredDate){
-          const diff=Math.round((promised-deliveredDate)/(864e5));
-          if(diff>0)daysEarlyLine=' — '+diff+' day'+(diff>1?'s':'')+' ahead of schedule!';
-        }
+        const groups=nos.length?groupTrackingByCourier(nos,inv.dispatchMethod,inv.courierOverride):[];
+        const diff=deliveryAheadDays(dispRaw,deliveredIso,groups);
+        if(diff>0)daysEarlyLine=' — '+diff+' day'+(diff>1?'s':'')+' ahead of schedule!';
       }
     }catch(e){}
     let deliveryLine;
@@ -10705,6 +10720,22 @@ function normaliseInvDatesOnce(){
     if(n){lsSet('vc_stk',inventory);console.log('v14.41.0 normaliseInvDatesOnce: fixed',n,'date value(s)');}
     lsSet('vc_inv_date_norm_v1','1');
   }catch(e){console.warn('normaliseInvDatesOnce failed',e);}
+}
+// v14.60.1: one-time repair of dispatch dates already saved on this device as long sheet text.
+// Saved locally only, edit times untouched, so sync order is not disturbed.
+function normaliseDispatchDatesOnce(){
+  if(lsGet('vc_disp_date_norm_v1',null)==='1')return;
+  try{
+    let n=0;
+    (invoices||[]).forEach(inv=>{
+      const v=inv&&inv.dispatchDate;if(!v)return;
+      if(/^\d{4}-\d{2}-\d{2}$/.test(String(v)))return;
+      const iso=toISODate(v);
+      if(iso){inv.dispatchDate=iso;n++;}
+    });
+    if(n){lsSet('vc_inv',invoices.map(inv=>{const s={...inv};delete s.html;return s;}));console.log('v14.60.1 normaliseDispatchDatesOnce: fixed',n);}
+    lsSet('vc_disp_date_norm_v1','1');
+  }catch(e){console.warn('normaliseDispatchDatesOnce failed',e);}
 }
 function normaliseMsgLogOnce(){
   if(lsGet('vc_msglog_year_norm_v1',null))return;
@@ -15976,26 +16007,10 @@ function _loadScript(src){
   });
 }
 
-// v14.60.2: in the iPhone home-screen app the camera stayed hidden behind the Edit Invoice window even on a
-// higher layer. While the scanner is open, every other open window (modals and bottom sheets) is hidden with
-// visibility, so its contents, typed text and scroll position stay as they were; closing the scanner restores it.
-let _scanHidden=[];
-function _scanHideOthers(){
-  document.querySelectorAll('.modal-bg.open,.ui-sheet-bg').forEach(el=>{
-    if(el.id==='scan-modal'||_scanHidden.some(h=>h.el===el))return;
-    _scanHidden.push({el,vis:el.style.visibility});
-    el.style.visibility='hidden';
-  });
-}
-function _scanRestoreOthers(){
-  _scanHidden.forEach(h=>{try{h.el.style.visibility=h.vis;}catch(e){}});
-  _scanHidden=[];
-}
 function openTrackScanner(targetId){
   _scanTarget=targetId;_scanHit=null;_scanStop=false;
   const res=document.getElementById('scan-result');if(res)res.style.display='none';
   const acc=document.getElementById('scan-accept');if(acc)acc.style.display='none';
-  _scanHideOthers();
   document.getElementById('scan-modal').classList.add('open');
   _scanSay('Starting camera…','Hold the barcode on the receipt inside the frame.');
   _startScanCamera();
@@ -16203,7 +16218,6 @@ function closeTrackScanner(){
   if(_scanStream){try{_scanStream.getTracks().forEach(t=>t.stop());}catch(e){}_scanStream=null;}
   const v=document.getElementById('scan-video');if(v)v.srcObject=null;
   document.getElementById('scan-modal').classList.remove('open');
-  _scanRestoreOthers();
   _scanHit=null;_scanTarget=null;
 }
 
@@ -16249,17 +16263,26 @@ function groupTrackingByCourier(trackNos,dispatchMethod,courierOverride){
 // Mixed-courier invoices take the WIDEST window (earliest min, latest max) — the customer has
 // everything only when the slowest parcel arrives, but the first may come much sooner.
 const DELIVERY_WINDOW_DAYS={indiapost:[4,9],dtdc:[2,5],bluedart:[2,5],_default:[3,8]};
+function deliveryWindowRange(groups){
+  let lo=null,hi=null;
+  (groups||[]).forEach(function(g){
+    const w=(g&&Object.prototype.hasOwnProperty.call(DELIVERY_WINDOW_DAYS,g.courierCode)&&DELIVERY_WINDOW_DAYS[g.courierCode])||DELIVERY_WINDOW_DAYS._default; // v14.60.1: own keys only
+    if(lo===null||w[0]<lo)lo=w[0];
+    if(hi===null||w[1]>hi)hi=w[1];
+  });
+  if(lo===null){lo=DELIVERY_WINDOW_DAYS._default[0];hi=DELIVERY_WINDOW_DAYS._default[1];}
+  return[lo,hi];
+}
+// v14.60.1: a date from the sheet arrived as long text, dispatchDate+'T00:00:00' became an
+// invalid date and the line was silently dropped. Any stored shape is now read through
+// toISODate; a blank or unreadable date counts from today, as a blank one always did.
 function buildDeliveryWindowText(dispatchDate,groups){
   try{
-    let lo=null,hi=null;
-    (groups||[]).forEach(function(g){
-      const w=DELIVERY_WINDOW_DAYS[g.courierCode]||DELIVERY_WINDOW_DAYS._default;
-      if(lo===null||w[0]<lo)lo=w[0];
-      if(hi===null||w[1]>hi)hi=w[1];
-    });
-    if(lo===null){lo=DELIVERY_WINDOW_DAYS._default[0];hi=DELIVERY_WINDOW_DAYS._default[1];}
-    const base=dispatchDate?new Date(dispatchDate+'T00:00:00'):new Date();
-    if(isNaN(base.getTime()))return'';
+    const r=deliveryWindowRange(groups),lo=r[0],hi=r[1];
+    const iso=toISODate(dispatchDate);
+    let base=iso?new Date(iso+'T00:00:00'):new Date();
+    if(isNaN(base.getTime()))base=new Date();
+    base.setHours(0,0,0,0);
     const d1=new Date(base.getTime());d1.setDate(d1.getDate()+lo);
     const d2=new Date(base.getTime());d2.setDate(d2.getDate()+hi);
     const dd=function(d){return String(d.getDate()).padStart(2,'0');};
@@ -16274,6 +16297,20 @@ function buildDeliveryWindowText(dispatchDate,groups){
       :dd(d1)+' '+mon(d1)+' '+d1.getFullYear()+' and '+dd(d2)+' '+mon(d2)+' '+d2.getFullYear();
     return'Expected delivery between '+txt+'.';
   }catch(e){return'';}
+}
+// v14.60.1: whole days the parcel arrived BEFORE the last day of the range we quoted
+// (option 2). Was dispatch + 10 days for every courier. 0 when on time, late, or a date is missing.
+function deliveryAheadDays(dispatchDate,deliveredOn,groups){
+  try{
+    const a=toISODate(dispatchDate),b=toISODate(deliveredOn);
+    if(!a||!b)return 0;
+    const end=new Date(a+'T00:00:00');end.setDate(end.getDate()+deliveryWindowRange(groups)[1]);
+    const got=new Date(b+'T00:00:00');
+    if(isNaN(end.getTime())||isNaN(got.getTime()))return 0;
+    if(b<a)return 0; // delivered before it was sent: a bad courier date, say nothing
+    const diff=Math.round((end-got)/864e5);
+    return diff>0?diff:0;
+  }catch(e){return 0;}
 }
 
 // Build tracking instruction text for WhatsApp messages (initial dispatch)
