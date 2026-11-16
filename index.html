@@ -3,10 +3,14 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.60.2
+APP: Vismaad Creations v14.61.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 16-Nov-2026 - v14.60.2: print.html v1.2 ONLY (no change to this file's code). Upload print.html; index.html for the version number. Delete print-test.html from GitHub.
+LAST_CHANGE: 16-Nov-2026 - v14.61.0: PAYMENT REMINDER BUTTON + PRINT PAGE ALWAYS FRESH. No Code.gs change (the remindedMs column is added to PayClaims on first save). Upload index.html AND print.html (v1.3).
+(Z1) NEW. Payments → Waiting for bank: 🔔 Remind on every entry. Opens the customer's WhatsApp chat (or WhatsApp to choose the chat when no number was saved) with: "Hi, just a gentle reminder that we are holding the product you selected. If you have changed your mind, please let us know so that we can offer it to other customers who are interested and waiting to buy it. Thank you! - Vismaad Creations" (payRemindMsg; no amount, the QR message gave it). The chat opens inside the tap so the phone does not block it.
+(Z2) The entry then shows "🔔 Reminded 5 min ago" (_payAgo) on both phones. Stored on the claim as remindedMs, a time in milliseconds: a number, because Google Sheets turns date text into a date cell. Not marked when the pop-up was blocked. SECURITY (Low): _payAgo reads plain digits only, so a hand-edited sheet value like 0x10 or 1e12 shows nothing instead of a wrong age.
+(Z3) PRINT. Sales Book still came out on 4 sheets after print.html v1.2 was uploaded, while v1.2 laid it out at 616 x 892 px with the app's real print payload (fits the measured 920 px). Most likely an old print.html kept by Safari or GitHub Pages. print.html is now opened as print.html?v=1.3 (_VC_PRINT_VER, bump with print.html) so a new upload is always fetched, and print.html v1.3 shows "Print page v1.3" in its yellow bar on screen.
+PREV_CHANGE: 16-Nov-2026 - v14.60.2: print.html v1.2 ONLY (no change to this file's code). Upload print.html; index.html for the version number. Delete print-test.html from GitHub.
 (Y1) BUG FIX in print.html: from the iPhone, 2 Sales Book pages still came out on 4 sheets. Measured on his iPhone 16 Pro with print-test.html: Safari's A4 sheet holds 920 px of height at 660 px width, and a turned page at 90% was 956 px. Turned pages are now shrunk to 84% (892 x 616 px, about 7 mm to spare). The script fingerprint in the code lock is updated. Computers and Android are unaffected (they do not use print.html).
 PREV_CHANGE: 16-Nov-2026 - v14.60.1: EXPECTED DELIVERY WAS MISSING FROM THE DISPATCH WHATSAPP MESSAGE. No Code.gs or print.html change. Upload index.html only.
 (X1) BUG FIX. Code.gs hands a date cell back as long text ("Sat Nov 14 2026 00:00:00 GMT+0530 ..."). Sync copied it onto the invoice as is, then buildDeliveryWindowText added 'T00:00:00', got an invalid date and silently dropped the "Expected delivery between ..." line. parseInvoiceRow and both sync merge branches now store dispatchDate as YYYY-MM-DD (toISODate); buildDeliveryWindowText reads any date shape and counts from today when the date is blank or unreadable, as a blank one always did.
@@ -2950,6 +2954,23 @@ function payClipPlatform(ua,touch){
   return'other';
 }
 function payWaLink(phone,text){return'https://wa.me/'+payWaPhone(phone)+'?text='+encodeURIComponent(text||'');}
+// v14.61.0 PAYMENT REMINDER. The QR message already gave the amount, so the reminder only says the product is held.
+function payRemindMsg(){
+  return'Hi, just a gentle reminder that we are holding the product you selected. If you have changed your mind, please let us know so that we can offer it to other customers who are interested and waiting to buy it. Thank you! - Vismaad Creations';
+}
+// To the saved number; with none, wa.me opens WhatsApp to choose the chat.
+function payRemindLink(c){return payWaLink(c&&c.phone,payRemindMsg());}
+// "5 min ago". ms: a time in milliseconds (the sheet hands it back as text). '' when unreadable.
+// Plain digits only: Number() would also read "0x10" or "1e12" from a hand-edited sheet.
+function _payAgo(ms,nowMs){
+  const raw=String(ms==null?'':ms).trim();if(!/^\d{1,15}$/.test(raw))return'';
+  const t=Number(raw);if(t<=0)return'';
+  const m=Math.floor(Math.max(0,(nowMs||Date.now())-t)/60000);
+  if(m<1)return'just now';
+  if(m<60)return m+' min ago';
+  const h=Math.floor(m/60);if(h<24)return h+' h ago';
+  const d=Math.floor(h/24);return d+(d===1?' day ago':' days ago');
+}
 function payQrMsg(amount,upiName,upiId){
   return'Please pay exactly '+_payInr(amount)+' by UPI to '+(upiName||'')+' ('+(upiId||'')+'). Scan the QR, or pay to the UPI ID with this exact amount. - Vismaad Creations';
 }
@@ -6390,6 +6411,7 @@ function _vcOpenPage(url){
 // The print is packed into the link of print.html (uploaded next to index.html) and iPhone opens it in Safari,
 // which prints it by itself. Print Lab v1.0/1.1 (12-Nov-2026): only this way worked; links up to 2 MB arrived whole.
 const _VC_LINK_MAX=1800000;
+const _VC_PRINT_VER='1.3'; // v14.61.0: bump with print.html, so Safari and GitHub Pages fetch the new copy, never an old one
 const _VC_IMG_RE=/data:image\/(?:png|jpe?g|gif|webp|svg\+xml);base64,[A-Za-z0-9+\/=]+/g;
 function _vcPrintPayload(name){
   _vcPdocBeforePrint(); // same clean-up a real print does
@@ -6409,7 +6431,7 @@ function _vcB64u(str){
 }
 function _vcSafariPrint(name){
   let link;
-  try{link=new URL('print.html',location.href).href.split('#')[0]+'#'+_vcB64u(JSON.stringify(_vcPrintPayload(name)));}
+  try{link=new URL('print.html?v='+_VC_PRINT_VER,location.href).href.split('#')[0]+'#'+_vcB64u(JSON.stringify(_vcPrintPayload(name)));}
   catch(e){console.warn('print link',e);toast('⚠️ Could not prepare the print. Please try again.',5000);return;}
   if(link.length>_VC_LINK_MAX){toast('⚠️ This print is too big to send to Safari. Use Save as PDF on the next page.',6000);_vcOpenSavePdfPage(name);return;}
   if(_vcIsIosApp()){const u='x-safari-'+link;const w=window.open(u,'_blank');if(!w)location.href=u;return;}
@@ -19063,6 +19085,13 @@ function vcPayUnlink(utr){
   const u=payCleanUtr(utr),r=_payRec(u);if(!r||r.invId)return;
   _paySetRec(u,{claimId:''});vcxPush();vcPayRefresh();
 }
+// v14.61.0: opens the chat first, inside the tap, so the phone does not block it as a pop-up. Kept as a
+// time in milliseconds (a number), because Google Sheets would turn a date text into a date cell.
+function vcPayRemind(id){
+  const c=_payClaim(id);if(!c)return;
+  if(!window.open(payRemindLink(c),'_blank')){toast('⚠️ Allow pop-ups for this app and try again.',5000);return;}
+  _paySetClaim(id,{remindedMs:Date.now()});vcxPush();vcPayRefresh();
+}
 function vcPayCancelClaim(id){
   showConfirmModal('Cancel this sale?','The customer has not paid and will not pay this amount. The QR amount stays blocked for 5 days so a late payment is not mistaken for another sale.',()=>{_paySetClaim(id,{status:'cancelled'});vcxPush();vcPayRefresh();},null);
 }
@@ -19173,7 +19202,7 @@ function vcPayRender(){
     +'<div id="vc-pay-paste-box" style="display:none;margin-top:10px;"><div class="fg" style="margin-bottom:8px;"><textarea id="vc-pay-paste" rows="4" maxlength="1000" placeholder="INR … credited A/c no. XX'+esc(vcPayAcct())+' …" aria-label="Bank SMS"></textarea></div><button class="btn btn-o btn-sm" onclick="vcPayPaste()">Add</button></div></div>';
   const dup=payDupAmounts(v); // v14.50.1 fix 10
   if(dup.length)h+='<div class="card" style="background:#fff8e1;border:1px solid #f5c26b;font-size:13px;color:#7a5200;line-height:1.5;">⚠️ Two waiting sales have the same amount: '+dup.map(x=>esc(_payInr(x))).join(', ')+'. This can happen when both phones make a QR at the same moment. When it is paid, link it by hand, or cancel one sale and make a new QR.</div>';
-  h+='<div class="card">'+head('⏳ Waiting for bank',v.waiting.length)+(v.waiting.length?v.waiting.slice().reverse().map(c=>'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="flex:1 1 200px;"><div class="list-main">'+_payWaitHead(c)+'</div><div class="list-sub">'+esc(_payTimeTxt(c.createdAt))+' · price '+esc(_payInr(c.price))+(payWaPhone(c.phone)?' · +'+esc(payWaPhone(c.phone)):'')+'</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-o btn-sm" onclick="vcPayReopen(\''+_vcIdArg(c.id)+'\')">QR</button><button class="btn btn-o btn-sm" onclick="vcPayMarkModal(\''+_vcIdArg(c.id)+'\')">Mark paid</button><button class="btn btn-d btn-sm" onclick="vcPayCancelClaim(\''+_vcIdArg(c.id)+'\')">Cancel</button></div></div>').join(''):'<div class="list-sub" style="padding:8px 0;">Nothing waiting.</div>')+'</div>';
+  h+='<div class="card">'+head('⏳ Waiting for bank',v.waiting.length)+(v.waiting.length?v.waiting.slice().reverse().map(c=>'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="flex:1 1 200px;"><div class="list-main">'+_payWaitHead(c)+'</div><div class="list-sub">'+esc(_payTimeTxt(c.createdAt))+' · price '+esc(_payInr(c.price))+(payWaPhone(c.phone)?' · +'+esc(payWaPhone(c.phone)):'')+'</div>'+(_payAgo(c.remindedMs)?'<div class="list-sub" style="color:#B26A00;">🔔 Reminded '+esc(_payAgo(c.remindedMs))+'</div>':'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-o btn-sm" onclick="vcPayRemind(\''+_vcIdArg(c.id)+'\')">🔔 Remind</button><button class="btn btn-o btn-sm" onclick="vcPayReopen(\''+_vcIdArg(c.id)+'\')">QR</button><button class="btn btn-o btn-sm" onclick="vcPayMarkModal(\''+_vcIdArg(c.id)+'\')">Mark paid</button><button class="btn btn-d btn-sm" onclick="vcPayCancelClaim(\''+_vcIdArg(c.id)+'\')">Cancel</button></div></div>').join(''):'<div class="list-sub" style="padding:8px 0;">Nothing waiting.</div>')+'</div>';
   h+='<div class="card">'+head('✅ Received, not billed',v.toBill.length)+(v.toBill.length?v.toBill.slice().reverse().map(_payRowHtml).join(''):'<div class="list-sub" style="padding:8px 0;">Everything received is billed.</div>')+'</div>';
   if(v.notSale.length)h+='<details class="card collapse-card"><summary class="collapse-summary"><span class="card-title" style="margin:0;display:inline;">Not a sale ('+v.notSale.length+')</span><span class="collapse-chevron">▾</span></summary><div style="margin-top:8px;">'+v.notSale.slice().reverse().map(p=>'<div class="list-row"><div><div class="list-main">'+esc(_payInr(p.amount))+'</div><div class="list-sub">'+esc(_payTimeTxt(p.txnAt))+' · Ref '+esc(p.utr)+' · '+esc(PAY_NS[p.nsReason]||'Other')+(p.nsNote?': '+esc(p.nsNote):'')+'</div></div><button class="btn btn-o btn-sm" onclick="vcPayNotSaleUndo(\''+p.utr+'\')">Undo</button></div>').join('')+'</div></details>';
   const recent=v.done.filter(r=>r.date>=new Date(Date.now()-30*86400000).toISOString().slice(0,10));
