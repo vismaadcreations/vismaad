@@ -6,8 +6,8 @@
 APP: Vismaad Creations v14.60.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 16-Nov-2026 - v14.60.1: print.html v1.2 ONLY (no change to this file's code). Upload print.html; index.html for the version number.
-(X1) BUG FIX in print.html: on iPhone the Sales Book page still spilled its right-hand strip (SALES BOOK title, FY / Volume / Page, edge of Remarks) onto an extra sheet, so 2 pages printed on 4 sheets. Safari leaves only about 249 mm of each A4 sheet; at 90% a turned page needed 252.9 mm. Turned pages are now shrunk to 85% (238.9 mm). Code lock updated for the changed script. Android and computers do not use print.html and are unchanged.
+LAST_CHANGE: 16-Nov-2026 - v14.60.1: CAMERA SCANNER OPENED BEHIND THE EDIT INVOICE WINDOW. No Code.gs or print.html change. Upload index.html only.
+(X1) BUG FIX. Tapping 📷 next to Tracking Number in Edit Invoice opened the camera behind the edit window (both on the same layer, and the edit window comes later in the file), so it was only visible after closing Edit Invoice. The scanner window now sits on its own higher layer (300), above every invoice, edit and bottom-sheet window and below the loading screen, so it opens on top wherever it is started from.
 PREV_CHANGE: 14-Nov-2026 - v14.60.0: INVOICE PRINTING FROM THE IPHONE HOME-SCREEN APP FIXED, NEW SEND PDF ON WHATSAPP. No Code.gs or print.html change. Upload index.html only.
 (W1) BUG FIX. From the home-screen app, Print / Save Invoice as PDF, Print Invoice (Original, Duplicate, Triplicate, All three) and every other bill print did nothing. _vcIsIosApp only read navigator.standalone, which iPhone sets only for pages with Apple's old home-screen meta line; this app installs through manifest.json, so it was taken for Safari and used window.print(), which iPhone ignores there. It now also counts the full-screen display mode (standalone or fullscreen) on iPhone/iPad, so every print goes to Safari through print.html as planned in v14.58.0. Android and computers unchanged (checked only on iPhone/iPad). The same check also fixes labels and file saving from the home-screen app.
 (W2) NEW. Share Invoice box: 📎 Send PDF on WhatsApp. Makes the customer's copy (Original for Recipient on a Tax Invoice) as an A4 PDF inside the app (_vcInvPdfBlob: hidden frame with the print styles, built-in PDF tools), then 📤 Share PDF opens the share sheet: pick WhatsApp, then the customer. WhatsApp lets no app attach a file to a number directly. Computers that cannot share files: Save PDF and open the customer's chat (number from the bill). File name Invoice-<number>.pdf. One PDF at a time; a cancelled share does nothing.
@@ -1118,7 +1118,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
 
 <!-- ════ PARTNER REPORT MODAL (v14.28.0) ════ -->
 <!-- ════ TRACKING NUMBER SCANNER (v14.36.0 D4) ════ -->
-<div class="modal-bg" id="scan-modal">
+<div class="modal-bg" id="scan-modal" style="z-index:300;">
   <div class="modal">
     <button class="modal-close" onclick="closeTrackScanner()">✕</button>
     <div class="modal-title">📷 Scan Tracking Number</div>
