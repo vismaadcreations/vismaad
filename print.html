@@ -7,7 +7,10 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Xwv9VKX5Q9s+IyXygWd7L2fTkMXKO989XPBYifrU0jI='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data: https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'; frame-src 'none'; connect-src 'none'; object-src 'none'"/>
 <title>Vismaad print</title>
 <!--
-  Vismaad print page v1.2 (16-Nov-2026). Upload next to index.html. Used by the app from v14.58.0.
+  Vismaad print page v1.3 (16-Nov-2026). Upload next to index.html. Used by the app from v14.58.0.
+  v1.3: shows "Print page v1.3" in the yellow bar on screen (never printed), so the version Safari loaded can be seen.
+  From app v14.61.0 this page is opened as print.html?v=1.3, so a new upload is fetched at once, never an old copy.
+  Bump the label here and _VC_PRINT_VER in the app together.
   v1.2: sideways pages shrunk to 84% (was 90%). Measured on his iPhone 16 Pro with print-test.html: Safari's sheet
   holds 920 px of height at 660 px width, so a 90% Sales Book page (956 px) still spilled onto a second sheet and
   2 pages came out on 4. At 84% a page is 892 px tall and 616 px wide, about 7 mm to spare.
@@ -37,7 +40,7 @@ body{margin:0;background:#fff;}
 <style id="pp-page"></style>
 </head>
 <body>
-<div id="pp-bar"><div id="pp-msg">Preparing the print…</div><button id="pp-again" type="button" style="display:none">🖨️ Print again</button></div>
+<div id="pp-bar"><div id="pp-ver" style="font-size:12px;opacity:.7;">Print page v1.3</div><div id="pp-msg">Preparing the print…</div><button id="pp-again" type="button" style="display:none">🖨️ Print again</button></div>
 <div id="pp-root"></div>
 <script>
 (function(){
