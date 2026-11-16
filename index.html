@@ -3,10 +3,12 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.61.0
+APP: Vismaad Creations v14.61.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 16-Nov-2026 - v14.61.0: PAYMENT REMINDER BUTTON + PRINT PAGE ALWAYS FRESH. No Code.gs change (the remindedMs column is added to PayClaims on first save). Upload index.html AND print.html (v1.3).
+LAST_CHANGE: 16-Nov-2026 - v14.61.1: print.html v1.4 + its version tag (_VC_PRINT_VER 1.4). No Code.gs change. Upload index.html AND print.html.
+(Q1) BUG FIX in print.html: Sales Book still came out 2 pages on 4 sheets with v1.3 (his iPhone PDF, loaded as print.html?v=1.3, so not a cached copy). Safari stretches the page WIDTH to the paper width (616 px printed 181 mm), so shrinking never helped; a sheet holds about 1.39 x the printed width in height and a turned page is 1.45 x as tall as wide. Each page now sits at full size, centred in a frame wide enough that it is 1.30 x as tall as the frame: about 15 mm spare. Text prints about the same size as v1.3.
+PREV_CHANGE: 16-Nov-2026 - v14.61.0: PAYMENT REMINDER BUTTON + PRINT PAGE ALWAYS FRESH. No Code.gs change (the remindedMs column is added to PayClaims on first save). Upload index.html AND print.html (v1.3).
 (Z1) NEW. Payments → Waiting for bank: 🔔 Remind on every entry. Opens the customer's WhatsApp chat (or WhatsApp to choose the chat when no number was saved) with: "Hi, just a gentle reminder that we are holding the product you selected. If you have changed your mind, please let us know so that we can offer it to other customers who are interested and waiting to buy it. Thank you! - Vismaad Creations" (payRemindMsg; no amount, the QR message gave it). The chat opens inside the tap so the phone does not block it.
 (Z2) The entry then shows "🔔 Reminded 5 min ago" (_payAgo) on both phones. Stored on the claim as remindedMs, a time in milliseconds: a number, because Google Sheets turns date text into a date cell. Not marked when the pop-up was blocked. SECURITY (Low): _payAgo reads plain digits only, so a hand-edited sheet value like 0x10 or 1e12 shows nothing instead of a wrong age.
 (Z3) PRINT. Sales Book still came out on 4 sheets after print.html v1.2 was uploaded, while v1.2 laid it out at 616 x 892 px with the app's real print payload (fits the measured 920 px). Most likely an old print.html kept by Safari or GitHub Pages. print.html is now opened as print.html?v=1.3 (_VC_PRINT_VER, bump with print.html) so a new upload is always fetched, and print.html v1.3 shows "Print page v1.3" in its yellow bar on screen.
@@ -6411,7 +6413,7 @@ function _vcOpenPage(url){
 // The print is packed into the link of print.html (uploaded next to index.html) and iPhone opens it in Safari,
 // which prints it by itself. Print Lab v1.0/1.1 (12-Nov-2026): only this way worked; links up to 2 MB arrived whole.
 const _VC_LINK_MAX=1800000;
-const _VC_PRINT_VER='1.3'; // v14.61.0: bump with print.html, so Safari and GitHub Pages fetch the new copy, never an old one
+const _VC_PRINT_VER='1.4'; // v14.61.0: bump with print.html, so Safari and GitHub Pages fetch the new copy, never an old one
 const _VC_IMG_RE=/data:image\/(?:png|jpe?g|gif|webp|svg\+xml);base64,[A-Za-z0-9+\/=]+/g;
 function _vcPrintPayload(name){
   _vcPdocBeforePrint(); // same clean-up a real print does

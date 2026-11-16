@@ -4,10 +4,14 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <meta name="referrer" content="no-referrer"/>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Xwv9VKX5Q9s+IyXygWd7L2fTkMXKO989XPBYifrU0jI='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data: https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'; frame-src 'none'; connect-src 'none'; object-src 'none'"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-MLKn1FvP0sDAt/PCKZPyBS0Yl7EcJAoKJj6HDAqOzJo='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data: https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'; frame-src 'none'; connect-src 'none'; object-src 'none'"/>
 <title>Vismaad print</title>
 <!--
-  Vismaad print page v1.3 (16-Nov-2026). Upload next to index.html. Used by the app from v14.58.0.
+  Vismaad print page v1.4 (16-Nov-2026). Upload next to index.html. Used by the app from v14.58.0.
+  v1.4: Sales Book still printed 2 pages on 4 sheets with v1.3. His iPhone PDF showed why: Safari stretches the page's
+  WIDTH to the paper width (616 px came out 181 mm), so shrinking never helps; only the shape counts. A sheet holds
+  about 1.39 times the printed width in height, and a turned Sales Book page is 1.45 times as tall as wide. Each page
+  now sits at full size in a wider frame (#pp-root) so it is 1.30 times as tall as the frame is wide: about 15 mm spare.
   v1.3: shows "Print page v1.3" in the yellow bar on screen (never printed), so the version Safari loaded can be seen.
   From app v14.61.0 this page is opened as print.html?v=1.3, so a new upload is fetched at once, never an old copy.
   Bump the label here and _VC_PRINT_VER in the app together.
@@ -25,7 +29,7 @@
   form or connection. The html is also cleaned before it is shown (scripts, frames, forms, on... handlers and
   javascript: links removed). Nothing is kept on the phone.
   PAGES: Safari ignores the page size and margins the app asks for, so sideways pages (Sales Book) are turned a
-  quarter and shrunk to 84% to fit upright A4 inside Safari's margins. Other sizes print as laid out.
+  quarter and set in a frame 1/1.30 of their height wide, because Safari scales the width to the paper. Other sizes print as laid out.
 -->
 <style>
 body{margin:0;background:#fff;}
@@ -40,7 +44,7 @@ body{margin:0;background:#fff;}
 <style id="pp-page"></style>
 </head>
 <body>
-<div id="pp-bar"><div id="pp-ver" style="font-size:12px;opacity:.7;">Print page v1.3</div><div id="pp-msg">Preparing the print…</div><button id="pp-again" type="button" style="display:none">🖨️ Print again</button></div>
+<div id="pp-bar"><div id="pp-ver" style="font-size:12px;opacity:.7;">Print page v1.4</div><div id="pp-msg">Preparing the print…</div><button id="pp-again" type="button" style="display:none">🖨️ Print again</button></div>
 <div id="pp-root"></div>
 <script>
 (function(){
@@ -90,7 +94,10 @@ root.innerHTML=doc.body.innerHTML;
 // page size; sideways pages are turned a quarter to fit upright paper, because Safari ignores the size asked for
 var land=P.w>P.h;
 if(land){
-  var MM=96/25.4,cw=(P.w-P.ml-P.mr)*MM,ch=(P.h-P.mt-P.mb)*MM,K=0.84; // K: room for Safari's own header and footer (v1.2: measured, sheet holds 920 px)
+  var MM=96/25.4,cw=(P.w-P.ml-P.mr)*MM,ch=(P.h-P.mt-P.mb)*MM,K=1,R=1.30;
+  // v1.4: Safari scales the document width to the paper width, so the page must be no taller than R x that width.
+  // The frame is the widest thing on the page; the turned page is centred in it at full size (K=1).
+  root.style.width=Math.max(ch,cw/R)+'px';root.style.margin='0 auto';
   document.getElementById('pp-page').textContent='@page{size:'+P.h+'mm '+P.w+'mm;margin:'+P.ml+'mm '+P.mt+'mm '+P.mr+'mm '+P.mb+'mm;}';
   var pages=[],all=root.querySelectorAll('*');
   [].forEach.call(all,function(e){var cs=getComputedStyle(e);if(/page|always/.test(cs.breakAfter||'')||cs.pageBreakAfter==='always')pages.push(e);});
