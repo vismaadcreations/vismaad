@@ -3,10 +3,14 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.63.0
+APP: Vismaad Creations v14.64.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 21-Nov-2026 - v14.63.0: PAYMENT TIMES IN IST, CHAT BUTTON, INVENTORY DEFAULT FILTER, INVOICE BAR TOTAL, PIN 24471x, PAYMENT CELEBRATION. No Code.gs or print.html change. Upload index.html only.
+LAST_CHANGE: 21-Nov-2026 - v14.64.0: PAYMENT SOUND REPLACED, SOUND CHECKBOX FIXED, POPUP STATE SPLIT. Includes v14.63.0. No Code.gs or print.html change. Upload index.html only.
+(S1) Payment received popup: the clapping is replaced by a 1.5 s cha-ching, quick trumpet fanfare, coins and a whistle (celChime, made in the app, no file). Confetti unchanged. ▶ Test plays it. iPhone: silent on silent mode (ambient audio). Android: the app cannot see silent mode, so it plays at media volume; untick the switch on that phone to stop it.
+(S2) BUG FIX: the sound checkbox in More → Settings → UPI Payment always looked blank and taps showed nothing. The form style (.fg input, appearance:none) removed the tick drawing; checkboxes and radios inside .fg now keep their normal look. Renamed "Payment sound on this device".
+(S3) BUG FIX: "Invoice popup_state is large — line items not synced" appeared on opening. popup_state is the delivery-review popup list (tracking numbers already handled, skips), not an invoice; it had grown past the 7,500-character write limit. It is now written as several rows in the PopupState tab (popup_state, popup_state_2, ... under 7,000 each, psPackRows) and read back by joining all of them (psMergeRows). Nothing is dropped. Rows used before are rewritten, emptied if not needed. A row that fails to save is sent again next sync (was marked sent regardless). The large-record warning now shows for invoices only.
+PREV_CHANGE: 21-Nov-2026 - v14.63.0: PAYMENT TIMES IN IST, CHAT BUTTON, INVENTORY DEFAULT FILTER, INVOICE BAR TOTAL, PIN 24471x, PAYMENT CELEBRATION. No Code.gs or print.html change. Upload index.html only.
 (A1) BUG FIX: Payments times (Waiting for bank, marked paid, Link payment, Which payment is this bill for) were shown in UTC, 5 h 30 min behind, as the app saves times with toISOString (Z). _payTimeTxt now turns any time carrying Z or an offset into IST on every device; bank SMS times (+05:30) and times with no zone show as before.
 (A2) NEW. Waiting for bank: 💬 Chat next to 🔔 Remind (only when a number is saved). Opens the customer's WhatsApp chat with nothing typed, to read what was discussed. Not counted as a reminder (vcPayOpenChat).
 (A3) Inventory register: on opening Inventory the status filter is set to ⏳ Pending review when any product awaits review, otherwise In Stock (_invDefaultFilter). A choice made on the page stays until leaving it. When the last pending item is reviewed while Pending review is shown, it moves to In Stock. Price List and Catalogue use the same filter, so they also start with In Stock.
@@ -412,6 +416,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--ink);f
 }
 .fg input:focus,.fg select:focus,.fg textarea:focus{outline:none;border-color:var(--gold);}
 .fg input[readonly]{background:#f0e8d8;font-weight:600;}
+.fg input[type=checkbox],.fg input[type=radio]{-webkit-appearance:auto;appearance:auto;padding:0;border:none;background:none;width:20px;height:20px;flex-shrink:0;accent-color:var(--brown);} /* v14.64.0: appearance:none above hid the tick */
 .fg textarea{resize:vertical;min-height:80px;}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
@@ -1790,10 +1795,10 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
         <div style="font-size:11px;color:#888;margin-top:4px;">Bank SMS for any other account (your personal one) are ignored.</div></div>
       <div class="fg" style="margin:12px 0 0;"><label>🎉 Celebration when a payment is received</label>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <label style="display:flex;align-items:center;gap:8px;font-size:14px;text-transform:none;letter-spacing:0;font-weight:500;margin:0;cursor:pointer;"><input type="checkbox" id="ms-cel-snd" style="width:20px;height:20px;" onchange="celSetSound(this.checked)"/> Clapping sound on this device</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:14px;text-transform:none;letter-spacing:0;font-weight:500;margin:0;cursor:pointer;"><input type="checkbox" id="ms-cel-snd" style="width:20px;height:20px;" onchange="celSetSound(this.checked)"/> Payment sound on this device</label>
           <button type="button" class="btn btn-o btn-sm" onclick="celTest()">▶ Test</button>
         </div>
-        <div style="font-size:11px;color:#888;margin-top:4px;">Confetti always shows. iPhone: no sound on silent mode, and sound needs one tap in the app after opening it.</div></div>
+        <div style="font-size:11px;color:#888;margin-top:4px;">Confetti always shows. iPhone: no sound on silent mode, and sound needs one tap in the app after opening it. Android: plays at media volume (the app cannot see silent mode), untick to turn it off on that phone.</div></div>
     </div>
     <button class="btn btn-p" onclick="saveSettings()">💾 Save Settings</button>
     <!-- Config Backup / Restore -->
@@ -3845,6 +3850,34 @@ function flattenForSheet(data){
   if(flat.courierOverride&&typeof flat.courierOverride==='object')flat.courierOverride=JSON.stringify(flat.courierOverride);
   return flat;
 }
+// ── v14.64.0 POPUP STATE ROWS: the seen-list grew past the 7,500-character write limit. Split across rows
+// popup_state, popup_state_2, ... in the PopupState tab; reading joins them all (unions, nothing dropped).
+const PS_ROW_CAP=7000;
+function psPackRows(seen,skipped,followupShownDate,updatedAt,minRows){
+  const S=Array.isArray(seen)?seen:[],K=Object.entries(skipped&&typeof skipped==='object'?skipped:{});
+  const rows=[];
+  const mk=i=>({id:i===0?'popup_state':'popup_state_'+(i+1),s:[],k:{}});
+  const flat=r=>({id:r.id,reviewPopupSeen:JSON.stringify(r.s),reviewSkipped:JSON.stringify(r.k),
+    followupShownDate:r.id==='popup_state'?(followupShownDate||''):'',updatedAt:updatedAt||''});
+  let cur=mk(0);rows.push(cur);
+  const fits=()=>JSON.stringify(flat(cur)).length<=PS_ROW_CAP;
+  S.forEach(x=>{cur.s.push(x);if(!fits()&&cur.s.length+Object.keys(cur.k).length>1){cur.s.pop();cur=mk(rows.length);rows.push(cur);cur.s.push(x);}});
+  K.forEach(([a,v])=>{cur.k[a]=v;if(!fits()&&cur.s.length+Object.keys(cur.k).length>1){delete cur.k[a];cur=mk(rows.length);rows.push(cur);cur.k[a]=v;}});
+  while(rows.length<(minRows||1))rows.push(mk(rows.length));
+  return rows.map(flat);
+}
+function psMergeRows(rows){
+  const out={seen:[],skipped:{},followupShownDate:'',updatedAt:'',rows:0};const set=new Set();
+  (Array.isArray(rows)?rows:[]).forEach(r=>{
+    if(!r||!/^popup_state(_\d+)?$/.test(String(r.id||'')))return;
+    out.rows++;
+    try{const a=r.reviewPopupSeen?JSON.parse(r.reviewPopupSeen):[];if(Array.isArray(a))a.forEach(x=>set.add(x));}catch(e){}
+    try{const k=r.reviewSkipped?JSON.parse(r.reviewSkipped):{};if(k&&typeof k==='object')Object.entries(k).forEach(([a,v])=>{if(!out.skipped[a]||v>out.skipped[a])out.skipped[a]=v;});}catch(e){}
+    if(String(r.id)==='popup_state'){out.followupShownDate=r.followupShownDate||'';out.updatedAt=r.updatedAt||'';}
+  });
+  out.seen=[...set];return out;
+}
+// ── end POPUP STATE ROWS ──
 function makePayload(flat){
   const json=JSON.stringify(flat);
   if(json.length<=7500)return json;
@@ -3852,7 +3885,7 @@ function makePayload(flat){
   const slim={...flat};
   slim.itemsArr='[]';
   console.warn('makePayload: payload too large ('+json.length+' chars), itemsArr stripped for invoice',flat.invNo||flat.id);
-  setTimeout(()=>toast('⚠️ Invoice '+(flat.invNo||flat.id||'')+' is large — line items not synced to sheet, totals preserved',6000),100);
+  if(flat.invNo)setTimeout(()=>toast('⚠️ Invoice '+flat.invNo+' is large — line items not synced to sheet, totals preserved',6000),100); // v14.64.0: invoices only (popup_state is not an invoice)
   return JSON.stringify(slim);
 }
 
@@ -4430,30 +4463,22 @@ async function syncAll(manual){
       const localSkipped=lsGet('vc_review_skipped',{});
       const localFollowupDate=lsGet('vc_followup_shown_date','')||'';
       const localUpdatedAt=lsGet('vc_popup_state_updatedAt','')||'';
-      if(remPS&&remPS.length){
-        const rs=remPS[0];
+      const rs=psMergeRows(remPS); // v14.64.0: joins popup_state, popup_state_2, ...
+      if(rs.rows>lsGet('vc_popup_state_rows',1))lsSet('vc_popup_state_rows',rs.rows);
+      if(rs.rows){
         const remTime=rs.updatedAt?new Date(rs.updatedAt).getTime():0;
         const locTime=localUpdatedAt?new Date(localUpdatedAt).getTime():0;
         // v14.35.0 A3: the seen-list and the skip-map are UNIONS — merging them can only ever add
-        // suppressions, never lose one, so gating them on remTime>locTime was pure downside: a device
-        // whose clock ran even slightly fast ignored the remote lists entirely and re-fired popups
-        // another device had already actioned. Unions now run unconditionally. The timestamp gate is
-        // kept only for followupShownDate, which is a single value where newest genuinely must win.
-        try{
-          const remSeen=rs.reviewPopupSeen?JSON.parse(rs.reviewPopupSeen):[];
-          if(Array.isArray(remSeen)&&remSeen.length){
-            const merged=[...new Set([...localSeen,...remSeen])];
-            if(merged.length!==localSeen.length)lsSet('vc_review_popup_seen',merged);
-          }
-        }catch(e){}
-        try{
-          const remSkipped=rs.reviewSkipped?JSON.parse(rs.reviewSkipped):{};
-          // Merge skipped: keep whichever per-invNo timestamp is newer
-          const merged={...localSkipped};
-          let _sChanged=false;
-          Object.entries(remSkipped||{}).forEach(([k,v])=>{if(!merged[k]||v>merged[k]){merged[k]=v;_sChanged=true;}});
+        // suppressions, never lose one. The timestamp gate is kept only for followupShownDate.
+        if(rs.seen.length){
+          const merged=[...new Set([...localSeen,...rs.seen])];
+          if(merged.length!==localSeen.length)lsSet('vc_review_popup_seen',merged);
+        }
+        {
+          const merged={...localSkipped};let _sChanged=false;
+          Object.entries(rs.skipped).forEach(([k,v])=>{if(!merged[k]||v>merged[k]){merged[k]=v;_sChanged=true;}});
           if(_sChanged)lsSet('vc_review_skipped',merged);
-        }catch(e){}
+        }
         if(remTime>locTime){
           if(rs.followupShownDate&&rs.followupShownDate>localFollowupDate){
             lsSet('vc_followup_shown_date',rs.followupShownDate);
@@ -4465,15 +4490,15 @@ async function syncAll(manual){
       const _psSnap=JSON.stringify([lsGet('vc_review_popup_seen',[]),lsGet('vc_review_skipped',{}),lsGet('vc_followup_shown_date','')||'']);
       if(_psSnap!==lsGet('vc_popup_state_pushed','')){
         const nowIso=new Date().toISOString();
-        await gsWriteConfirmed('PopupState',{
-          id:'popup_state',
-          reviewPopupSeen:JSON.stringify(lsGet('vc_review_popup_seen',[])),
-          reviewSkipped:JSON.stringify(lsGet('vc_review_skipped',{})),
-          followupShownDate:lsGet('vc_followup_shown_date','')||'',
-          updatedAt:nowIso
-        });
-        lsSet('vc_popup_state_pushed',_psSnap);
-        lsSet('vc_popup_state_updatedAt',nowIso);
+        // v14.64.0: split into rows under the write limit; rows used before are rewritten (emptied) so nothing stale stays
+        const _psRows=psPackRows(lsGet('vc_review_popup_seen',[]),lsGet('vc_review_skipped',{}),lsGet('vc_followup_shown_date','')||'',nowIso,lsGet('vc_popup_state_rows',1));
+        let _psOk=true;
+        for(const r of _psRows){if(!(await gsWriteConfirmed('PopupState',r)))_psOk=false;}
+        if(_psRows.length>lsGet('vc_popup_state_rows',1))lsSet('vc_popup_state_rows',_psRows.length);
+        if(_psOk){ // a failed row is sent again on the next sync
+          lsSet('vc_popup_state_pushed',_psSnap);
+          lsSet('vc_popup_state_updatedAt',nowIso);
+        }
       }
     }catch(e){console.warn('PopupState sync failed:',e.message);}
 
@@ -19376,7 +19401,7 @@ function vcPayPromptCheck(){
 function _payPromptRow(){return _payPromptKey?_payRowByKey(_payPromptKey):null;}
 function _payPromptNext(){_payPromptClose();setTimeout(vcPayPromptCheck,250);}
 function vcPayPromptSend(){const r=_payPromptRow();if(r)vcPayConfirm(r.key);_payPromptNext();}
-// ── v14.63.0 PAYMENT CELEBRATION: confetti + clapping when the Payment received popup opens. Once per payment per phone. ──
+// ── v14.63.0 PAYMENT CELEBRATION (v14.64.0: sound is now cha-ching + fanfare + coins + whistle): confetti + sound when the Payment received popup opens. Once per payment per phone. ──
 // Sound is made by the app (no file). iPhone: plays only after a tap in this session, and stays quiet on silent mode (ambient audio).
 let _celCtx=null;
 function celSoundOn(){return lsGet('vc_cel_snd',true)!==false;}
@@ -19392,27 +19417,42 @@ function _celAudio(){
 }
 function _celUnlock(){_celAudio();document.removeEventListener('pointerdown',_celUnlock,true);document.removeEventListener('touchend',_celUnlock,true);}
 document.addEventListener('pointerdown',_celUnlock,true);document.addEventListener('touchend',_celUnlock,true);
-// Times (seconds) of each clap: dense in the middle, thinning out at the end. Pure, so it can be tested.
-function celClapTimes(dur,seed){
-  let x=(seed>>>0)||12345;const rnd=()=>{x=(x*1664525+1013904223)>>>0;return x/4294967296;};
-  const out=[];let t=0;
-  while(t<dur){const f=t/dur;t+=0.018+rnd()*0.03+f*f*0.12;if(t<dur)out.push(Math.round(t*1000)/1000);}
-  return out;
-}
-function celClap(){
+// ── v14.64.0 PAYMENT SOUND: cha-ching, quick trumpet fanfare, coins and a whistle (about 1.5 s). Replaces the clapping. ──
+function celChime(){
   const ctx=_celAudio();if(!ctx||ctx.state!=='running')return false;
-  const sr=ctx.sampleRate,len=Math.floor(sr*0.06),buf=ctx.createBuffer(1,len,sr),d=buf.getChannelData(0);
-  for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,4);
-  const out=ctx.createGain();out.gain.value=0.5;out.connect(ctx.destination);
-  const t0=ctx.currentTime+0.05,dur=2;
-  celClapTimes(dur,Date.now()).forEach((t,i)=>{
-    const src=ctx.createBufferSource();src.buffer=buf;src.playbackRate.value=0.8+Math.random()*0.5;
-    const bp=ctx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=900+Math.random()*1400;bp.Q.value=0.8;
-    const g=ctx.createGain();g.gain.value=(0.35+Math.random()*0.65)*Math.max(0.15,1-Math.pow(t/dur,2));
-    src.connect(bp);bp.connect(g);g.connect(out);src.start(t0+t);
-  });
-  return true;
+  try{
+    const c=ctx,sr=c.sampleRate;
+    const comp=c.createDynamicsCompressor(),dry=c.createGain(),wet=c.createConvolver(),wg=c.createGain();
+    const rl=Math.floor(sr*1.4),rb=c.createBuffer(2,rl,sr);
+    for(let ch=0;ch<2;ch++){const d=rb.getChannelData(ch);for(let i=0;i<rl;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/rl,2.5);}
+    wet.buffer=rb;wg.gain.value=0.3;dry.gain.value=0.85;
+    dry.connect(comp);dry.connect(wet);wet.connect(wg);wg.connect(comp);comp.connect(c.destination);
+    const out=dry,t0=c.currentTime+0.05;
+    const tone=(f,t,dur,vol)=>{const o=c.createOscillator(),g=c.createGain();o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+0.008);g.gain.exponentialRampToValueAtTime(0.0001,t+dur);o.connect(g);g.connect(out);o.start(t);o.stop(t+dur+0.05);};
+    const bell=(f,t,vol,len)=>[[1,1],[2.76,0.5],[5.4,0.25],[8.9,0.12]].forEach(p=>tone(f*p[0],t,len/Math.sqrt(p[0]),vol*p[1]));
+    const burst=(t,dur,vol,freq)=>{const n=Math.floor(sr*dur),b=c.createBuffer(1,n,sr),d=b.getChannelData(0);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3);
+      const s=c.createBufferSource();s.buffer=b;const bp=c.createBiquadFilter();bp.type='bandpass';bp.frequency.value=freq;const g=c.createGain();g.gain.value=vol;s.connect(bp);bp.connect(g);g.connect(out);s.start(t);};
+    const brass=(f,t,len,vol)=>{const g=c.createGain(),lp=c.createBiquadFilter();lp.type='lowpass';lp.frequency.setValueAtTime(600,t);lp.frequency.linearRampToValueAtTime(2800,t+0.05);
+      g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+0.03);g.gain.setValueAtTime(vol,t+Math.max(0.04,len-0.06));g.gain.exponentialRampToValueAtTime(0.0001,t+len+0.2);lp.connect(g);g.connect(out);
+      const lfo=c.createOscillator(),lg=c.createGain();lfo.frequency.value=5.5;lg.gain.value=len>0.5?f*0.006:0;lfo.connect(lg);lfo.start(t+0.15);lfo.stop(t+len+0.25);
+      [['sawtooth',1],['sawtooth',1.004],['square',0.997]].forEach(x=>{const o=c.createOscillator();o.type=x[0];o.frequency.value=f*x[1];lg.connect(o.frequency);o.connect(lp);o.start(t);o.stop(t+len+0.25);});};
+    // cha-ching
+    burst(t0,0.07,0.9,2500);burst(t0+0.042,0.05,0.6,3500);bell(1568,t0+0.07,0.585,1.0);bell(2093,t0+0.147,0.65,1.0);
+    // quick fanfare, last note with harmony
+    [[392,0,0.08],[523,0.09,0.08],[659,0.18,0.08],[784,0.28,0.7]].forEach(n=>{const t=t0+0.2+n[1];brass(n[0],t,n[2],0.066);
+      if(n[2]>0.3){brass(n[0]*1.25,t,n[2],0.044);brass(n[0]*0.75,t,n[2],0.0385);}});
+    // coins
+    for(let i=0;i<16;i++){const t=t0+0.35+Math.pow(i/16,1.4)*0.6+Math.random()*0.02;bell(2200+Math.random()*2200,t,0.2*(0.5+Math.random()*0.5)*(1-0.5*i/16),0.5);}
+    // whistle
+    {const t=t0+0.6,sp=0.7,end=t+0.6*sp,o=c.createOscillator(),g=c.createGain(),lfo=c.createOscillator(),lg=c.createGain();
+      o.type='sine';lfo.frequency.value=7;lg.gain.value=25;lfo.connect(lg);lg.connect(o.frequency);
+      o.frequency.setValueAtTime(1500,t);o.frequency.exponentialRampToValueAtTime(3000,t+0.3*sp);o.frequency.exponentialRampToValueAtTime(2200,t+0.55*sp);
+      g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.11,t+0.03);g.gain.setValueAtTime(0.11,end-0.08);g.gain.exponentialRampToValueAtTime(0.0001,end);
+      o.connect(g);g.connect(out);o.start(t);o.stop(end+0.05);lfo.start(t);lfo.stop(end+0.05);}
+    return true;
+  }catch(e){console.warn('Payment sound:',e);return false;}
 }
+// ── end PAYMENT SOUND ──
 function celConfetti(){
   try{
     const old=document.getElementById('vc-cel-cv');if(old)old.remove();
@@ -19434,7 +19474,7 @@ function celConfetti(){
     })(start);
   }catch(e){console.warn('Confetti:',e);}
 }
-function celPlay(){celConfetti();if(celSoundOn())celClap();}
+function celPlay(){celConfetti();if(celSoundOn())celChime();}
 // Plays only the first time this phone shows the popup for a payment.
 function vcCelebrate(key){
   const k=String(key||'');if(!k)return false;
@@ -19443,7 +19483,7 @@ function vcCelebrate(key){
   list.push(k);lsSet('vc_cel_keys',list.slice(-200));
   celPlay();return true;
 }
-function celTest(){_celAudio();celConfetti();if(celSoundOn()&&!celClap())setTimeout(celClap,150);}
+function celTest(){_celAudio();celConfetti();if(celSoundOn()&&!celChime())setTimeout(celChime,150);}
 function vcPayPromptDone(){const r=_payPromptRow();if(r)_paySetConfirmed(r);_payPromptNext();}
 function vcPayPromptLater(){if(_payPromptKey)_payLater.add(_payPromptKey);_payPromptNext();}
 
@@ -19598,7 +19638,7 @@ function vcPayRecalcNote(){
 }
 function vcPaySettingsFill(){
   const e=document.getElementById('ms-pay-acct');if(e)e.value=vcPayAcct();
-  const cs=document.getElementById('ms-cel-snd');if(cs)cs.checked=celSoundOn(); // v14.63.0
+  const cs=document.getElementById('ms-cel-snd');if(cs)cs.checked=celSoundOn(); // v14.63.0 (v14.64.0: tick now visible)
 }
 function vcPaySettingsSave(){
   const e=document.getElementById('ms-pay-acct');if(!e)return;
