@@ -3,10 +3,17 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.62.1
+APP: Vismaad Creations v14.63.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 18-Nov-2026 - v14.62.1: QR AMOUNT CHECKED AGAINST BOTH PHONES + "BY" COLUMN FIXED. Includes v14.62.0. No Code.gs or print.html change. Upload index.html only.
+LAST_CHANGE: 21-Nov-2026 - v14.63.0: PAYMENT TIMES IN IST, CHAT BUTTON, INVENTORY DEFAULT FILTER, INVOICE BAR TOTAL, PIN 24471x, PAYMENT CELEBRATION. No Code.gs or print.html change. Upload index.html only.
+(A1) BUG FIX: Payments times (Waiting for bank, marked paid, Link payment, Which payment is this bill for) were shown in UTC, 5 h 30 min behind, as the app saves times with toISOString (Z). _payTimeTxt now turns any time carrying Z or an offset into IST on every device; bank SMS times (+05:30) and times with no zone show as before.
+(A2) NEW. Waiting for bank: 💬 Chat next to 🔔 Remind (only when a number is saved). Opens the customer's WhatsApp chat with nothing typed, to read what was discussed. Not counted as a reminder (vcPayOpenChat).
+(A3) Inventory register: on opening Inventory the status filter is set to ⏳ Pending review when any product awaits review, otherwise In Stock (_invDefaultFilter). A choice made on the page stays until leaving it. When the last pending item is reviewed while Pending review is shown, it moves to In Stock. Price List and Catalogue use the same filter, so they also start with In Stock.
+(A4) BUG FIX: the phone bar above the tab bar showed Grand Total ₹0.00 when a UPI payment was linked, because it read the last summary row ("Bill total = paid" / "Matches the UPI payment"). It now shows "Bill total" with the paid amount when that row exists (data-uibar), otherwise the last row holding a label and an amount (Grand Total). Both Generate Invoice buttons kept; they do the same thing.
+(A5) BUG FIX: PIN 244710 to 244719 (Kashipur, Jaspur, Ramnagar) now give Uttarakhand; they gave Uttar Pradesh from the 24 prefix. Rest of 244 stays UP.
+(A6) NEW. Payment received popup (title now 🎉) plays confetti from both bottom corners for 2.5 s and about 2 s of clapping made in the app (Web Audio, no file). Once per payment per phone (vc_cel_keys, last 200). iPhone: sound uses ambient audio so it stays quiet on silent mode, and needs one tap in the app after opening. More → Settings → UPI Payment: "Clapping sound on this device" switch (vc_cel_snd, default on, this device only) and ▶ Test.
+PREV_CHANGE: 18-Nov-2026 - v14.62.1: QR AMOUNT CHECKED AGAINST BOTH PHONES + "BY" COLUMN FIXED. Includes v14.62.0. No Code.gs or print.html change. Upload index.html only.
 WHY: on 18-Nov two phones gave the same QR amount 2.5 hours apart. Each phone picked from its own list, and the second phone did not yet have the first phone's sale. The 5-day block itself works.
 (Q1) Show QR and Split into parts first read the latest PayClaims and BankAlerts from the sheet (button shows "Checking the other phone…", gives up after 8 s), join them to the phone's own, then pick. Unsent sales on the phone are kept; a newer local change is not overwritten.
 (Q2) If the sheet cannot be read, a warning says the amount may repeat and asks Make the QR anyway or Cancel. The warning shows above the Take payment box.
@@ -1520,7 +1527,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <div style="margin-top:12px;">
       <div class="ui-toolbar" style="margin-bottom:10px;">
         <select id="inv-status-filter" onchange="renderInventory()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--cream);font-size:12px;">
-          <option value="">All</option><option value="instock">In Stock</option><option value="sold">Sold Out</option><option value="pending">⏳ Pending review</option>
+          <option value="">All</option><option value="instock" selected>In Stock</option><option value="sold">Sold Out</option><option value="pending">⏳ Pending review</option>
         </select>
         <button class="btn btn-o btn-sm" onclick="toggleInvPrintMode()" id="inv-print-mode-btn" style="white-space:nowrap;">🖨️ Price List</button>
         <button class="btn btn-o btn-sm" onclick="toggleCatalogueMode()" id="inv-cat-mode-btn" style="white-space:nowrap;">📖 Catalogue</button>
@@ -1781,6 +1788,12 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
       <div class="fg" style="margin:10px 0 0;"><label>Business bank account, last 4 digits</label>
         <input id="ms-pay-acct" placeholder="1045" maxlength="4" inputmode="numeric"/>
         <div style="font-size:11px;color:#888;margin-top:4px;">Bank SMS for any other account (your personal one) are ignored.</div></div>
+      <div class="fg" style="margin:12px 0 0;"><label>🎉 Celebration when a payment is received</label>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:14px;text-transform:none;letter-spacing:0;font-weight:500;margin:0;cursor:pointer;"><input type="checkbox" id="ms-cel-snd" style="width:20px;height:20px;" onchange="celSetSound(this.checked)"/> Clapping sound on this device</label>
+          <button type="button" class="btn btn-o btn-sm" onclick="celTest()">▶ Test</button>
+        </div>
+        <div style="font-size:11px;color:#888;margin-top:4px;">Confetti always shows. iPhone: no sound on silent mode, and sound needs one tap in the app after opening it.</div></div>
     </div>
     <button class="btn btn-p" onclick="saveSettings()">💾 Save Settings</button>
     <!-- Config Backup / Restore -->
@@ -4555,7 +4568,7 @@ function showPage(id,btn){
   const sa=document.getElementById('scroll-area');
   if(sa)sa.scrollTop=0;
   if(id==='dash')renderDashboard();
-  if(id==='inventory'){renderInventory();renderAgingGrid();updateInventoryStats();
+  if(id==='inventory'){_invDefaultFilter();renderInventory();renderAgingGrid();updateInventoryStats();
     const _ipn=document.getElementById('ip-num');if(_ipn)_ipn.value=nextProdNo();
     const _ipd=document.getElementById('ip-date');if(_ipd&&!_ipd.value)_ipd.value=today();
     const _iph=document.getElementById('ip-hsn');if(_iph&&!_iph.options.length){_hsnManual.ip=false;initHsnSelect('ip',DEFAULT_HSN);}
@@ -7148,6 +7161,8 @@ const PIN_STATE={
   // Uttarakhand (24x/26x default to UP — Uttarakhand carved out of UP in 2000)
   '246':'Uttarakhand','247':'Uttarakhand','248':'Uttarakhand','249':'Uttarakhand',
   '261':'Uttarakhand','262':'Uttarakhand','263':'Uttarakhand',
+  // v14.63.0: 24471x (Kashipur, Jaspur, Ramnagar) is Uttarakhand although the rest of 244 is UP
+  '24471':'Uttarakhand',
   // Andhra Pradesh vs Telangana (51x defaults to Telangana — but 512-518 are AP districts)
   '512':'Andhra Pradesh','513':'Andhra Pradesh','514':'Andhra Pradesh',
   '515':'Andhra Pradesh','516':'Andhra Pradesh','517':'Andhra Pradesh','518':'Andhra Pradesh',
@@ -17455,11 +17470,13 @@ function _sbDoCommit(lines,invNo,dateYmd,supplier){
 }
 
 // ── Pending banner ──
+// v14.63.0: on opening Inventory the register shows Pending review when anything awaits review, otherwise In Stock.
+function _invDefaultFilter(){const sf=document.getElementById('inv-status-filter');if(sf)sf.value=(Array.isArray(inventory)&&inventory.some(isPendingReview))?'pending':'instock';}
 function renderPendingBanner(){
   const b=document.getElementById('inv-pending-banner');if(!b)return;
   const n=inventory.filter(isPendingReview).length;
   const sf=document.getElementById('inv-status-filter')?.value||'';
-  if(!n){b.style.display='none';if(sf==='pending'){}return;}
+  if(!n){b.style.display='none';if(sf==='pending'){const e=document.getElementById('inv-status-filter');if(e){e.value='instock';renderInventory();}}return;}
   b.style.display='flex';
   b.innerHTML='<span>⏳ <b>'+n+'</b> product'+(n>1?'s':'')+' from supplier bills need review</span>'
     +(sf==='pending'
@@ -18040,9 +18057,12 @@ function uiSyncTotal(){
   if(!sb||!tot)return;
   const rows=sb.querySelectorAll('.list-row');
   let t='₹0.00',l='Grand Total';
-  if(rows.length){
-    const st=rows[rows.length-1].querySelectorAll('strong');
-    if(st.length>=2){l=st[0].textContent.trim();t=st[st.length-1].textContent.trim();}
+  // v14.63.0: a linked UPI payment adds rows after Grand Total. Use "Bill total" when present, else the last row holding a label and an amount.
+  const paid=sb.querySelector('.list-row[data-uibar]');
+  if(paid){const st=paid.querySelectorAll('strong');l=paid.getAttribute('data-uibar');t=st.length?st[st.length-1].textContent.trim():t;}
+  else for(let i=rows.length-1;i>=0;i--){
+    const st=rows[i].querySelectorAll('strong');
+    if(st.length>=2){l=st[0].textContent.trim();t=st[st.length-1].textContent.trim();break;}
   }
   tot.textContent=t;if(lbl)lbl.textContent=l;
 }
@@ -18759,7 +18779,10 @@ const PAY_NS={own:'Own transfer',refund:'Refund',other:'Other'};
 let _vcPayLink=null,_vcTakeId=null;
 function vcPayAcct(){return String(S.payAcct||'1045').replace(/\D/g,'').slice(-4);}
 function vcPayViewNow(){return payView(bankAlerts,payRecs,payClaims,Date.now());}
-function _payTimeTxt(v){const m=String(v||'').match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);return m?fmtDate(m[1])+' '+m[2]+':'+m[3]:(v?fmtDate(String(v).slice(0,10)):'');}
+function _payTimeTxt(v){const str=String(v||'');
+  // v14.63.0: times saved by the app are UTC (end in Z). Show them in IST on every device; SMS times already carry +05:30.
+  if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}.*(Z|[+-]\d{2}:?\d{2})$/.test(str)){const t=Date.parse(str);if(isFinite(t)){const d=new Date(t+19800000),z=n=>String(n).padStart(2,'0');return fmtDate(d.getUTCFullYear()+'-'+z(d.getUTCMonth()+1)+'-'+z(d.getUTCDate()))+' '+z(d.getUTCHours())+':'+z(d.getUTCMinutes());}}
+  const m=str.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);return m?fmtDate(m[1])+' '+m[2]+':'+m[3]:(v?fmtDate(str.slice(0,10)):'');}
 function _payRec(utr){return payRecs.find(r=>payCleanUtr(r.utr)===utr)||null;}
 function _paySetRec(utr,patch){
   const old=_payRec(utr)||{id:'U'+utr,utr};
@@ -19292,6 +19315,11 @@ function vcPayRemind(id){
   if(!window.open(payRemindLink(c),'_blank')){toast('⚠️ Allow pop-ups for this app and try again.',5000);return;}
   _paySetClaim(id,{remindedMs:Date.now()});vcxPush();vcPayRefresh();
 }
+// v14.63.0: open the customer's chat with nothing typed, to read what was discussed. Not counted as a reminder.
+function vcPayOpenChat(id){
+  const c=_payClaim(id);if(!c)return;const ph=payWaPhone(c.phone);if(!ph){toast('No WhatsApp number saved for this sale.');return;}
+  if(!window.open('https://wa.me/'+payFullNumber(ph).slice(1),'_blank'))toast('⚠️ Allow pop-ups for this app and try again.',5000);
+}
 function vcPayCancelClaim(id){
   showConfirmModal('Cancel this sale?','The customer has not paid and will not pay this amount. The QR amount stays blocked for 5 days so a late payment is not mistaken for another sale.',()=>{_paySetClaim(id,{status:'cancelled'});vcxPush();vcPayRefresh();},null);
 }
@@ -19334,7 +19362,7 @@ function vcPayPromptCheck(){
       +'<button class="btn btn-o" id="vc-pay-rcv-done" style="width:100%;" onclick="vcPayPromptDone()">Already sent</button>'
       +'<button class="btn btn-plain" id="vc-pay-rcv-later" style="width:100%;" onclick="vcPayPromptLater()">Later</button>';
     _vcEnsureModal('vc-pay-rcv-modal','<div class="modal" style="max-width:420px;">'
-      +'<div class="modal-title">💳 Payment received</div>'
+      +'<div class="modal-title">🎉 Payment received</div>'
       +'<div style="font-size:32px;font-weight:700;letter-spacing:-.5px;">'+esc(_payInr(r.paid))+'</div>'
       +'<div class="list-sub" style="margin:4px 0 10px;line-height:1.5;word-break:break-all;">'+esc(_payTimeTxt((r.pays[r.pays.length-1]||{}).txnAt))+(r.utrs.length?' · Ref '+esc(r.utrs.join(', ')):'')
       +' · '+(ph?'+'+esc(ph):'No WhatsApp number saved')+(r.claim&&_payCents(r.claim.price)!==_payCents(r.paid)?' · price '+esc(_payInr(r.claim.price)):'')+'</div>'
@@ -19342,11 +19370,80 @@ function vcPayPromptCheck(){
       +'<div style="display:flex;flex-direction:column;gap:8px;">'+btns+'</div>'
       +(list.length>1?'<div style="text-align:center;font-size:12px;color:#636366;margin-top:10px;">1 of '+list.length+' payments to confirm</div>':'')
       +'</div>').classList.add('open');
+    vcCelebrate(k); // v14.63.0
   }catch(e){console.warn('Payment prompt:',e);}
 }
 function _payPromptRow(){return _payPromptKey?_payRowByKey(_payPromptKey):null;}
 function _payPromptNext(){_payPromptClose();setTimeout(vcPayPromptCheck,250);}
 function vcPayPromptSend(){const r=_payPromptRow();if(r)vcPayConfirm(r.key);_payPromptNext();}
+// ── v14.63.0 PAYMENT CELEBRATION: confetti + clapping when the Payment received popup opens. Once per payment per phone. ──
+// Sound is made by the app (no file). iPhone: plays only after a tap in this session, and stays quiet on silent mode (ambient audio).
+let _celCtx=null;
+function celSoundOn(){return lsGet('vc_cel_snd',true)!==false;}
+function celSetSound(on){lsSet('vc_cel_snd',!!on);}
+function _celAudio(){
+  try{
+    if(!_celCtx){const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return null;
+      try{if(navigator.audioSession)navigator.audioSession.type='ambient';}catch(e){}
+      _celCtx=new AC();}
+    if(_celCtx.state==='suspended')_celCtx.resume().catch(()=>{});
+    return _celCtx;
+  }catch(e){return null;}
+}
+function _celUnlock(){_celAudio();document.removeEventListener('pointerdown',_celUnlock,true);document.removeEventListener('touchend',_celUnlock,true);}
+document.addEventListener('pointerdown',_celUnlock,true);document.addEventListener('touchend',_celUnlock,true);
+// Times (seconds) of each clap: dense in the middle, thinning out at the end. Pure, so it can be tested.
+function celClapTimes(dur,seed){
+  let x=(seed>>>0)||12345;const rnd=()=>{x=(x*1664525+1013904223)>>>0;return x/4294967296;};
+  const out=[];let t=0;
+  while(t<dur){const f=t/dur;t+=0.018+rnd()*0.03+f*f*0.12;if(t<dur)out.push(Math.round(t*1000)/1000);}
+  return out;
+}
+function celClap(){
+  const ctx=_celAudio();if(!ctx||ctx.state!=='running')return false;
+  const sr=ctx.sampleRate,len=Math.floor(sr*0.06),buf=ctx.createBuffer(1,len,sr),d=buf.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,4);
+  const out=ctx.createGain();out.gain.value=0.5;out.connect(ctx.destination);
+  const t0=ctx.currentTime+0.05,dur=2;
+  celClapTimes(dur,Date.now()).forEach((t,i)=>{
+    const src=ctx.createBufferSource();src.buffer=buf;src.playbackRate.value=0.8+Math.random()*0.5;
+    const bp=ctx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=900+Math.random()*1400;bp.Q.value=0.8;
+    const g=ctx.createGain();g.gain.value=(0.35+Math.random()*0.65)*Math.max(0.15,1-Math.pow(t/dur,2));
+    src.connect(bp);bp.connect(g);g.connect(out);src.start(t0+t);
+  });
+  return true;
+}
+function celConfetti(){
+  try{
+    const old=document.getElementById('vc-cel-cv');if(old)old.remove();
+    const cv=document.createElement('canvas');cv.id='vc-cel-cv';
+    cv.style.cssText='position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:100000;';
+    document.body.appendChild(cv);
+    const dpr=Math.min(2,window.devicePixelRatio||1),W=window.innerWidth,H=window.innerHeight;
+    cv.width=W*dpr;cv.height=H*dpr;const g=cv.getContext('2d');if(!g){cv.remove();return;}g.scale(dpr,dpr);
+    const cols=['#E91E63','#FFC107','#4CAF50','#2196F3','#9C27B0','#FF5722','#00BCD4'];
+    const n=Math.min(160,Math.round(W/3)+60),ps=[];
+    for(let i=0;i<n;i++){const left=i%2===0,a=(left?-60:-120)*Math.PI/180+(Math.random()-.5)*0.7,v=9+Math.random()*9;
+      ps.push({x:left?0:W,y:H*0.85,vx:Math.cos(a)*v,vy:Math.sin(a)*v,w:5+Math.random()*6,h:8+Math.random()*8,r:Math.random()*6,vr:(Math.random()-.5)*0.4,c:cols[i%cols.length]});}
+    const start=performance.now(),life=2500;
+    (function step(now){
+      const el=now-start;g.clearRect(0,0,W,H);g.globalAlpha=el>life-600?Math.max(0,(life-el)/600):1;
+      ps.forEach(p=>{p.vy+=0.32;p.vx*=0.985;p.x+=p.vx;p.y+=p.vy;p.r+=p.vr;
+        g.save();g.translate(p.x,p.y);g.rotate(p.r);g.fillStyle=p.c;g.fillRect(-p.w/2,-p.h/2,p.w,p.h*Math.abs(Math.cos(p.r*1.7)));g.restore();});
+      if(el<life)requestAnimationFrame(step);else cv.remove();
+    })(start);
+  }catch(e){console.warn('Confetti:',e);}
+}
+function celPlay(){celConfetti();if(celSoundOn())celClap();}
+// Plays only the first time this phone shows the popup for a payment.
+function vcCelebrate(key){
+  const k=String(key||'');if(!k)return false;
+  const done=lsGet('vc_cel_keys',[]);const list=Array.isArray(done)?done:[];
+  if(list.indexOf(k)!==-1)return false;
+  list.push(k);lsSet('vc_cel_keys',list.slice(-200));
+  celPlay();return true;
+}
+function celTest(){_celAudio();celConfetti();if(celSoundOn()&&!celClap())setTimeout(celClap,150);}
 function vcPayPromptDone(){const r=_payPromptRow();if(r)_paySetConfirmed(r);_payPromptNext();}
 function vcPayPromptLater(){if(_payPromptKey)_payLater.add(_payPromptKey);_payPromptNext();}
 
@@ -19402,7 +19499,7 @@ function vcPayRender(){
     +'<div id="vc-pay-paste-box" style="display:none;margin-top:10px;"><div class="fg" style="margin-bottom:8px;"><textarea id="vc-pay-paste" rows="4" maxlength="1000" placeholder="INR … credited A/c no. XX'+esc(vcPayAcct())+' …" aria-label="Bank SMS"></textarea></div><button class="btn btn-o btn-sm" onclick="vcPayPaste()">Add</button></div></div>';
   const dup=payDupAmounts(v); // v14.50.1 fix 10
   if(dup.length)h+='<div class="card" style="background:#fff8e1;border:1px solid #f5c26b;font-size:13px;color:#7a5200;line-height:1.5;">⚠️ Two waiting sales have the same amount: '+dup.map(x=>esc(_payInr(x))).join(', ')+'. This can happen when both phones make a QR at the same moment. When it is paid, link it by hand, or cancel one sale and make a new QR.</div>';
-  h+='<div class="card">'+head('⏳ Waiting for bank',v.waiting.length)+(v.waiting.length?v.waiting.slice().reverse().map(c=>'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="flex:1 1 200px;"><div class="list-main">'+_payWaitHead(c)+'</div><div class="list-sub">'+esc(_payTimeTxt(c.createdAt))+' · price '+esc(_payInr(c.price))+(payWaPhone(c.phone)?' · +'+esc(payWaPhone(c.phone)):'')+'</div>'+(_payAgo(c.remindedMs)?'<div class="list-sub" style="color:#B26A00;">🔔 Reminded '+esc(_payAgo(c.remindedMs))+'</div>':'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-o btn-sm" onclick="vcPayRemind(\''+_vcIdArg(c.id)+'\')">🔔 Remind</button><button class="btn btn-o btn-sm" onclick="vcPayReopen(\''+_vcIdArg(c.id)+'\')">QR</button><button class="btn btn-o btn-sm" onclick="vcPayMarkModal(\''+_vcIdArg(c.id)+'\')">Mark paid</button><button class="btn btn-d btn-sm" onclick="vcPayCancelClaim(\''+_vcIdArg(c.id)+'\')">Cancel</button></div></div>').join(''):'<div class="list-sub" style="padding:8px 0;">Nothing waiting.</div>')+'</div>';
+  h+='<div class="card">'+head('⏳ Waiting for bank',v.waiting.length)+(v.waiting.length?v.waiting.slice().reverse().map(c=>'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="flex:1 1 200px;"><div class="list-main">'+_payWaitHead(c)+'</div><div class="list-sub">'+esc(_payTimeTxt(c.createdAt))+' · price '+esc(_payInr(c.price))+(payWaPhone(c.phone)?' · +'+esc(payWaPhone(c.phone)):'')+'</div>'+(_payAgo(c.remindedMs)?'<div class="list-sub" style="color:#B26A00;">🔔 Reminded '+esc(_payAgo(c.remindedMs))+'</div>':'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-o btn-sm" onclick="vcPayRemind(\''+_vcIdArg(c.id)+'\')">🔔 Remind</button>'+(payWaPhone(c.phone)?'<button class="btn btn-o btn-sm" onclick="vcPayOpenChat(\''+_vcIdArg(c.id)+'\')">💬 Chat</button>':'')+'<button class="btn btn-o btn-sm" onclick="vcPayReopen(\''+_vcIdArg(c.id)+'\')">QR</button><button class="btn btn-o btn-sm" onclick="vcPayMarkModal(\''+_vcIdArg(c.id)+'\')">Mark paid</button><button class="btn btn-d btn-sm" onclick="vcPayCancelClaim(\''+_vcIdArg(c.id)+'\')">Cancel</button></div></div>').join(''):'<div class="list-sub" style="padding:8px 0;">Nothing waiting.</div>')+'</div>';
   h+='<div class="card">'+head('✅ Received, not billed',v.toBill.length)+(v.toBill.length?v.toBill.slice().reverse().map(_payRowHtml).join(''):'<div class="list-sub" style="padding:8px 0;">Everything received is billed.</div>')+'</div>';
   if(v.notSale.length)h+='<details class="card collapse-card"><summary class="collapse-summary"><span class="card-title" style="margin:0;display:inline;">Not a sale ('+v.notSale.length+')</span><span class="collapse-chevron">▾</span></summary><div style="margin-top:8px;">'+v.notSale.slice().reverse().map(p=>'<div class="list-row"><div><div class="list-main">'+esc(_payInr(p.amount))+'</div><div class="list-sub">'+esc(_payTimeTxt(p.txnAt))+' · Ref '+esc(p.utr)+' · '+esc(PAY_NS[p.nsReason]||'Other')+(p.nsNote?': '+esc(p.nsNote):'')+'</div></div><button class="btn btn-o btn-sm" onclick="vcPayNotSaleUndo(\''+p.utr+'\')">Undo</button></div>').join('')+'</div></details>';
   const recent=v.done.filter(r=>r.date>=new Date(Date.now()-30*86400000).toISOString().slice(0,10));
@@ -19494,13 +19591,14 @@ function vcPayRecalcNote(){
   const lr=_payRowByKey(_vcPayLink.key);
   const g=calcTotals(items,ship,disc).grandIncl,a=payBillAdj(g,_vcPayLink.paid,payOwnGap(lr&&lr.claim));
   let t='';
-  if(a.kind==='adjust')t=(a.ask?'<div class="list-row" style="color:#8F5E00;font-size:13px;"><span>More than the QR paise, you will be asked</span><span>⚠️</span></div>':'')+'<div class="list-row" style="color:#c0392b;"><span>UPI payment adjustment</span><strong>−'+esc(_payInr(a.adj))+'</strong></div><div class="list-row" style="font-weight:700;"><span>Bill total = paid</span><strong>'+esc(_payInr(_vcPayLink.paid))+'</strong></div>';
+  if(a.kind==='adjust')t=(a.ask?'<div class="list-row" style="color:#8F5E00;font-size:13px;"><span>More than the QR paise, you will be asked</span><span>⚠️</span></div>':'')+'<div class="list-row" style="color:#c0392b;"><span>UPI payment adjustment</span><strong>−'+esc(_payInr(a.adj))+'</strong></div><div class="list-row" data-uibar="Bill total" style="font-weight:700;"><span>Bill total = paid</span><strong>'+esc(_payInr(_vcPayLink.paid))+'</strong></div>';
   else if(a.kind==='exact')t='<div class="list-row" style="color:#1A6E37;"><span>Matches the UPI payment</span><strong>✓</strong></div>';
   else t='<div class="list-row" style="color:#C0392B;font-size:13px;"><span>Payment linked: '+esc(_payInr(_vcPayLink.paid))+'</span><strong>'+(a.kind==='over'?'paid '+esc(_payInr(a.diff))+' more':'bill '+esc(_payInr(a.diff))+' more')+'</strong></div>';
   sb.insertAdjacentHTML('beforeend',t);
 }
 function vcPaySettingsFill(){
   const e=document.getElementById('ms-pay-acct');if(e)e.value=vcPayAcct();
+  const cs=document.getElementById('ms-cel-snd');if(cs)cs.checked=celSoundOn(); // v14.63.0
 }
 function vcPaySettingsSave(){
   const e=document.getElementById('ms-pay-acct');if(!e)return;
