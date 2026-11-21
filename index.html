@@ -3,10 +3,16 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.63.2
+APP: Vismaad Creations v14.64.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 21-Nov-2026 - v14.63.2: BARCODE READER BUILT IN + TAMPER CHECK ON THE TEXT READER. Includes v14.63.1 and v14.63.0. No Code.gs or print.html change. Upload index.html only.
+LAST_CHANGE: 21-Nov-2026 - v14.64.0: COLOUR / DESIGN ON THE BILL, CHANGEABLE WITHOUT A NEW BILL. Includes v14.63.2, v14.63.1 and v14.63.0. No Code.gs or print.html change. Upload index.html only.
+(V1) NEW. Edit Invoice: each line of a product with variants has a 🎨 Colour dropdown (section renamed "Articles: colour & dropship"). Changing it asks once, then swaps stock: the old colour gets the pieces back, the new colour gives them. Bill number, date, prices and totals stay the same; works on locked Tax Invoices too. Colours without enough pieces are greyed out. Name only, no stock move, on cancelled/returned bills, dropship lines, lines settled by the stock count, pieces that came from a linked product, and lines where no colour was recorded before (_swapItemVariant, changeEditItemVariant).
+(V2) NEW. The colour prints on the bill after the product name, e.g. "Phulkari Suit (Navy Blue)". Reprint or share again after a change to send the new colour.
+(V3) The colour name is now saved on the bill line (variantLabel in expandItems), so every device shows it after sync. Older bills fall back to the product's colour name.
+(V4) BUG FIX: when no colour was picked, stock came from the first colour in stock but the bill did not record which, so a cancel or return always put the piece back on the first colour. That colour is now recorded on the line (_recordAutoVariant) at invoice creation, bill reactivation and dropship un-mark.
+(V5) Invoice form: Colour / Design no longer shows * and reads "optional, can change later in ✏️ Edit"; empty choice reads "Not chosen (first colour in stock)". Picking stays optional.
+PREV_CHANGE: 21-Nov-2026 - v14.63.2: BARCODE READER BUILT IN + TAMPER CHECK ON THE TEXT READER. Includes v14.63.1 and v14.63.0. No Code.gs or print.html change. Upload index.html only.
 (C1) The iPhone barcode reader (ZXing 0.21.3, MIT) is now inside this file (vc-lib-zxing, text only until the scanner opens), not downloaded from jsDelivr on the first scan. Scanner starts at once and works offline. File about 336 KB bigger (about 100 KB over the network). Android still uses the phone's own reader.
 (C2) "Read printed number" (tesseract.js 5.1.1, still downloaded, several MB) now loads with a tamper check (integrity sha384): a changed file is refused and never runs (_loadTesseract). Its helper files (worker, language data) run apart from the app and cannot read its saved data.
 (C3) BUG FIX: after a failed download, _loadScript left its tag behind, so the next try thought it was loaded and the reader stayed unavailable until the app was reopened. A failed tag is now removed so the next tap tries again.
@@ -1997,7 +2003,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <div style="background:var(--goldp);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--brown);margin-bottom:14px;" id="edit-total-preview"></div>
 
     <div id="edit-ds-section" style="display:none;margin-bottom:14px;">
-      <div style="font-size:13px;font-weight:600;color:#e67e22;margin-bottom:8px;">📦 Dropship Articles</div>
+      <div style="font-size:13px;font-weight:600;color:#e67e22;margin-bottom:8px;">📦 Articles: colour &amp; dropship</div>
       <div id="edit-ds-items-list"></div>
     </div>
     <div class="btn-row">
@@ -3655,6 +3661,7 @@ function expandItems(arr){
     dsPaid:i.dsPaid||false,
     dsPaidDate:i.dsPaidDate||'',
     dsUpfront:i.dsUpfront||false,
+    variantLabel:i.variantLabel?String(i.variantLabel):'', // v14.64.0: colour/design name kept on the bill line
     variantId:i.variantId||'', // v14.26.0: was stripped here — sync merge lost variant links, breaking variant stock restores cross-device
     spill:Array.isArray(i.spill)?i.spill:[], // v14.27.0: units taken from LINKED products — must survive the sheet round-trip or restores can't reverse the pool
     discType:i.discType==='pct'?'pct':'rs', // v14.61.0: per-suit discount survives the sheet round trip
@@ -5288,9 +5295,9 @@ function renderVariantDropdown(rowId, prod) {
     return `<option value="${v.id}" data-label="${esc(label)}" ${isOut?'disabled':''} ${it&&it.variantId===v.id?'selected':''}>${esc(label)}${isOut?' (Sold Out)':' (Qty: '+vQty+')'}</option>`;
   }).join('');
   container.innerHTML = `<div class="fg" style="margin-top:8px;margin-bottom:0;">
-    <label>Colour / Design *</label>
+    <label>Colour / Design <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#888;">(optional, can change later in ✏️ Edit)</span></label>
     <select onchange="selectInvoiceVariant(${rowId}, this.value, this.options[this.selectedIndex].dataset.label)" style="padding:11px 12px;border-radius:10px;border:1.5px solid var(--gold);background:var(--cream);font-size:14px;">
-      <option value="">— Select colour/design —</option>
+      <option value="">Not chosen (first colour in stock)</option>
       ${opts}
     </select>
   </div>`;
@@ -5640,6 +5647,7 @@ async function generateInvoice(){
     const num=parseInt(it.prodNo);if(!num)return;
     const prod=inventory.find(p=>parseInt(p.prodNo)===num);if(!prod)return;
     const r=deductStock(prod,it.variantId,it.qty||1);
+    _recordAutoVariant(prod,it,r); // v14.64.0: no colour picked: keep the one the stock came from
     it.spill=r.spill; // persisted on the invoice item
     r.touched.forEach(n=>_poolTouched.add(n));
     r.spill.forEach(s=>_spillNotes.push('#'+s.prodNo+' ×'+s.qty));
@@ -5666,7 +5674,7 @@ async function generateInvoice(){
     qrAdj:_pl?_pl.adj:0,payRefs:_pl?_pl.refs:'', // v14.50.0
     grandTotal:grandIncl,gstAmt,taxableExcl,suitsTotal,
     itemCount:validItems.length,
-    itemsSummary:validItems.map(i=>`${i.desc}${i.variantLabel?' ('+i.variantLabel+')':''} x${i.qty} @₹${i.unitPrice}`).join(' | '),
+    itemsSummary:_invItemsSummary(validItems),
     itemsArr:validItems,
     gstin:S.gstin,bizAddress:S.address,bizPhone:S.phone,bizEmail:S.email,
     isShipped:false,status:'Pending',invoiceStatus:'Active',
@@ -5820,7 +5828,7 @@ function buildInvoiceHTML(data){
     }
     return'<tr style="border-bottom:1px solid #e2d4bc;">'
       +'<td style="padding:6px 8px;">'+(i+1)+'</td>'
-      +'<td style="padding:6px 8px;"><strong>'+esc(it.desc||'Unstitched Suit')+'</strong>'+(it.prodNo?'<span style="font-size:10px;color:#888;"> #'+it.prodNo+'</span>':'')+'</td>'
+      +'<td style="padding:6px 8px;"><strong>'+esc(it.desc||'Unstitched Suit')+'</strong>'+(_itemVarLabel(it)?' ('+esc(_itemVarLabel(it))+')':'')+(it.prodNo?'<span style="font-size:10px;color:#888;"> #'+it.prodNo+'</span>':'')+'</td>'
       +(gstMode?'<td style="padding:6px 8px;">'+esc(it.hsn||'540754')+'</td>':'')
       +'<td style="padding:6px 8px;text-align:center;">'+(it.qty||1)+'</td>'
       +'<td style="padding:6px 8px;text-align:right;">'+f(it.unitPrice||0)+'</td>'
@@ -6830,6 +6838,7 @@ function renderEditDSItems(inv){
           DS
         </label>
       </div>
+      ${_editVarSelect(inv,it,idx)}
       ${isDS?`<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
         <select onchange="updateEditDSItem('${inv.id}',${idx},'dsSupId',this.value,this.options[this.selectedIndex]?.text)" style="flex:1;min-width:120px;padding:7px 8px;border-radius:6px;border:1px solid #ddd;font-size:12px;">
           ${suppliers.map(s=>`<option value="${s.id}" ${s.id===it.dsSupId?'selected':''}>${esc(s.name)}</option>`).join('')||supOpts}
@@ -6853,6 +6862,66 @@ function renderEditDSItems(inv){
   }
 }
 
+// v14.64.0 Colour / Design dropdown on each Edit Invoice line (products with variants only).
+function _editVarSelect(inv,it,idx){
+  const num=parseInt(it&&it.prodNo);
+  const p=num?inventory.find(x=>parseInt(x.prodNo)===num):null;
+  if(!p||!Array.isArray(p.variants)||!p.variants.length)return'';
+  const cur=it.variantId||'';
+  const known=cur&&p.variants.some(v=>v.id===cur);
+  let opts='';
+  if(!cur)opts+='<option value="" selected>Not recorded</option>';
+  else if(!known)opts+='<option value="" selected disabled>'+esc(_itemVarLabel(it)||'Unknown')+' (removed)</option>';
+  opts+=p.variants.map(v=>{
+    const q=Math.max(0,parseInt(v.qty)||0);
+    const isCur=v.id===cur;
+    const short=!isCur&&_swapItemVariant(inv,it,v.id,true).error==='short';
+    return '<option value="'+esc(v.id)+'"'+(isCur?' selected':'')+(short?' disabled':'')+'>'+esc(v.label||'Design (unlabelled)')+(isCur?' (on this bill)':' (Qty: '+q+')')+'</option>';
+  }).join('');
+  return '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">'
+    +'<span style="font-size:12px;font-weight:600;color:var(--brown);white-space:nowrap;">🎨 Colour</span>'
+    +'<select onchange="changeEditItemVariant(\''+esc(String(inv.id))+'\','+idx+',this.value)" style="flex:1;min-width:160px;padding:8px 10px;border-radius:8px;border:1.5px solid var(--gold);background:var(--cream);font-size:13px;">'+opts+'</select></div>';
+}
+function changeEditItemVariant(invId,idx,newVid){
+  const inv=invoices.find(i=>String(i.id)===String(invId));if(!inv)return;
+  const arr=expandItems(inv.itemsArr);const it=arr[idx];
+  if(!it||!newVid){renderEditDSItems(inv);return;}
+  const plan=_swapItemVariant(inv,it,newVid,true);
+  if(plan.error){
+    if(plan.error==='short')toast('⚠️ Only '+plan.have+' of '+plan.newLabel+' in stock, '+plan.need+' needed');
+    else if(plan.error!=='same')toast('⚠️ Could not change the colour');
+    renderEditDSItems(inv);return;
+  }
+  const pc=plan.moved===1?'1 piece':plan.moved+' pieces';
+  const why={void:'This bill is cancelled or returned, so',ds:'This line is dropship, so',count:'This line is settled by your stock count, so',linked:'These pieces came from a linked product, so',nocol:'No colour was recorded on this line before, so'}[plan.why]||'';
+  const body='#'+esc(String(it.prodNo))+' '+esc(it.desc||'')+'<br/><b>'+esc(plan.oldLabel||'Not recorded')+' → '+esc(plan.newLabel)+'</b><br/><br/>'
+    +(plan.mode==='stock'?esc(plan.oldLabel)+' gets '+pc+' back. '+esc(plan.newLabel)+' gives '+pc+'.'
+      :why+' only the colour name changes. Stock stays as it is.')
+    +'<br/><span style="font-size:12px;color:#636366;">Same bill number, prices and totals. Print or share the bill again to send the new colour.</span>';
+  showConfirmModal('🎨 Change colour',body,function(){_doEditItemVariant(invId,idx,newVid);},function(){renderEditDSItems(inv);});
+}
+function _doEditItemVariant(invId,idx,newVid){
+  const inv=invoices.find(i=>String(i.id)===String(invId));if(!inv)return;
+  const arr=expandItems(inv.itemsArr);const it=arr[idx];if(!it)return;
+  const r=_swapItemVariant(inv,it,newVid);
+  if(r.error){
+    toast(r.error==='short'?'⚠️ Only '+r.have+' of '+r.newLabel+' in stock now':'⚠️ Colour not changed');
+    renderEditDSItems(inv);return;
+  }
+  inv.itemsArr=arr;
+  inv.itemsSummary=_invItemsSummary(arr.filter(i=>i.unitPrice>0));
+  inv.invUpdatedAt=new Date().toISOString();
+  delete inv.html;
+  save();
+  gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{if(!ok)toast('⚠️ Invoice saved locally but sheet sync failed — tap sync to retry');});
+  if(r.touched.size){
+    saveStk();
+    inventory.filter(p=>r.touched.has(parseInt(p.prodNo))).forEach(p=>gsWriteConfirmed(SHEETS.inventory,flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Stock #'+p.prodNo+' sheet sync failed — tap sync to retry');}));
+  }
+  renderEditDSItems(inv);
+  if(typeof renderSales==='function')try{renderSales();}catch(e){}
+  toast('🎨 Colour changed to '+r.newLabel+(r.mode==='stock'?', stock updated':''));
+}
 function toggleEditDSItem(invId,itemIdx,checked,_ans){
   const inv=invoices.find(i=>String(i.id)===String(invId));if(!inv)return;
   const arr=expandItems(inv.itemsArr);
@@ -7967,6 +8036,7 @@ function _applyInvoiceStatus(inv,newStatus,_opts){
       if(!p)return;
       const qty=parseInt(it.qty)||1;
       const res=deductStock(p,it.variantId,qty);
+      _recordAutoVariant(p,it,res); // v14.64.0
       it.spill=res.spill||[];
       if(res.short)_short+=res.short;
       (res.touched||[]).forEach(n=>_touched2.add(n));
@@ -15256,6 +15326,59 @@ function _giveTo(p,variantId,qty){
   v.qty=(parseInt(v.qty)||0)+qty;
   recalcProductQtyFromVariants(p);
 }
+// v14.64.0 COLOUR ON THE BILL LINE. Name stored on the line wins; else looked up from the product.
+function _itemVarLabel(it){
+  if(!it)return'';
+  if(it.variantLabel)return String(it.variantLabel);
+  if(!it.variantId)return'';
+  const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(it.prodNo));
+  const v=p&&Array.isArray(p.variants)?p.variants.find(x=>x.id===it.variantId):null;
+  return v?String(v.label||''):'';
+}
+function _invItemsSummary(arr){
+  return (arr||[]).map(i=>{const l=_itemVarLabel(i);return `${i.desc}${l?' ('+l+')':''} x${i.qty} @₹${i.unitPrice}`;}).join(' | ');
+}
+// No colour picked: deductStock took the piece from the first colour in stock. Record which one.
+function _recordAutoVariant(p,it,r){
+  if(!p||!it||it.variantId||!r||!r.variantId)return;
+  const v=Array.isArray(p.variants)?p.variants.find(x=>x.id===r.variantId):null;
+  if(!v)return;
+  it.variantId=v.id;it.variantLabel=String(v.label||'');
+}
+// v14.64.0 CHANGE COLOUR ON A SAVED BILL. No new bill, no cancel; prices and totals untouched.
+// Stock moves only when the line really took pieces of a known colour from this product:
+// old colour gets them back, new colour gives them. dry=true only reports what would happen.
+function _swapItemVariant(inv,it,newVid,dry){
+  const res={mode:'label',moved:0,touched:new Set(),error:''};
+  const num=parseInt(it&&it.prodNo);
+  const p=num?inventory.find(x=>parseInt(x.prodNo)===num):null;
+  if(!p||!Array.isArray(p.variants)||!p.variants.length){res.error='noprod';return res;}
+  const nv=p.variants.find(x=>x.id===newVid);
+  if(!nv){res.error='novar';return res;}
+  if(it.variantId&&it.variantId===newVid){res.error='same';return res;}
+  const ov=it.variantId?p.variants.find(x=>x.id===it.variantId):null;
+  const qty=Math.max(1,parseInt(it.qty)||1);
+  const spilled=(Array.isArray(it.spill)?it.spill:[]).reduce((s,x)=>s+(parseInt(x.qty)||0),0);
+  const own=Math.max(0,qty-spilled);
+  const move=invStatusOf(inv)==='Active'&&_lineMovable(it)&&own>0&&!!ov;
+  res.why=move?'':invStatusOf(inv)!=='Active'?'void':isDS(it)?'ds':(it.countKept===true||it.countKept==='true')?'count':own<=0?'linked':'nocol';
+  res.oldLabel=ov?String(ov.label||''):_itemVarLabel(it);res.newLabel=String(nv.label||'');
+  if(move){
+    res.have=Math.max(0,parseInt(nv.qty)||0);
+    if(res.have<own){res.error='short';res.need=own;return res;}
+    res.mode='stock';res.moved=own;
+  }
+  if(dry)return res;
+  if(move){
+    ov.qty=(Math.max(0,parseInt(ov.qty)||0))+own;
+    nv.qty=res.have-own;
+    recalcProductQtyFromVariants(p);
+    p.updatedAt=new Date().toISOString();
+    res.touched.add(num);
+  }
+  it.variantId=nv.id;it.variantLabel=String(nv.label||'');
+  return res;
+}
 // Recompute product-level qty as sum of all variant qtys (when variants exist)
 function recalcProductQtyFromVariants(p) {
   if (!p || !p.variants || !p.variants.length) return;
@@ -15302,6 +15425,7 @@ function _flipItemDS(inv,it,toDS){
   }else{
     // DS → non-DS : the article now comes from our stock — deduct it
     const r=deductStock(prod,it.variantId,qty);
+    _recordAutoVariant(prod,it,r); // v14.64.0
     it.spill=r.spill;
     r.touched.forEach(n=>touched.add(n));
     const spilled=r.spill.reduce((s,x)=>s+(parseInt(x.qty)||0),0);
