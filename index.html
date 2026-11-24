@@ -3,10 +3,21 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.64.0
+APP: Vismaad Creations v14.65.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 21-Nov-2026 - v14.64.0: COLOUR / DESIGN ON THE BILL, CHANGEABLE WITHOUT A NEW BILL. Includes v14.63.2, v14.63.1 and v14.63.0. No Code.gs or print.html change. Upload index.html only.
+LAST_CHANGE: 24-Nov-2026 - v14.65.0: MANUAL LINKED PRODUCTS, OUT-OF-STOCK CHOICE ON THE BILL, PIECES WAITING FOR STOCK, PRICE AFTER DISCOUNT, ORDER SLIP LIKE THE BILL, NEW LABEL AS DEFAULT. No Code.gs or print.html change. Upload index.html only.
+(W1) LINK BY HAND. Product ✏️ Edit has "🔗 Linked products": type a number and Link (names need not match); each link is a chip with its stock and ✕ to unlink. Two-way, synced (_linkProducts, _unlinkProducts, iemLinkAdd, iemUnlink).
+(W2) REGISTER MARKS. Linked rows carry a 🔗 badge with each linked number and its stock (and "Linked stock: N" when several). A sold-out product whose linked product has stock stays under "In Stock", its number in red, with "🔗 N in stock via #x". "Pool" renamed "Linked stock" on the aging cards; Settings note reworded.
+(W3) NO AUTOMATIC TAKING. A bill takes stock only from the number on its line (deductStock no longer drains linked products). Old bills that already took pieces from a linked product still give them back correctly.
+(W4) OUT-OF-STOCK MESSAGE on the bill form, after typing a number or raising the qty (asked when typing stops, so 120 never asks about #1 or #12; pieces on other lines of the same bill are counted): Use #x (n in stock) changes the line to that number with its name, cost, HSN and colours, price kept; Split: a from #120 + b from #135 when partly in stock, two lines with the line discount shared by qty; Dropship; Keep #120 (new lot not entered yet). Also shown when there is no linked product.
+(W5) PIECES WAITING FOR STOCK. Kept pieces are saved on the bill line as waiting ({await:true} in spill): the product's sold count and intake are not inflated, cancel/return puts nothing back. Register shows "⏳ N sold, stock not entered"; Dashboard card lists them. Adding the new lot (Add Product) or Save & Confirm of a supplier-bill item offers "Link #new and take N"; Yes links both, takes the pieces from the new number, and sets the bill line cost to the real weighted cost (P&L right). The printed bill keeps the original number. Edit screen of the waiting product has "Take from #" for later (_settleAwait, _offerSettleFor, iemTakeFrom). Colour change on a waiting line explains why stock does not move.
+(W6) OFFLINE / WALK-IN fills in state Punjab (still editable).
+(W7) PRICE AFTER DISCOUNT per piece on every bill line; the app puts (unit price − after price) × qty into that suit's discount and keeps it in step with qty and price. Typing a discount directly clears it. A single suit now keeps its own discount (no longer moved to Overall).
+(W8) ORDER SLIP uses the bill's layout on full A4: same header, HSN, Disc column per article, Taxable, GST summary, totals. Headed "Order Slip", no bill number, no FY, no copy marking, no invoice signature line; UPI QR and "Tax invoice to follow" kept.
+(W10) BUG FIX: the Grand Total row on bills (and now the Order Slip) sat one column too far left when a per-suit discount added the Disc column (since v14.61.0), and on non-GST bills always. Row now spans every column.
+(W9) LABEL WITH DETAILS IS NOW THE DEFAULT: "🏷 Print Label" after a bill, on the Labels page, in the Sales row menu and on the Sales bulk toolbar. The old label stays as "📦 Address-only label". "Content value in INR" line now 9 pt dark grey (was 7 pt light grey).
+PREV_CHANGE: 21-Nov-2026 - v14.64.0: COLOUR / DESIGN ON THE BILL, CHANGEABLE WITHOUT A NEW BILL. Includes v14.63.2, v14.63.1 and v14.63.0. No Code.gs or print.html change. Upload index.html only.
 (V1) NEW. Edit Invoice: each line of a product with variants has a 🎨 Colour dropdown (section renamed "Articles: colour & dropship"). Changing it asks once, then swaps stock: the old colour gets the pieces back, the new colour gives them. Bill number, date, prices and totals stay the same; works on locked Tax Invoices too. Colours without enough pieces are greyed out. Name only, no stock move, on cancelled/returned bills, dropship lines, lines settled by the stock count, pieces that came from a linked product, and lines where no colour was recorded before (_swapItemVariant, changeEditItemVariant).
 (V2) NEW. The colour prints on the bill after the product name, e.g. "Phulkari Suit (Navy Blue)". Reprint or share again after a change to send the new colour.
 (V3) The colour name is now saved on the bill line (variantLabel in expandItems), so every device shows it after sync. Older bills fall back to the product's colour name.
@@ -1265,6 +1276,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <div class="stat-card"><div class="stat-val" id="ds-products">—</div><div class="stat-lbl">Products</div></div>
   </div>
   <div class="card" id="vc-pay-card" style="display:none;"></div>
+  <div class="card" id="dash-await" style="display:none;"></div>
   <div class="card">
     <div class="card-title">📦 Pending Orders</div>
     <div id="dash-orders"><div style="color:#aaa;font-size:13px;text-align:center;padding:20px;">Loading…</div></div>
@@ -1425,8 +1437,8 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     </div>
     <button class="btn btn-g" onclick="printCurrentInvoice()" style="margin-bottom:10px;">🖨️ Print Invoice</button>
     <button class="btn btn-p" onclick="openShareModal(currentInv)" style="margin-bottom:10px;">📤 Share Invoice</button>
-    <button class="btn btn-o" onclick="goToLabel()" style="margin-bottom:10px;">📦 Create Shipping Label</button>
-    <button class="btn btn-o" onclick="vcOpenParcels(currentInv)" style="margin-bottom:10px;">🏷 Label with order details (trial)</button>
+    <button class="btn btn-o" onclick="vcOpenParcels(currentInv)" style="margin-bottom:10px;">🏷 Print Label</button>
+    <button class="btn btn-o btn-sm" onclick="goToLabel()" style="margin-bottom:10px;">📦 Address-only label</button>
     <button id="new-invoice-btn" class="btn btn-p" onclick="resetInvoiceForm()" style="margin-bottom:4px;background:var(--green);border-color:var(--green);">+ New Invoice</button>
   </div>
 </div>
@@ -1739,7 +1751,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <!-- v14.27.0: linked products now share one physical stock pool -->
     <div class="card" style="margin-bottom:14px;">
       <div class="card-title">🔗 Linked Stock</div>
-      <div style="font-size:12px;color:#888;">Linked products share one physical stock pool. If a sale needs more articles than the invoiced product holds, the extra is now taken automatically from its linked articles (lowest product number first). Deleting or returning the invoice puts every article back where it came from.</div>
+      <div style="font-size:12px;color:#888;">Link products by hand in a product's ✏️ Edit screen. A bill takes stock only from the number on its line. When that number is out of stock, the bill offers: use a linked number, split between them, dropship, or keep it (new lot not entered yet). Kept pieces show ⏳ in Inventory until the new lot is added and takes them.</div>
     </div>
 
     <div id="ms-gstin-row" class="fg"><label>Your GSTIN</label><input id="ms-gstin" placeholder="03XXXXX1234Z5" maxlength="15" style="text-transform:uppercase"/></div>
@@ -2096,6 +2108,23 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
       <div id="iem-margin-note" style="font-size:11px;color:#888;margin-top:3px;"></div>
     </div>
     <div class="fg"><label>Notes</label><input id="iem-notes" placeholder="Colour, design details"/></div>
+    <!-- v14.65.0: link any product by hand, unlink with ✕ -->
+    <div id="iem-links-box" style="background:#f0f7ff;border:1px solid #c8dff5;border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:var(--brown);margin-bottom:4px;">🔗 Linked products</div>
+      <div style="font-size:12px;color:#888;margin-bottom:8px;">Same suit under another number (for example a new lot at a different cost). When this one is out of stock, the bill offers the linked one.</div>
+      <div id="iem-links-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
+      <div style="display:flex;gap:8px;">
+        <input type="number" id="iem-link-no" min="1" inputmode="numeric" placeholder="Product no." style="flex:1;min-width:0;padding:11px 12px;" onkeydown="if(event.key==='Enter'){event.preventDefault();iemLinkAdd();}"/>
+        <button type="button" class="btn btn-o" style="width:auto;min-height:44px;padding:0 18px;" onclick="iemLinkAdd()">🔗 Link</button>
+      </div>
+      <div id="iem-await-box" style="display:none;margin-top:12px;background:#fff3cd;border:1.5px solid #f5c26b;border-radius:10px;padding:10px 12px;">
+        <div id="iem-await-text" style="font-size:12px;color:#7a5200;margin-bottom:8px;line-height:1.5;"></div>
+        <div style="display:flex;gap:8px;">
+          <input type="number" id="iem-take-no" min="1" inputmode="numeric" placeholder="New lot no." style="flex:1;min-width:0;padding:11px 12px;"/>
+          <button type="button" class="btn btn-g" style="width:auto;min-height:44px;padding:0 14px;" onclick="iemTakeFrom()">Take from #</button>
+        </div>
+      </div>
+    </div>
     <div class="fg"><label>Instagram Reel URL <span style="font-weight:400;color:#aaa;">(optional)</span></label>
       <input id="iem-reel-url" placeholder="https://www.instagram.com/reel/..."/>
     </div>
@@ -2517,7 +2546,7 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <button type="button" class="ui-tbtn" onclick="bulkMarkShipped(true)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 7h11v9h-11zM13.5 10h4l3 3v3h-7"/><circle cx="6.5" cy="17.5" r="1.6"/><circle cx="17" cy="17.5" r="1.6"/></svg><span>Shipped</span></button>
     <button type="button" class="ui-tbtn" onclick="bulkMarkDelivered(true)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M8 12.3l2.7 2.7L16.2 9.5"/></svg><span>Delivered</span></button>
     <button type="button" class="ui-tbtn" onclick="bulkPrint()"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 9V3.5h10V9M7 17H4.5V9h15v8H17"/><path d="M7 14h10v6.5H7z"/></svg><span>Print</span></button>
-    <button type="button" class="ui-tbtn" onclick="bulkPrintLabels()"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 12.5v-8h8l9 9-8 8z"/><circle cx="8" cy="9" r="1.4"/></svg><span>Labels</span></button>
+    <button type="button" class="ui-tbtn" onclick="vcTrialBulk()"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 12.5v-8h8l9 9-8 8z"/><circle cx="8" cy="9" r="1.4"/></svg><span>Labels</span></button>
     <button type="button" class="ui-tbtn" onclick="uiBulkMore(this)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18" cy="12" r="1.3" fill="currentColor"/></svg><span>More</span></button>
   </div>
 </div>
@@ -5120,7 +5149,7 @@ function removeItem(id){
 }
 function renderItems(){
   const c=document.getElementById('items-container');if(!c)return;
-  _foldSuitDisc(); // v14.61.0: one suit left, its discount goes to Overall discount
+  // v14.65.0: a single suit keeps its own discount (was moved to Overall by _foldSuitDisc)
   c.innerHTML=items.map((it,idx)=>`
     <div class="item-row" id="irow-${it.id}">
       <div class="item-row-header">
@@ -5158,7 +5187,11 @@ function renderItems(){
             oninput="updateItem(${it.id},'unitPrice',this.value)" style="padding:11px 12px;"/>
         </div>
       </div>
-      ${items.length>=2?`<div class="row2" style="margin-top:10px;">
+      ${true?`<div class="fg" style="margin:10px 0 0;"><label>Price after discount <span style="font-weight:400;color:#aaa;text-transform:none;letter-spacing:0;">(₹ per piece, optional)</span></label>
+          <input type="number" id="iafter-${it.id}" min="0" step="any" inputmode="decimal" value="${it.afterPrice!=null&&it.afterPrice!==''?esc(String(it.afterPrice)):''}" placeholder="e.g. 1450"
+            oninput="updateItem(${it.id},'afterPrice',this.value)" style="padding:11px 12px;"/>
+        </div>
+      <div class="row2" style="margin-top:10px;">
         <div class="fg" style="margin-bottom:0;"><label>Discount on this suit</label>
           <input type="number" id="idisc-${it.id}" min="0" step="any" inputmode="decimal" value="${it.discVal!=null&&it.discVal!==''?esc(String(it.discVal)):''}" placeholder="0"
             oninput="updateItem(${it.id},'discVal',this.value)" style="padding:11px 12px;"/>
@@ -5220,9 +5253,12 @@ function updateItem(id,f,v){
   const it=items.find(i=>i.id===id);if(!it)return;
   if(f==='qty'||f==='unitPrice'||f==='costPrice')it[f]=parseFloat(v)||0;
   else if(f==='prodNo')it[f]=v?parseInt(v)||'':'';
-  else if(f==='discType')it[f]=v==='pct'?'pct':'rs'; // v14.61.0
-  else if(f==='discVal')it[f]=(v===''||v==null)?'':Math.max(0,_discNum(v));
+  else if(f==='discType'){it[f]=v==='pct'?'pct':'rs';_clearAfter(it);} // v14.61.0 · v14.65.0 typed discount wins
+  else if(f==='discVal'){it[f]=(v===''||v==null)?'':Math.max(0,_discNum(v));_clearAfter(it);}
+  else if(f==='afterPrice')it[f]=(v===''||v==null)?'':Math.max(0,_discNum(v)); // v14.65.0
   else it[f]=v;
+  if(f==='afterPrice'||((f==='qty'||f==='unitPrice')&&it.afterPrice!==''&&it.afterPrice!=null))_applyAfterPrice(it); // v14.65.0
+  if(f==='qty')_oosSchedule(it.id); // v14.65.0
   const tot=document.getElementById('itot-'+id);
   if(tot)tot.textContent=_itemNetTxt(it);
   const dn=document.getElementById('idiscamt-'+id);if(dn)dn.textContent=_itemDiscNote(it);
@@ -5230,7 +5266,66 @@ function updateItem(id,f,v){
   if(f==='qty')recalcAutoShipping();
   recalc();
 }
-function lookupProduct(rowId,val){
+// ═══ v14.65.0 PRICE AFTER DISCOUNT (per piece) ═══
+function _applyAfterPrice(it){
+  if(!it)return;
+  if(it.afterPrice===''||it.afterPrice==null){it.discVal='';}
+  else{
+    const per=Math.max(0,_discNum(it.unitPrice)-Math.max(0,_discNum(it.afterPrice)));
+    it.discType='rs';it.discVal=Math.round(per*Math.max(1,parseInt(it.qty)||1)*100)/100;
+  }
+  const d=document.getElementById('idisc-'+it.id);if(d)d.value=it.discVal===''?'':String(it.discVal);
+  const t=document.getElementById('idisctype-'+it.id);if(t)t.value='rs';
+}
+function _clearAfter(it){if(!it||it.afterPrice===''||it.afterPrice==null)return;it.afterPrice='';const a=document.getElementById('iafter-'+it.id);if(a)a.value='';}
+
+// ═══ v14.65.0 OUT-OF-STOCK MESSAGE ON THE BILL ═══
+// Asked after typing stops (not on every keystroke, so typing 120 never asks about #1 or #12).
+const _oosTimers={};
+function _oosSchedule(rowId){clearTimeout(_oosTimers[rowId]);_oosTimers[rowId]=setTimeout(()=>_oosCheckNow(rowId),900);}
+function _formUsed(prodNo,exceptId){return items.reduce((s,i)=>s+(i.id!==exceptId&&!isDS(i)&&parseInt(i.prodNo)===parseInt(prodNo)?Math.max(1,parseInt(i.qty)||1):0),0);}
+function _formAvail(p,exceptId){return Math.max(0,_availQty(p)-_formUsed(p.prodNo,exceptId));}
+function _oosCheckNow(rowId){
+  clearTimeout(_oosTimers[rowId]);
+  const it=items.find(i=>i.id===rowId);if(!it||isDS(it))return;
+  const p=_prodByNo(it.prodNo);if(!p)return;
+  const need=Math.max(1,parseInt(it.qty)||1),have=_formAvail(p,it.id);
+  if(have>=need)return;
+  const key=p.prodNo+':'+need;if(it._oosKept===key)return;
+  const me=parseInt(p.prodNo),opts=[];
+  getStockPool(p).slice(1).forEach(lp=>{
+    const la=_formAvail(lp,it.id),ln=parseInt(lp.prodNo);if(la<=0)return;
+    if(have>0&&la>=need-have)opts.push({label:'✂️ Split: '+have+' from #'+me+' + '+(need-have)+' from #'+ln,fn:()=>_splitLine(rowId,ln,have)});
+    opts.push({label:'🔁 Use #'+ln+' ('+la+' in stock)',fn:()=>_switchLine(rowId,ln)});
+  });
+  opts.push({label:'📦 Dropship',fn:()=>{if(!isDS(it))toggleDSItem(rowId);}});
+  opts.push({label:'⏳ Keep #'+me+' (new lot not entered yet)',fn:()=>{it._oosKept=key;}});
+  uiSheet('#'+me+' '+String(p.name||'')+(have>0?': only '+have+' in stock, '+need+' needed':': out of stock'),opts);
+}
+function _switchLine(rowId,newNo){
+  const it=items.find(i=>i.id===rowId);const np=_prodByNo(newNo);if(!it||!np)return;
+  it.prodNo=parseInt(np.prodNo);it._oosKept='';
+  lookupProduct(rowId,String(np.prodNo),true); // keeps the price already typed
+  if(np.cost)it.costPrice=np.cost;
+  renderItems();
+}
+function _splitLine(rowId,linkedNo,keepQty){
+  const ix=items.findIndex(i=>i.id===rowId);if(ix<0)return;
+  const it=items[ix],np=_prodByNo(linkedNo);if(!np)return;
+  const need=Math.max(1,parseInt(it.qty)||1),k=Math.max(1,Math.min(need-1,parseInt(keepQty)||1)),rest=need-k;
+  itemId++;
+  const n={id:itemId,prodNo:parseInt(np.prodNo),desc:np.name||it.desc,hsn:np.hsn||it.hsn||'540754',qty:rest,unitPrice:it.unitPrice,costPrice:np.cost||it.costPrice||0,discType:it.discType==='pct'?'pct':'rs',discVal:'',afterPrice:it.afterPrice};
+  if(it.afterPrice!==''&&it.afterPrice!=null){it.qty=k;_applyAfterPrice(it);_applyAfterPrice(n);}
+  else if(it.discVal!==''&&it.discVal!=null){
+    if(it.discType==='pct'){n.discVal=it.discVal;}
+    else{const d=Math.max(0,_discNum(it.discVal)),a=Math.round(d*k/need*100)/100;it.discVal=a;n.discVal=Math.round((d-a)*100)/100;}
+  }
+  it.qty=k;it._oosKept='';
+  items.splice(ix+1,0,n);
+  renderItems();
+  const v=_prodByNo(n.prodNo);if(v)renderVariantDropdown(n.id,v);
+}
+function lookupProduct(rowId,val,quiet){
   const num=parseInt(val);const it=items.find(i=>i.id===rowId);if(!it)return;
   if(!num){it.desc='Unstitched Suit';it.prodNo='';it.variantId=null;it.variantLabel=null;
     const d=document.getElementById('idesc-'+rowId);if(d)d.value='Unstitched Suit';
@@ -5245,7 +5340,8 @@ function lookupProduct(rowId,val){
     const tot=document.getElementById('itot-'+rowId);if(tot)tot.textContent='₹'+((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN');
     const nf=document.getElementById('iname-'+rowId);if(nf)nf.value='';
     renderVariantDropdown(rowId, prod);
-    recalc();toast('✅ #'+num+': '+prod.name);
+    recalc();if(!quiet)toast('✅ #'+num+': '+prod.name);
+    it._oosKept='';if(!quiet)_oosSchedule(rowId); // v14.65.0
   }
 }
 function buildProdNameOptions(){
@@ -5271,6 +5367,7 @@ function lookupProductByName(rowId,val){
   setTimeout(()=>{const nf=document.getElementById('iname-'+rowId);if(nf)nf.value='';},200);
   renderVariantDropdown(rowId, prod);
   recalc();toast('✅ #'+num+': '+prod.name);
+  it._oosKept='';_oosSchedule(rowId); // v14.65.0
 }
 
 // Render variant selector inside an invoice item row
@@ -5541,10 +5638,12 @@ function setChannel(el,val){
   const sc=document.getElementById('sale-channel');if(sc)sc.value=val;
   // Auto-manage shipping based on channel. Offline forces ₹0 and CLEARS any manual override,
   // since there is no shipping to charge on a counter sale.
-  if(val==='Offline')_shipManual=false;
+  if(val==='Offline'){_shipManual=false;_prefillPunjab();}
   recalcAutoShipping();
   recalc();
 }
+// v14.65.0: counter sale, goods handed over in Punjab. Pre-filled, still editable.
+function _prefillPunjab(){const s=document.getElementById('c-state');if(s&&s.value!=='Punjab'){s.value='Punjab';updateTaxType();}}
 function updateTaxType(){
   const st=document.getElementById('c-state')?.value;
   const el=document.getElementById('tax-display');if(!el)return;
@@ -5565,6 +5664,7 @@ function updateDispatchFields(){
   // override. (Also fixes a latent bug: this branch used items.length*50 instead of totalQty()*50,
   // undercharging shipping whenever any line had qty > 1.)
   if(method==='walkin'||method==='hand')_shipManual=false;
+  if(method==='walkin')_prefillPunjab(); // v14.65.0
   recalcAutoShipping();
   recalc();
 }
@@ -5646,11 +5746,11 @@ async function generateInvoice(){
     if(isDS(it)){it.spill=[];return;} // v14.30.0: dropshipped — ships from supplier, never touch our stock
     const num=parseInt(it.prodNo);if(!num)return;
     const prod=inventory.find(p=>parseInt(p.prodNo)===num);if(!prod)return;
-    const r=deductStock(prod,it.variantId,it.qty||1);
+    const r=deductStock(prod,it.variantId,it.qty||1,{await:true}); // v14.65.0: missing pieces wait for the new lot
     _recordAutoVariant(prod,it,r); // v14.64.0: no colour picked: keep the one the stock came from
     it.spill=r.spill; // persisted on the invoice item
     r.touched.forEach(n=>_poolTouched.add(n));
-    r.spill.forEach(s=>_spillNotes.push('#'+s.prodNo+' ×'+s.qty));
+    r.spill.forEach(s=>{if(!s.await)_spillNotes.push('#'+s.prodNo+' ×'+s.qty);});
     if(r.short>0)_shortNotes.push('#'+num+' ×'+r.short);
     // qtySold is credited to the product that PHYSICALLY supplied each unit —
     // siblings are credited inside deductStock; the invoiced product takes the rest
@@ -5696,7 +5796,7 @@ async function generateInvoice(){
   });
   // v14.27.0: non-blocking notices — the invoice ALWAYS saves, these are FYI only
   if(_spillNotes.length)setTimeout(()=>toast('🔗 Taken from linked stock: '+_spillNotes.join(', ')),900);
-  if(_shortNotes.length)setTimeout(()=>toast('ℹ️ Sold beyond recorded stock: '+_shortNotes.join(', ')+' — sale recorded, stock at 0'),1800);
+  if(_shortNotes.length)setTimeout(()=>toast('⏳ Waiting for stock to be entered: '+_shortNotes.join(', ')+'. Shown in Inventory until the new lot is added.',6000),1800);
 
   currentInv=saved;
   const ph=document.getElementById('inv-preview-html');
@@ -5891,10 +5991,10 @@ function buildInvoiceHTML(data){
         <div style="font-size:11px;color:#555;">${esc(data.bizPhone||S.phone||'')}${(data.bizEmail||S.email)?' | '+esc(data.bizEmail||S.email):''}</div>
       </div>
       <div style="text-align:right;">
-        <div style="font-size:16px;font-weight:700;color:#5c3d1e;text-transform:uppercase;letter-spacing:1.5px;">${gstMode?'Tax Invoice':'Bill of Supply'}</div>${gstMode&&data.copyLabel?'<div style="font-size:10px;font-weight:700;letter-spacing:.5px;margin-top:2px;">'+esc(data.copyLabel)+'</div>':''}
-        <div style="font-size:12px;color:#555;margin-top:3px;"><strong>${gstMode?'Invoice No.':'Bill No.'}:</strong> ${esc(data.invNo)}</div>
-        <div style="font-size:12px;color:#555;"><strong>Date:</strong> ${fd(data.invDate)}</div>
-        <div style="font-size:12px;color:#555;"><strong>FY:</strong> ${data.fy||''}</div>
+        <div style="font-size:16px;font-weight:700;color:#5c3d1e;text-transform:uppercase;letter-spacing:1.5px;">${data.slip?'Order Slip':(gstMode?'Tax Invoice':'Bill of Supply')}</div>${!data.slip&&gstMode&&data.copyLabel?'<div style="font-size:10px;font-weight:700;letter-spacing:.5px;margin-top:2px;">'+esc(data.copyLabel)+'</div>':''}
+        ${data.slip?'':'<div style="font-size:12px;color:#555;margin-top:3px;"><strong>'+(gstMode?'Invoice No.':'Bill No.')+':</strong> '+esc(data.invNo)+'</div>'}
+        <div style="font-size:12px;color:#555;${data.slip?'margin-top:3px;':''}"><strong>Date:</strong> ${fd(data.invDate)}</div>
+        ${data.slip?'':'<div style="font-size:12px;color:#555;"><strong>FY:</strong> '+esc(data.fy||'')+'</div>'}
         ${gstMode?'<div style="font-size:11px;color:#555;margin-top:4px;"><strong>Place of Supply:</strong> '+esc(data.custState||'—')+' ('+getStateCode(data.custState||'')+')</div>':''}
         ${gstMode?'<div style="font-size:11px;color:#555;"><strong>Reverse Charge:</strong> No</div>':''}
         ${gstMode?'<div style="margin-top:5px;display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:'+(_isIntra?'#dff0d8':'#e8f4fd')+';color:'+(_isIntra?'#27ae60':'#2980b9')+';">'+(_isIntra?'Intra-State (Punjab)':'Inter-State')+'</div>':''}
@@ -5903,7 +6003,7 @@ function buildInvoiceHTML(data){
     <hr style="border:none;border-top:2px solid #5c3d1e;margin:12px 0;"/>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px;">
       <div>
-        <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">Billed To</div>
+        <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:3px;">${data.slip?'Customer':'Billed To'}</div>
         <div style="font-size:13px;font-weight:700;">${esc(data.custName)}</div>
         <div style="font-size:11px;color:#555;line-height:1.6;">${data.custPhone?'📞 '+esc(data.custPhone)+'<br/>':''}${data.custWhatsapp&&data.custWhatsapp!==data.custPhone?'💬 '+esc(data.custWhatsapp)+'<br/>':''}${data.custAddress?esc(data.custAddress).replace(/\n/g,'<br/>')+'<br/>':''}${data.custState?'<strong>'+esc(data.custState)+'</strong>'+(gstMode?' ('+getStateCode(data.custState)+')':''):''}</div>
         ${gstMode&&data.custGstin?'<div style="font-size:11px;color:#555;margin-top:3px;"><strong>Buyer GSTIN:</strong> '+esc(data.custGstin)+'</div>':''}
@@ -5924,7 +6024,7 @@ function buildInvoiceHTML(data){
       </tr></thead>
       <tbody>${itemRows}${shipRow}${discRow}</tbody>
       <tfoot><tr style="background:#f5e6c8;">
-        <td colspan="${gstMode?5:3}" style="padding:7px 8px;text-align:right;font-weight:700;">${gstMode?'Grand Total':'Total Amount'}</td>
+        <td colspan="${(gstMode?5:4)+(_showDisc?1:0)}" style="padding:7px 8px;text-align:right;font-weight:700;">${gstMode?'Grand Total':'Total Amount'}</td>
         ${gstMode?'<td style="padding:7px 8px;text-align:right;color:#888;">'+f(displayTaxable)+'</td>':''}
         <td style="padding:7px 8px;text-align:right;font-weight:700;font-size:13px;color:#5c3d1e;">${f(displayGrand)}</td>
       </tr></tfoot>
@@ -5941,9 +6041,10 @@ function buildInvoiceHTML(data){
       </table>
     </div>`:''}
     <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:14px;">
-      <div style="font-size:10px;color:#888;font-style:italic;max-width:60%;">This is a computer-generated ${gstMode?'invoice':'bill'} and does not require a physical signature.</div>
+      ${data.slip?'<div></div>':'<div style="font-size:10px;color:#888;font-style:italic;max-width:60%;">This is a computer-generated '+(gstMode?'invoice':'bill')+' and does not require a physical signature.</div>'}
       <div style="text-align:right;"><div style="font-size:10px;color:#888;">For Vismaad Creations</div></div>
     </div>
+    ${data.slip?(data.slipQr?'<div style="text-align:center;margin:12px 0 4px;"><img src="'+esc(data.slipQr)+'" style="width:120px;height:120px;"/><div style="font-size:11px;color:#555;">Scan to pay ₹'+_sbMoney(displayGrand)+'</div></div>':'')+'<div style="text-align:center;font-size:12px;font-weight:600;margin-top:10px;">Tax invoice to follow</div>':''}
     <div style="text-align:center;margin-top:14px;font-size:10px;color:#aaa;padding-top:12px;border-top:1px solid #e2d4bc;">
       Thank you for shopping with Vismaad Creations! 🙏
     </div>
@@ -6893,7 +6994,7 @@ function changeEditItemVariant(invId,idx,newVid){
     renderEditDSItems(inv);return;
   }
   const pc=plan.moved===1?'1 piece':plan.moved+' pieces';
-  const why={void:'This bill is cancelled or returned, so',ds:'This line is dropship, so',count:'This line is settled by your stock count, so',linked:'These pieces came from a linked product, so',nocol:'No colour was recorded on this line before, so'}[plan.why]||'';
+  const why={void:'This bill is cancelled or returned, so',ds:'This line is dropship, so',count:'This line is settled by your stock count, so',linked:'These pieces came from a linked product, so',await:'These pieces are waiting for stock to be entered, so',nocol:'No colour was recorded on this line before, so'}[plan.why]||'';
   const body='#'+esc(String(it.prodNo))+' '+esc(it.desc||'')+'<br/><b>'+esc(plan.oldLabel||'Not recorded')+' → '+esc(plan.newLabel)+'</b><br/><br/>'
     +(plan.mode==='stock'?esc(plan.oldLabel)+' gets '+pc+' back. '+esc(plan.newLabel)+' gives '+pc+'.'
       :why+' only the colour name changes. Stock stays as it is.')
@@ -8035,7 +8136,7 @@ function _applyInvoiceStatus(inv,newStatus,_opts){
       const p=inventory.find(x=>parseInt(x.prodNo)===parseInt(it.prodNo));
       if(!p)return;
       const qty=parseInt(it.qty)||1;
-      const res=deductStock(p,it.variantId,qty);
+      const res=deductStock(p,it.variantId,qty,{await:true}); // v14.65.0
       _recordAutoVariant(p,it,res); // v14.64.0
       it.spill=res.spill||[];
       if(res.short)_short+=res.short;
@@ -8214,7 +8315,19 @@ function openInvoiceFromDash(id){
     else{toast('⚠️ Invoice not found — tap Sync to reload');}
   });
 }
+// v14.65.0: pieces sold before their stock was entered
+function renderAwaitCard(){
+  const c=document.getElementById('dash-await');if(!c)return;
+  const m=_awaitMap(),ks=Object.keys(m).map(Number).sort((a,b)=>a-b);
+  if(!ks.length){c.style.display='none';c.innerHTML='';return;}
+  const tot=ks.reduce((s,k)=>s+m[k],0);
+  c.style.display='block';
+  c.innerHTML='<div class="card-title">⏳ Sold before stock was entered ('+tot+')</div>'
+    +'<div style="font-size:12px;color:#888;margin-bottom:8px;">Add the new lot under its own number; the app then offers to take these pieces from it.</div>'
+    +ks.map(k=>{const p=_prodByNo(k);return'<div class="list-row"><div><div class="list-main">#'+k+' '+esc(p?p.name:'')+'</div><div class="list-sub">'+m[k]+' piece'+(m[k]>1?'s':'')+' waiting</div></div><button class="btn btn-o btn-sm" onclick="openInvEdit('+k+')">Open</button></div>';}).join('');
+}
 function renderDashboard(){
+  try{renderAwaitCard();}catch(e){console.warn('await card',e);} // v14.65.0
   const ords=document.getElementById('ds-orders');if(ords)ords.textContent=invoices.length;
   const rev=invoices.reduce((s,i)=>s+(parseFloat(i.grandTotal)||0),0);
   const drev=document.getElementById('ds-revenue');if(drev)drev.textContent='₹'+rev.toLocaleString('en-IN');
@@ -8466,6 +8579,7 @@ function saveProduct(){
   document.getElementById('ip-link-suggestions').style.display='none';
   _clearLinkChips(); // v14.37.0
   toast('✅ Product #'+prodNo+' added');
+  setTimeout(()=>_offerSettleFor(prod),400); // v14.65.0: new lot can take pieces sold before it was entered
 }
 function adjustStock(prodNo){
   const p=inventory.find(x=>parseInt(x.prodNo)===prodNo);if(!p)return;
@@ -8535,7 +8649,7 @@ function renderAgingGrid(){
           const lqty=Math.max(0,parseInt(lp.qty)||0);
           return`<span style="font-size:11px;background:var(--goldp);color:var(--brown);padding:2px 8px;border-radius:10px;font-weight:600;">#${lp.prodNo} ${esc(lp.name||'')} (${lqty} left)</span>`;
         }).join('');
-        return`<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center;"><span style="font-size:11px;color:#888;">🔗 Linked:</span>${links}<span style="font-size:11px;font-weight:700;color:#fff;background:var(--brown);padding:2px 8px;border-radius:10px;">Pool: ${total}</span></div>`;
+        return`<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center;"><span style="font-size:11px;color:#888;">🔗 Linked:</span>${links}<span style="font-size:11px;font-weight:700;color:#fff;background:var(--brown);padding:2px 8px;border-radius:10px;">Linked stock: ${total}</span></div>`;
       })()}
       <div style="display:flex;justify-content:space-between;margin-top:8px;">
         <div style="font-size:12px;color:#888;">${fmtDate(p.dateAdded)} · ${bLabels[getAgeBracket(days)]}</div>
@@ -8551,9 +8665,10 @@ function renderAgingGrid(){
 function renderInventory(){
   const sf=document.getElementById('inv-status-filter')?.value||'';
   const q=(document.getElementById('inv-search')?.value||'').trim().toLowerCase(); // v14.33.0 — register search
+  const _am=_awaitMap(); // v14.65.0 pieces waiting for stock, per product
   const filtered=inventory.filter(p=>{
     const s=parseInt(p.qty)||0;
-    if(sf==='instock'&&s===0)return false;
+    if(sf==='instock'&&s===0&&_linkedStockOf(p)<=0)return false; // v14.65.0: sold out but a linked product has stock → still shown
     if(sf==='sold'&&s>0)return false;
     if(sf==='pending'&&!isPendingReview(p))return false; // v14.38.0
     if(q){
@@ -8574,6 +8689,14 @@ function renderInventory(){
     const varCount=(p.variants||[]).length;
     const photoCount=(p.variants||[]).reduce((s,v)=>s+(v.photos||[]).length,0);
     const varBadge=varCount?`<span style="background:var(--goldp);color:var(--brown);padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;">📷 ${varCount}v ${photoCount}p</span>`:'';
+    // v14.65.0 linked mark: red number + green badge when sold out here but a linked product has stock
+    const _pool=getStockPool(p),_lk=_pool.slice(1),_lks=_lk.reduce((a,x)=>a+_availQty(x),0),_soldViaLink=s===0&&_lks>0;
+    const _lkIn=_lk.filter(x=>_availQty(x)>0);
+    const linkBadge=!_lk.length?'':_soldViaLink
+      ?`<span style="background:#e8f5e9;color:#1e7e34;border:1px solid #a5d6a7;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;">🔗 ${_lks} in stock via ${_lkIn.map(x=>'#'+parseInt(x.prodNo)).join(', ')}</span>`
+      :`<span style="background:var(--goldp);color:var(--brown);padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;">🔗 ${_lk.map(x=>'#'+parseInt(x.prodNo)+' · '+_availQty(x)+' in stock').join(' | ')}${_lk.length>1?' · Linked stock: '+_lks:''}</span>`;
+    const _aw=_am[parseInt(p.prodNo)]||0;
+    const awaitBadge=_aw?`<span style="background:#fff3cd;color:#7a5200;border:1px solid #f5c26b;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;">⏳ ${_aw} sold, stock not entered</span>`:'';
     // Row onclick — print mode, cat mode, or edit
     const rowClick=_invPrintMode?`toggleInvPrintSelect(${p.prodNo})`:_catMode?`toggleCatSelect(${p.prodNo})`:``;
     const rowBg=((_invPrintMode&&isPrintSelected)||(_catMode&&isCatSelected)?'background:var(--goldp);border-radius:10px;':'')+(isPendingReview(p)?'border-left:4px solid #f5b041;padding-left:8px;':''); // v14.38.0
@@ -8581,7 +8704,7 @@ function renderInventory(){
       ${_invPrintMode?`<div style="display:flex;align-items:center;padding-right:8px;"><input type="checkbox" ${isPrintSelected?'checked':''} onchange="toggleInvPrintSelect(${p.prodNo})" onclick="event.stopPropagation()" style="width:20px;height:20px;cursor:pointer;accent-color:var(--brown);flex-shrink:0;"/></div>`:''}
       ${_catMode?`<div style="display:flex;align-items:center;padding-right:8px;"><div class="cat-sel-check ${isCatSelected?'checked':''}" onclick="event.stopPropagation();toggleCatSelect(${p.prodNo})">${isCatSelected?'✓':''}</div></div>`:''}
       <div style="flex:1;">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-size:18px;font-weight:700;color:var(--brown);">#${p.prodNo}</span>${isPendingReview(p)?'<span class="badge badge-review">⏳ Review</span>':''}${badge}${varBadge}
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-size:18px;font-weight:700;color:${_soldViaLink?'#c0392b':'var(--brown)'};">#${p.prodNo}</span>${isPendingReview(p)?'<span class="badge badge-review">⏳ Review</span>':''}${badge}${varBadge}${linkBadge}${awaitBadge}
         ${s>0?`<span style="background:${ac.bg};color:${ac.fg};padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;">${ac.lbl}</span>`:''}</div>
         <div class="list-main" style="margin-top:3px;">${esc(p.name)}</div>
         ${p.billNo?`<div class="list-sub" style="color:#9a6a00;">🧾 ${esc(sbBillRef(p))}</div>`:''}
@@ -9737,8 +9860,8 @@ function buildLabelPage(){
     <div style="font-size:12px;color:#888;margin-bottom:10px;">Brand name "Vismaad Creations" is printed automatically — enter address only below.</div>
     <div class="fg"><label>Address</label><textarea id="lbl-from-addr" placeholder="Street, City, Punjab, Pincode" rows="3"></textarea></div>
     <div class="fg"><label>Phone</label><input id="lbl-from-ph" placeholder="+91 XXXXX XXXXX"/></div></div>
-    <button class="btn btn-g" style="margin-bottom:10px;" onclick="printLabel()">🖨️ Print Label (Half A4)</button>
-    <button class="btn btn-o" id="vc-trial-label-btn" style="margin-bottom:24px;" onclick="vcTrialFromLabelPage()">🏷 Label with order details (trial)</button>
+    <button class="btn btn-g" id="vc-trial-label-btn" style="margin-bottom:10px;" onclick="vcTrialFromLabelPage()">🏷 Print Label</button>
+    <button class="btn btn-o btn-sm" style="margin-bottom:24px;" onclick="printLabel()">📦 Address-only label (Half A4)</button>
     <div style="height:env(safe-area-inset-bottom);"></div>`;
 }
 
@@ -13190,6 +13313,7 @@ function openInvEdit(prodNo) {
   document.getElementById('iem-sold-link').style.display = 'none';
   renderSoldToSection(p);
   renderVariantsList(p);
+  renderIemLinks(p); // v14.65.0
   // v14.38.0 — pending (bill-imported) product: show bill reference + Save & Confirm
   const _rb=document.getElementById('iem-review-box');
   if(_rb){
@@ -13351,6 +13475,7 @@ function saveInvEdit(confirmReview) {
   closeInvEditModal();
   renderInventory(); renderAgingGrid(); updateInventoryStats(); renderPostingQueue();
   toast(confirmReview === true ? '✅ Product #' + p.prodNo + ' confirmed' : '✅ Product #' + p.prodNo + ' updated');
+  if (confirmReview === true) setTimeout(() => _offerSettleFor(p), 600); // v14.65.0: supplier-bill lot settles waiting pieces at Save & Confirm
 }
 
 function deleteInvProduct() {
@@ -15268,32 +15393,25 @@ function _takeFrom(p,variantId,want){
 //               sale is still recorded (qtySold climbs, qty floors at 0). This is
 //               the "I have the article but it isn't in the software" case.
 //   touched   — every prodNo whose stock changed, so callers know what to sync
-function deductStock(p,variantId,qty){
+function deductStock(p,variantId,qty,opts){
   qty=parseInt(qty)||1;
   const res={variantId:null,spill:[],short:0,touched:[parseInt(p.prodNo)]};
-  // 1 — take what the invoiced product itself holds
+  // v14.65.0: stock comes ONLY from the product on the line. Linked products are no longer
+  // drained automatically; the bill form asks first (Use #, Split, Dropship, Keep).
   const own=_takeFrom(p,variantId,qty);
   res.variantId=own.variantId;
-  let left=qty-own.taken;
+  const left=qty-own.taken;
   if(left<=0)return res;
-  // 2 — spill the remainder onto linked siblings, ascending prodNo
-  const pool=getStockPool(p);
-  for(let i=1;i<pool.length&&left>0;i++){
-    const sib=pool[i];
-    if(_availQty(sib)<=0)continue;
-    const hit=_takeFrom(sib,null,left);
-    if(hit.taken<=0)continue;
-    left-=hit.taken;
-    sib.qtySold=(parseInt(sib.qtySold)||0)+hit.taken;
-    sib.qtyOriginal=Math.max(parseInt(sib.qtyOriginal)||0,(parseInt(sib.qty)||0)+(parseInt(sib.qtySold)||0));
-    sib.updatedAt=new Date().toISOString();
-    res.spill.push({prodNo:parseInt(sib.prodNo),variantId:hit.variantId||'',qty:hit.taken});
-    res.touched.push(parseInt(sib.prodNo));
-  }
-  // 3 — pool exhausted. Do not stall. Record the shortfall and carry on.
-  res.short=left;
+  res.short=left; // never stalls: the sale is still recorded
+  // v14.65.0: on a bill, pieces sold before their stock was entered are recorded as WAITING
+  // ({await:true}). They count as "not from this product" everywhere spill is summed, so the
+  // product's sold count and intake are not inflated, and a cancel/return gives nothing back.
+  // When the new lot is entered, _settleAwait turns the entry into a normal one for that number.
+  if(opts&&opts.await)res.spill.push({prodNo:0,await:true,variantId:'',qty:left});
   return res;
 }
+// v14.65.0 waiting pieces on a bill line
+function _awaitQtyOf(it){return (Array.isArray(it&&it.spill)?it.spill:[]).reduce((s,x)=>s+(x&&(x.await===true||x.await==='true')?(parseInt(x.qty)||0):0),0);}
 
 // Put units back. `spill` is the array recorded at deduction time; without it this
 // behaves exactly as it did pre-v14.27.0 (all qty back to p).
@@ -15304,7 +15422,8 @@ function restoreStock(p,variantId,qty,spill){
   // Give each sibling back precisely what it supplied
   let spilled=0;
   sp.forEach(s=>{
-    const n=parseInt(s.prodNo),sq=parseInt(s.qty)||0;
+    const n=parseInt(s&&s.prodNo),sq=parseInt(s&&s.qty)||0;
+    if(s&&(s.await===true||s.await==='true')){if(sq>0)spilled+=sq;return;} // v14.65.0: never deducted, nothing to put back
     if(!n||sq<=0)return;
     const sib=inventory.find(x=>parseInt(x.prodNo)===n);
     if(!sib)return; // product deleted since — its units are gone, nothing to restore
@@ -15326,6 +15445,160 @@ function _giveTo(p,variantId,qty){
   v.qty=(parseInt(v.qty)||0)+qty;
   recalcProductQtyFromVariants(p);
 }
+// ═══ v14.65.0 LINKED PRODUCTS (manual) + PIECES WAITING FOR STOCK ═══
+function _prodByNo(n){n=parseInt(n);return n?inventory.find(x=>parseInt(x.prodNo)===n)||null:null;}
+function _invLines(inv){
+  if(!inv)return[];
+  if(Array.isArray(inv.itemsArr))return inv.itemsArr;
+  if(typeof inv.itemsArr==='string'&&inv.itemsArr.trim()){try{const a=JSON.parse(inv.itemsArr);if(Array.isArray(a)){inv.itemsArr=a;return a;}}catch(e){}}
+  return[];
+}
+// Every active bill line of this product that still has pieces waiting (oldest bill first)
+function _awaitLinesFor(prodNo){
+  const n=parseInt(prodNo),out=[];if(!n)return out;
+  (invoices||[]).forEach(inv=>{
+    if(invStatusOf(inv)!=='Active')return;
+    _invLines(inv).forEach(it=>{
+      if(parseInt(it.prodNo)!==n||isDS(it))return;
+      const q=_awaitQtyOf(it);if(q>0)out.push({inv,it,qty:q});
+    });
+  });
+  out.sort((a,b)=>String(a.inv.invDate||'').localeCompare(String(b.inv.invDate||'')));
+  return out;
+}
+function _awaitCountFor(prodNo){return _awaitLinesFor(prodNo).reduce((s,x)=>s+x.qty,0);}
+function _awaitMap(){
+  const m={};
+  (invoices||[]).forEach(inv=>{
+    if(invStatusOf(inv)!=='Active')return;
+    _invLines(inv).forEach(it=>{if(isDS(it))return;const q=_awaitQtyOf(it),n=parseInt(it.prodNo);if(q>0&&n)m[n]=(m[n]||0)+q;});
+  });
+  return m;
+}
+// Stock held by the OTHER products linked to p (directly or through another link)
+function _linkedStockOf(p){return getStockPool(p).slice(1).reduce((s,x)=>s+_availQty(x),0);}
+// Link two products both ways. Returns '' on success or a message saying why not.
+function _linkProducts(a,b){
+  const sa=String(a==null?'':a).trim(),sb=String(b==null?'':b).trim();
+  if(!/^\d{1,7}$/.test(sa)||!/^\d{1,7}$/.test(sb))return'Enter a product number';
+  const pa=_prodByNo(sa),pb=_prodByNo(sb);
+  if(!pa||!pb)return'Product #'+(pa?sb:sa)+' does not exist';
+  if(parseInt(pa.prodNo)===parseInt(pb.prodNo))return'A product cannot be linked to itself';
+  if(!Array.isArray(pa.linkedProducts))pa.linkedProducts=[];
+  if(!Array.isArray(pb.linkedProducts))pb.linkedProducts=[];
+  const na=parseInt(pa.prodNo),nb=parseInt(pb.prodNo);
+  if(pa.linkedProducts.map(Number).includes(nb)&&pb.linkedProducts.map(Number).includes(na))return'#'+nb+' is already linked';
+  if(!pa.linkedProducts.map(Number).includes(nb))pa.linkedProducts.push(nb);
+  if(!pb.linkedProducts.map(Number).includes(na))pb.linkedProducts.push(na);
+  const t=new Date().toISOString();pa.updatedAt=t;pb.updatedAt=t;
+  saveStk();_pushProds([pa,pb]);
+  return'';
+}
+function _unlinkProducts(a,b){
+  const pa=_prodByNo(a),pb=_prodByNo(b);if(!pa||!pb)return;
+  const na=parseInt(pa.prodNo),nb=parseInt(pb.prodNo);
+  pa.linkedProducts=(pa.linkedProducts||[]).filter(x=>parseInt(x)!==nb);
+  pb.linkedProducts=(pb.linkedProducts||[]).filter(x=>parseInt(x)!==na);
+  const t=new Date().toISOString();pa.updatedAt=t;pb.updatedAt=t;
+  saveStk();_pushProds([pa,pb]);
+}
+function _pushProds(list){
+  (list||[]).forEach(p=>gsWriteConfirmed(SHEETS.inventory,flattenProduct(p)).then(ok=>{if(!ok)toast('⚠️ Stock #'+p.prodNo+' saved locally but sheet sync failed — tap sync to retry');}));
+}
+// Take the waiting pieces of prodNo from the new lot `from`. Oldest bill first.
+// The bill keeps its own number; the line records "stock from #new" and its cost becomes
+// the real (weighted) cost. Links the two products. Returns how many pieces were taken.
+function _settleAwait(prodNo,from){
+  const src=_prodByNo(prodNo);
+  if(!src||!from||parseInt(from.prodNo)===parseInt(src.prodNo))return 0;
+  const lines=_awaitLinesFor(prodNo);
+  let taken=0;const invTouched=new Set();
+  const fromCost=parseFloat(from.cost)||0;
+  lines.forEach(({inv,it,qty})=>{
+    if(_availQty(from)<=0)return;
+    const hit=_takeFrom(from,null,qty);
+    if(hit.taken<=0)return;
+    let left=hit.taken;
+    it.spill=(it.spill||[]).map(s=>{
+      if(left<=0||!(s&&(s.await===true||s.await==='true')))return s;
+      const q=parseInt(s.qty)||0,use=Math.min(q,left);left-=use;
+      return q-use>0?{...s,qty:q-use}:null;
+    }).filter(Boolean);
+    it.spill.push({prodNo:parseInt(from.prodNo),variantId:hit.variantId||'',qty:hit.taken});
+    const lq=Math.max(1,parseInt(it.qty)||1),oc=parseFloat(it.costPrice)||0;
+    it.costPrice=Math.round(((oc*lq-oc*hit.taken+fromCost*hit.taken)/lq)*100)/100;
+    from.qtySold=(parseInt(from.qtySold)||0)+hit.taken;
+    from.qtyOriginal=Math.max(parseInt(from.qtyOriginal)||0,(parseInt(from.qty)||0)+(parseInt(from.qtySold)||0));
+    if(!Array.isArray(from.linkedInvoices))from.linkedInvoices=[];
+    if(!from.linkedInvoices.map(String).includes(String(inv.id)))from.linkedInvoices.push(String(inv.id));
+    inv.costPrice=parseFloat(_invLines(inv).reduce((s,i)=>s+(parseFloat(i.costPrice)||0)*(parseInt(i.qty)||1),0).toFixed(2));
+    inv.invUpdatedAt=new Date().toISOString();
+    invTouched.add(inv);taken+=hit.taken;
+  });
+  if(!taken)return 0;
+  if(!(src.linkedProducts||[]).map(Number).includes(parseInt(from.prodNo))||!(from.linkedProducts||[]).map(Number).includes(parseInt(src.prodNo)))_linkProducts(src.prodNo,from.prodNo);
+  from.updatedAt=new Date().toISOString();
+  saveStk();save();
+  _pushProds([from]);
+  invTouched.forEach(inv=>gsWriteConfirmed(SHEETS.invoices,flattenInvoice(inv)).then(ok=>{if(!ok)toast('⚠️ Bill '+(inv.invNo||'')+' saved locally but sheet sync failed — tap sync to retry');}));
+  return taken;
+}
+// After a new lot is added / confirmed / linked: offer to take waiting pieces from it.
+function _offerSettleFor(p,skip){
+  if(!p||_availQty(p)<=0||isPendingReview(p))return;
+  const me=parseInt(p.prodNo),nm=String(p.name||'').trim().toLowerCase();
+  const pool=new Set(getStockPool(p).map(x=>parseInt(x.prodNo)));
+  const am=_awaitMap();skip=skip||[];
+  const cand=Object.keys(am).map(Number).filter(n=>n!==me&&!skip.includes(n)).map(_prodByNo).filter(x=>x&&(pool.has(parseInt(x.prodNo))||(nm&&String(x.name||'').trim().toLowerCase()===nm)));
+  if(!cand.length)return;
+  const x=cand[0],n=am[parseInt(x.prodNo)],take=Math.min(n,_availQty(p));
+  uiSheet('#'+x.prodNo+' '+String(x.name||'')+': '+n+' piece'+(n>1?'s':'')+' sold before stock was entered. #'+me+' has '+_availQty(p)+' in stock.',[
+    {label:'✅ Link #'+me+' and take '+take+' from #'+me,fn:()=>{const k=_settleAwait(x.prodNo,p);toast(k?'✅ '+k+' piece'+(k>1?'s':'')+' of #'+x.prodNo+' now taken from #'+me:'⚠️ Nothing taken');_afterStockChange();setTimeout(()=>_offerSettleFor(p,skip.concat([parseInt(x.prodNo)])),400);}},
+    {label:'Not now',fn:()=>{setTimeout(()=>_offerSettleFor(p,skip.concat([parseInt(x.prodNo)])),400);}}
+  ]);
+}
+function _afterStockChange(){
+  try{renderInventory();}catch(e){}try{renderAgingGrid();}catch(e){}try{updateInventoryStats();}catch(e){}try{renderDashboard();}catch(e){}
+  if(_editingProdNo){const p=_prodByNo(_editingProdNo);if(p)renderIemLinks(p);}
+}
+// ── Edit screen: 🔗 Linked products + ⏳ waiting pieces ──
+function renderIemLinks(p){
+  const box=document.getElementById('iem-links-box');if(!box||!p)return;
+  const list=document.getElementById('iem-links-list');
+  const links=(p.linkedProducts||[]).map(_prodByNo).filter(Boolean);
+  if(list)list.innerHTML=links.length?links.map(lp=>'<span style="display:inline-flex;align-items:center;gap:6px;background:var(--goldp);color:var(--brown);padding:4px 6px 4px 10px;border-radius:14px;font-size:12px;font-weight:600;">#'+parseInt(lp.prodNo)+' '+esc(lp.name||'')+' · '+_availQty(lp)+' in stock<button type="button" aria-label="Unlink #'+parseInt(lp.prodNo)+'" onclick="iemUnlink('+parseInt(lp.prodNo)+')" style="border:none;background:#fff;border-radius:50%;width:26px;height:26px;cursor:pointer;font-size:13px;line-height:1;">✕</button></span>').join(''):'<span style="font-size:12px;color:#888;">No linked products</span>';
+  const n=_awaitCountFor(p.prodNo),ab=document.getElementById('iem-await-box');
+  if(ab){ab.style.display=n>0?'block':'none';const t=document.getElementById('iem-await-text');if(t)t.textContent='⏳ '+n+' piece'+(n>1?'s':'')+' sold before stock was entered. When the new lot has its own number, take them from it:';}
+}
+function iemLinkAdd(){
+  const p=_prodByNo(_editingProdNo);if(!p)return;
+  const el=document.getElementById('iem-link-no');const v=el?el.value:'';
+  const err=_linkProducts(p.prodNo,v);
+  if(err){toast('⚠️ '+err);return;}
+  if(el)el.value='';
+  const other=_prodByNo(v);
+  toast('🔗 #'+p.prodNo+' and #'+parseInt(v)+' linked');
+  _afterStockChange();
+  if(other){if(_awaitCountFor(p.prodNo)>0)setTimeout(()=>_offerSettleFor(other),300);else if(_awaitCountFor(other.prodNo)>0)setTimeout(()=>_offerSettleFor(p),300);}
+}
+function iemUnlink(n){
+  const p=_prodByNo(_editingProdNo);if(!p)return;
+  _unlinkProducts(p.prodNo,n);toast('Unlinked #'+parseInt(n));_afterStockChange();
+}
+function iemTakeFrom(){
+  const p=_prodByNo(_editingProdNo);if(!p)return;
+  const el=document.getElementById('iem-take-no');const v=String(el?el.value:'').trim();
+  if(!/^\d{1,7}$/.test(v)){toast('⚠️ Enter the new lot\'s product number');return;}
+  const from=_prodByNo(v);
+  if(!from){toast('⚠️ Product #'+v+' does not exist');return;}
+  if(parseInt(from.prodNo)===parseInt(p.prodNo)){toast('⚠️ Enter a different product number');return;}
+  if(_availQty(from)<=0){toast('⚠️ #'+from.prodNo+' has no stock');return;}
+  const k=_settleAwait(p.prodNo,from);
+  if(el)el.value='';
+  toast(k?'✅ '+k+' piece'+(k>1?'s':'')+' taken from #'+from.prodNo:'⚠️ Nothing to take');
+  _afterStockChange();
+}
+
 // v14.64.0 COLOUR ON THE BILL LINE. Name stored on the line wins; else looked up from the product.
 function _itemVarLabel(it){
   if(!it)return'';
@@ -15361,7 +15634,7 @@ function _swapItemVariant(inv,it,newVid,dry){
   const spilled=(Array.isArray(it.spill)?it.spill:[]).reduce((s,x)=>s+(parseInt(x.qty)||0),0);
   const own=Math.max(0,qty-spilled);
   const move=invStatusOf(inv)==='Active'&&_lineMovable(it)&&own>0&&!!ov;
-  res.why=move?'':invStatusOf(inv)!=='Active'?'void':isDS(it)?'ds':(it.countKept===true||it.countKept==='true')?'count':own<=0?'linked':'nocol';
+  res.why=move?'':invStatusOf(inv)!=='Active'?'void':isDS(it)?'ds':(it.countKept===true||it.countKept==='true')?'count':(own<=0&&_awaitQtyOf(it)>0)?'await':own<=0?'linked':'nocol';
   res.oldLabel=ov?String(ov.label||''):_itemVarLabel(it);res.newLabel=String(nv.label||'');
   if(move){
     res.have=Math.max(0,parseInt(nv.qty)||0);
@@ -15424,7 +15697,7 @@ function _flipItemDS(inv,it,toDS){
     touched.add(num);
   }else{
     // DS → non-DS : the article now comes from our stock — deduct it
-    const r=deductStock(prod,it.variantId,qty);
+    const r=deductStock(prod,it.variantId,qty,{await:true}); // v14.65.0
     _recordAutoVariant(prod,it,r); // v14.64.0
     it.spill=r.spill;
     r.touched.forEach(n=>touched.add(n));
@@ -18726,15 +18999,12 @@ async function vcMakeOrderSlip(){
     qr=cv?cv.toDataURL('image/png'):(im?im.src:'');
     tmp.remove();
   }catch(e){qr='';}
-  const row=(a,b,bold)=>'<tr><td colspan="3" style="padding:4px 8px;text-align:right;'+(bold?'font-weight:700;font-size:14px;':'')+'">'+a+'</td><td style="padding:4px 8px;text-align:right;'+(bold?'font-weight:700;font-size:14px;':'')+'">'+b+'</td></tr>';
-  document.getElementById('print-area').innerHTML='<div class="print-page"><div style="font-family:Arial,sans-serif;font-size:12px;color:#1a1208;background:#fff;padding:20px;max-width:150mm;margin:0 auto;">'
-    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;"><div><div style="font-size:18px;font-weight:700;color:#5c3d1e;">Vismaad Creations</div><div>'+esc(S.address||'')+'</div><div>'+esc(S.phone||'')+'</div></div><div style="text-align:right;"><div style="font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Order Slip</div><div>'+esc(fmtDate(rec.date))+'</div></div></div>'
-    +(custName?'<div style="margin-top:10px;font-weight:700;">'+esc(custName)+'</div>':'')
-    +'<table style="width:100%;border-collapse:collapse;margin:12px 0;"><tr style="border-bottom:1.5px solid #5c3d1e;"><th style="padding:5px 8px;text-align:left;">Item</th><th style="padding:5px 8px;">Qty</th><th style="padding:5px 8px;text-align:right;">Price</th><th style="padding:5px 8px;text-align:right;">Amount</th></tr>'
-    +t.lines.map(l=>'<tr><td style="padding:4px 8px;">'+esc(l.desc)+(l.prodNo?' #'+esc(l.prodNo):'')+'</td><td style="padding:4px 8px;text-align:center;">'+esc(l.qty)+'</td><td style="padding:4px 8px;text-align:right;">₹'+_sbMoney(l.price)+'</td><td style="padding:4px 8px;text-align:right;">₹'+_sbMoney(l.amount)+'</td></tr>').join('')
-    +(t.shipping>0?row('Shipping','₹'+_sbMoney(t.shipping)):'')+(t.discount>0?row('Less: Discount','-₹'+_sbMoney(t.discount)):'')+row('Total','₹'+_sbMoney(t.total),true)+'</table>'
-    +(qr?'<div style="text-align:center;margin:10px 0;"><img src="'+esc(qr)+'" style="width:110px;height:110px;"/><div style="font-size:10px;color:#555;">Scan to pay ₹'+_sbMoney(t.total)+'</div></div>':'')
-    +'<div style="text-align:center;font-size:12px;font-weight:600;margin-top:10px;">Tax invoice to follow</div></div></div>';
+  // v14.65.0: same layout as the bill (full A4 width, HSN, per-article discount, GST breakup); headed Order Slip, no bill number
+  const _g=k=>document.getElementById(k)?.value||'';
+  const _st=_g('c-state');
+  document.getElementById('print-area').innerHTML='<div class="print-page">'+buildInvoiceHTML({slip:true,slipQr:qr,isGST:isGSTEnabled(),invDate:rec.date,
+    custName,custPhone:_g('c-phone'),custWhatsapp:_g('c-whatsapp'),custAddress:_g('c-address'),custState:_st,isIntra:_st==='Punjab',
+    dispatchMethod:'walkin',shipping:ship,discount:disc,grandTotal:t.total,itemsArr:rec.itemsArr,logoB64:(typeof logoB64!=='undefined'?logoB64:''),gstin:S.gstin})+'</div>';
   vcPrint('Order-Slip-'+today(),true);
 }
 function vcSlipLoad(id){
@@ -18777,7 +19047,7 @@ const _VL_CSS='*{box-sizing:border-box;margin:0;padding:0;}@page{margin:0;size:A
   +'.cod{font-size:13pt;font-weight:700;color:#111;}'
   +'.ty{text-align:center;flex-shrink:0;}.tytext{font-family:"Great Vibes","Brush Script MT",cursive;font-size:16pt;color:#7B3F00;line-height:1.05;}'
   +'.bot{display:flex;align-items:center;flex-shrink:0;border-top:.5px solid #ddd;padding-top:1mm;}.botm{flex:1;text-align:center;}.botr{flex:1;text-align:right;}.frlbl{font-size:7pt;font-weight:700;text-transform:uppercase;color:#888;}.frname{font-size:9.5pt;font-weight:700;}.frdet{font-size:9pt;font-weight:700;line-height:1.3;word-break:break-word;}'
-  +'.cv{font-size:7pt;font-weight:400;color:#888;margin-top:.8mm;}'
+  +'.cv{font-size:9pt;font-weight:400;color:#444;margin-top:.8mm;}'
   +'.cut{width:170mm;margin-top:3mm;padding-top:2mm;border-top:1px dashed #bbb;text-align:center;font-size:7.5pt;color:#bbb;letter-spacing:2px;}';
 // v14.54.0: same fit rule as before, now run inside the app before printing
 function _vlShrink(root){ // v14.54.2: overflow is read from the address row, which clips it (the box never showed it)
@@ -18844,7 +19114,7 @@ function _vcParcelDraw(){
   const ps=parcelSplit(inv,st.a,st.n);
   const opts=v=>Array.from({length:st.n},(_,i)=>'<option value="'+i+'"'+(i===v?' selected':'')+'>Parcel '+(i+1)+'</option>').join('');
   _vcEnsureModal('vc-parcel-modal','<div class="modal"><button class="modal-close" onclick="document.getElementById(\'vc-parcel-modal\').classList.remove(\'open\')">✕</button>'
-    +'<div class="modal-title">🏷 Label with order details (trial)</div><div style="font-size:13px;color:#888;margin-bottom:12px;">'+esc(inv.invNo)+' · '+esc(inv.custName)+' · '+units.length+' piece(s)</div>'
+    +'<div class="modal-title">🏷 Print Label</div><div style="font-size:13px;color:#888;margin-bottom:12px;">'+esc(inv.invNo)+' · '+esc(inv.custName)+' · '+units.length+' piece(s)</div>'
     +'<div class="fg"><label>Number of parcels</label><input id="vc-parcel-n" type="number" min="1" max="'+(units.length||1)+'" value="'+st.n+'" inputmode="numeric" onchange="vcParcelN()"/></div>'
     +units.map((u,i)=>'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:.5px solid var(--sep);font-size:13px;"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(u.prodNo?'#'+esc(u.prodNo)+' ':'')+esc(u.desc)+'</span><select onchange="vcParcelSet('+i+',this.value)" style="width:auto;flex-shrink:0;">'+opts(st.a[i])+'</select></div>').join('')
     +'<div style="background:var(--goldp);border-radius:8px;padding:10px 12px;font-size:13px;margin:12px 0;line-height:1.6;">'+ps.map(p=>'Parcel '+p.no+': '+p.units.length+' piece(s), ₹'+_sbMoney(p.value)).join('<br/>')+'</div>'
@@ -18925,7 +19195,7 @@ function vcTrialFromLabelPage(){
     const items2=[
       {label:shipped?'↩ Mark as Pending':'🚚 Mark as Shipped',fn:()=>toggleShippedByIdx(idx)},
       {label:mdel?'↩ Undo Delivered':'✅ Mark Delivered',fn:()=>toggleDeliveredByIdx(idx)},
-      {label:'🏷 Label with details (trial)',fn:()=>vcOpenParcels(salesFiltered[idx])},
+      {label:'🏷 Print Label',fn:()=>vcOpenParcels(salesFiltered[idx])},
       s==='Active'?{label:'📋 Status (Cancel / Return)',fn:()=>openInvStatusModal(salesFiltered[idx])}:{label:'↺ Reactivate',fn:()=>_applyInvoiceStatus(salesFiltered[idx],'Active')}
     ];
     if(lock&&s==='Active')items2.splice(3,0,{label:'📝 Issue Debit Note',fn:()=>vcOpenDN(salesFiltered[idx])});
@@ -18941,7 +19211,7 @@ function vcTrialFromLabelPage(){
       {label:'📦 Dropship',fn:()=>bulkMarkDropshipped()},
       {label:'💰 Batch Ship Cost',fn:()=>showBatchShipping()},
       {label:'📤 Partner Report',fn:()=>showPartnerReport()},
-      {label:'🏷 Labels with details (trial)',fn:()=>vcTrialBulk()},
+      {label:'📦 Address-only labels',fn:()=>bulkPrintLabels()},
       {label:'🗑 Delete (bills of supply only)',danger:true,fn:()=>bulkDelete()}
     ],btn);
   };
