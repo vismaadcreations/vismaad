@@ -3,10 +3,19 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.65.1
+APP: Vismaad Creations v14.66.0
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 24-Nov-2026 - v14.65.1: PAYMENT SOUND, SOUND CHECKBOX AND POPUP STATE FIXES PUT BACK. Includes v14.65.0. No Code.gs or print.html change. Upload index.html only.
+LAST_CHANGE: 26-Nov-2026 - v14.66.0: SAVED ADDRESSES BY PHONE NUMBER, CHECK ADDRESS WITH THE CUSTOMER, RESELLER TAG, OLD UNPAID QR AMOUNT NO LONGER REPEATED. Includes v14.65.1. No Code.gs or print.html change (the CustTags sheet tab is made by Code.gs on first save). Upload index.html only.
+(A1) BILL FORM. Typing or pasting a Shipping Phone or WhatsApp number that is on a past bill (in either field) shows "📒 Saved customer" with name, address, PIN, state and last bill: Use these details fills empty boxes; if a typed name, address or PIN differs it asks before replacing. Numbers compared on the last 10 digits (+91, 0, spaces ignored; international kept). ✕ hides it for that number.
+(A2) SKIP. A number with 2 or more different addresses on past bills fills nothing and says so ("maybe a reseller"). Case, spaces, punctuation and the PIN written inside the text are ignored when comparing. Walk-in, by-hand and blank-address bills are not counted.
+(A3) RESELLER TAG. "Reseller" / "Mark as reseller" / "Not a reseller" on the bill form and in Take payment. A tagged number never gets an address filled. Synced to both phones (new CustTags sheet tab, VCX.cust).
+(A4) TAKE PAYMENT. New optional Delivery address and PIN boxes, filled from the latest bill when the number has one saved address (note shows which bill). Saved on the waiting sale (PayClaims columns address, pin). An address filled for one number is taken out again if the number is changed. A PIN typed inside the address is picked up when the PIN box is empty.
+(A5) PAYMENTS PAGE. Waiting and Received-not-billed sales show 📍 the address. 📍 Check address opens the customer's chat with "Hi, please confirm your delivery address: <address>, PIN <pin>. Reply OK if correct, or send the right address. - Vismaad Creations" and then shows "📍 Address sent 2 h ago" on both phones (addrSentMs). ✅ Address OK marks it confirmed (addrOkMs). ✏️ Address / 📍 Add address: type it, or 📋 Paste customer's message (read with the Paste Details reader); a changed address clears sent/confirmed.
+(A6) BILL FROM A PAYMENT. Bill on a received sale puts its WhatsApp number, address and PIN into empty boxes, then the saved-customer check runs.
+(A7) Paste Details reading moved into parseDetailsText(raw) (same rules) so the Payments address box can use it; parsePastedDetails shows the same results as before.
+(A8) BUG FIX (₹899.99 shown twice): a new QR only avoided amounts used in the last 5 days, so a sale still waiting after 5 days could get its amount repeated. Every sale still waiting now keeps its amount however old it is (payUsedAmounts takes the waiting list). Cancelled and paid sales keep the 5-day rule. The same-amount warning no longer blames two phones at the same moment.
+PREV_CHANGE: 24-Nov-2026 - v14.65.1: PAYMENT SOUND, SOUND CHECKBOX AND POPUP STATE FIXES PUT BACK. Includes v14.65.0. No Code.gs or print.html change. Upload index.html only.
 WHY: these were built on 21-Nov in a separate v14.64.0 made from the older v14.63.0 copy, at the same time as v14.63.1, v14.63.2 and the colour v14.64.0. That build never reached this file, so v14.65.0 still had the clapping and the old bugs.
 (R1) Payment received popup: the clapping is replaced by a 1.5 s cha-ching, quick trumpet fanfare, coins and a whistle (celSound, _celChime, made in the app, no file). Confetti unchanged. ▶ Test plays it. The v14.63.1 wait for the phone to restart sound and the play-on-next-tap are kept. iPhone: silent on silent mode (ambient audio). Android: the app cannot see silent mode, so it plays at media volume; untick the switch on that phone to stop it.
 (R2) BUG FIX: the sound checkbox in More → Settings → UPI Payment always looked blank and taps showed nothing. The form style (.fg input, appearance:none) removed the tick drawing; checkboxes and radios inside .fg now keep their normal look (blue tick). Renamed "Payment sound on this device".
@@ -1345,9 +1354,10 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     </div>
     <div class="fg"><label>Name *</label><input id="c-name" placeholder="Customer full name"/></div>
     <div class="row2">
-      <div class="fg"><label>Shipping Phone</label><input id="c-phone" type="tel" placeholder="For shipping label"/></div>
-      <div class="fg"><label>WhatsApp Number</label><input id="c-whatsapp" type="tel" placeholder="For messages (if different)"/></div>
+      <div class="fg"><label>Shipping Phone</label><input id="c-phone" type="tel" placeholder="For shipping label" oninput="vcAddrSoon()"/></div>
+      <div class="fg"><label>WhatsApp Number</label><input id="c-whatsapp" type="tel" placeholder="For messages (if different)" oninput="vcAddrSoon()"/></div>
     </div>
+    <div id="vc-addr-box" role="status" style="display:none;"></div><!-- v14.66.0: saved address for this number -->
     <div class="row2">
       <div class="fg"><label>State *</label>
         <select id="c-state" onchange="updateTaxType()">
@@ -2884,12 +2894,90 @@ function payPickAmount(price,used,rand){
   return free[Math.min(free.length-1,Math.max(0,Math.floor(r*free.length)))]/100;
 }
 function _payTime(v){const n=Date.parse(v||'');return isFinite(n)?n:NaN;}
-function payUsedAmounts(claims,alerts,nowMs,days){
+function payUsedAmounts(claims,alerts,nowMs,days,waiting){
   const from=(nowMs||Date.now())-(days||PAY_DAYS)*86400000,out=[];
-  (claims||[]).forEach(c=>{if(c&&_payTime(c.createdAt)>=from&&parseFloat(c.amount)>0){out.push(parseFloat(c.amount));payParts(c).forEach(x=>out.push(x));}}); // v14.52.0: parts too
+  const add=c=>{out.push(parseFloat(c.amount));payParts(c).forEach(x=>out.push(x));}; // v14.52.0: parts too
+  (claims||[]).forEach(c=>{if(c&&_payTime(c.createdAt)>=from&&parseFloat(c.amount)>0)add(c);});
+  (waiting||[]).forEach(c=>{if(c&&parseFloat(c.amount)>0)add(c);}); // v14.66.0: a sale still waiting keeps its amount however old it is
   (alerts||[]).forEach(a=>{if(a&&_payTime(a.txnAt||a.recAt)>=from&&parseFloat(a.amount)>0)out.push(parseFloat(a.amount));});
   return out;
 }
+// ── v14.66.0 ADDR CORE: saved delivery addresses found by phone number. Plain calculations, no screen or sheet access. ──
+// A number is matched against BOTH the Shipping Phone and the WhatsApp number of every past bill.
+var ADDR_MAX=500;
+function addrKey(raw){
+  const k=phoneKey(String(raw==null?'':raw).slice(0,60));
+  return k.length>=8&&k.length<=15&&!/^0+$/.test(k)?k:'';
+}
+function addrPin(v){const s=String(v==null?'':v).trim();return /^[1-9]\d{5}$/.test(s)?s:'';}
+// First 6-digit number in the text that isOk() accepts as a PIN (the app passes getStateFromPin).
+function addrPinFrom(text,isOk){
+  const re=/(^|\D)([1-9]\d{5})(?!\d)/g;let m;const t=String(text==null?'':text).slice(0,2000);
+  while((m=re.exec(t))!==null){if(!isOk||isOk(m[2]))return m[2];}
+  return'';
+}
+// For saving: no control characters, at most 2 blank lines in a row, at most ADDR_MAX characters.
+function addrTidy(v){
+  return String(v==null?'':v).replace(/\r\n?/g,'\n').replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g,' ')
+    .split('\n').map(l=>l.replace(/[ \t]+$/,'')).join('\n').replace(/\n{3,}/g,'\n\n').trim().slice(0,ADDR_MAX);
+}
+// Compare form: lower case, letters and digits only (any script), the address's own PIN taken out.
+function _addrNorm(address,pin){
+  let s=String(address==null?'':address).toLowerCase();
+  const p=addrPin(pin);if(p)s=s.split(p).join(' ');
+  return s.replace(/[^\p{L}\p{N}]/gu,'');
+}
+function addrSame(a,b){
+  const pa=addrPin(a&&a.pin)||addrPinFrom(a&&a.address),pb=addrPin(b&&b.pin)||addrPinFrom(b&&b.address);
+  if(pa&&pb&&pa!==pb)return false;
+  const p=pa||pb;
+  return _addrNorm(a&&a.address,p)===_addrNorm(b&&b.address,p);
+}
+// phone key -> list of {name,address,pin,state,date,invNo}, newest bill first. Walk-in / by-hand / no-address bills left out.
+function addrBook(invs){
+  const book=Object.create(null);
+  (Array.isArray(invs)?invs:[]).forEach(inv=>{
+    if(!inv||typeof inv!=='object')return;
+    const dm=String(inv.dispatchMethod||'');if(dm==='walkin'||dm==='hand')return;
+    const address=addrTidy(inv.custAddress);if(!address)return;
+    const e={name:String(inv.custName||'').trim().slice(0,100),address,pin:addrPin(inv.custPin),state:String(inv.custState||'').trim().slice(0,60),
+      date:String(inv.invDate||'').slice(0,10),invNo:String(inv.invNo||'').slice(0,40)};
+    const keys=new Set([addrKey(inv.custPhone),addrKey(inv.custWhatsapp)]);keys.delete('');
+    keys.forEach(k=>{(book[k]=book[k]||[]).push(e);});
+  });
+  Object.keys(book).forEach(k=>book[k].sort((a,b)=>(b.date+'|'+b.invNo).localeCompare(a.date+'|'+a.invNo)));
+  return book;
+}
+// {status:'none'|'one'|'many'|'reseller', entry (only for one), count (different addresses)}
+// raw: one number, or a list (Shipping Phone and WhatsApp on the bill form), combined.
+function addrLookup(book,raw,resellers){
+  const keys=[...new Set((Array.isArray(raw)?raw:[raw]).slice(0,4).map(addrKey).filter(Boolean))];
+  if(!keys.length)return{status:'none',count:0};
+  const k=keys.join(',');
+  const list=[];keys.forEach(x=>{if(book&&Object.prototype.hasOwnProperty.call(book,x)&&Array.isArray(book[x]))list.push(...book[x]);});
+  list.sort((a,b)=>(b.date+'|'+b.invNo).localeCompare(a.date+'|'+a.invNo));
+  // Same rule as addrSame, counted in one pass: same words, and PINs that do not differ (a blank PIN matches any).
+  const byText=new Map();
+  list.forEach(e=>{const p=addrPin(e.pin)||addrPinFrom(e.address),n=_addrNorm(e.address,p);if(!byText.has(n))byText.set(n,new Set());if(p)byText.get(n).add(p);});
+  let count=0;byText.forEach(pins=>{count+=Math.max(1,pins.size);});
+  if(resellers&&typeof resellers.has==='function'&&keys.some(x=>resellers.has(x)))return{status:'reseller',count,key:k};
+  if(!count)return{status:'none',count:0,key:k};
+  if(count>1)return{status:'many',count,key:k};
+  return{status:'one',count:1,key:k,entry:list[0]};
+}
+// Numbers tagged as resellers (CustTags sheet rows {phone, reseller}).
+function addrResellers(rows){
+  const s=new Set();
+  (Array.isArray(rows)?rows:[]).forEach(r=>{if(r&&(r.reseller===true||String(r.reseller)==='true')){const k=addrKey(r.phone);if(k)s.add(k);}});
+  return s;
+}
+function addrOneLine(address){return addrTidy(address).split('\n').map(l=>l.trim().replace(/[,\s]+$/,'')).filter(Boolean).join(', ');}
+function addrCheckMsg(address,pin){
+  const a=addrOneLine(address),p=addrPin(pin);
+  const withPin=p&&!new RegExp('(^|\\D)'+p+'\\s*$').test(a)?a+', PIN '+p:a;
+  return'Hi, please confirm your delivery address: '+withPin+'. Reply OK if correct, or send the right address. - Vismaad Creations';
+}
+// ── end ADDR CORE ──
 // v14.62.1: the latest waiting sales and bank payments from the sheet, joined to this phone's own, so a QR amount is
 // never picked from an old list (a phone that had not yet synced the other phone's sale repeated its amount).
 // read(sheet) gives the rows; norm(kind,row) tidies a row; gives up after ms. Resolves {ok:false} on any failure.
@@ -5876,6 +5964,7 @@ function printCurrentInvoice(){
 function resetInvoiceForm(){
   setInvNumber();
   ['c-name','c-phone','c-whatsapp','c-gstin','c-address','c-pin','tracking'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  try{_vcAddrDismiss='';vcAddrCheck();}catch(e){} // v14.66.0
   const cs=document.getElementById('c-state');if(cs)cs.value='';
   const td=document.getElementById('tax-display');if(td)td.value='';
   const sh=document.getElementById('shipping');if(sh)sh.value='0';
@@ -7617,10 +7706,8 @@ function extractPhones(text){
   return{indian:indian,intl:intl};
 }
 
-function parsePastedDetails(){
-  const raw=document.getElementById('paste-raw')?.value||'';
-  if(!raw.trim()){toast('⚠️ Paste a message first');return;}
-
+// v14.66.0: what Paste Details reads from a pasted message (name, phones, PIN, state, full text as address).
+function parseDetailsText(raw){
   const result={name:null,phone:null,whatsapp:null,state:null,pinState:null,pin:null,address:raw.trim()};
 
   // ── PRE-PROCESS: strip postscript lines ──
@@ -7719,6 +7806,12 @@ function parsePastedDetails(){
     break;
   }
 
+  return result;
+}
+function parsePastedDetails(){
+  const raw=document.getElementById('paste-raw')?.value||'';
+  if(!raw.trim()){toast('⚠️ Paste a message first');return;}
+  const result=parseDetailsText(raw); // v14.66.0: reading split out so the Payments address box can use it too
   _parsedDetails=result;
 
   // ── SHOW RESULTS ──
@@ -7840,6 +7933,7 @@ function applyParsedDetails(){
   }
   closePasteModal();
   toast('✅ Details filled — please review and correct if needed');
+  try{vcAddrCheck();}catch(e){} // v14.66.0
 }
 function recalcEditTotal(){
   const sc=parseFloat(document.getElementById('edit-ship-charged')?.value)||0;
@@ -19324,7 +19418,10 @@ function vcPayOpenTake(opts){
   _vcTakeId=null;
   const m=_vcEnsureModal('vc-take-modal','<div class="modal" style="max-width:440px;"><button class="modal-close" onclick="vcPayCloseTake()">✕</button>'
     +'<div class="modal-title">💳 Take payment</div>'
-    +'<div class="fg"><label for="vc-take-phone">Customer WhatsApp number (optional)</label><div style="display:flex;gap:8px;align-items:stretch;"><input id="vc-take-phone" style="flex:1;min-width:0;" type="tel" inputmode="tel" maxlength="40" autocomplete="off" placeholder="e.g. +91 98765 43210" oninput="vcPayClipNote(\'\')" onkeydown="if(event.key===\'Enter\'){event.preventDefault();var p=document.getElementById(\'vc-take-price\');if(p)p.focus();}"/><button type="button" class="btn btn-o" id="vc-take-paste" style="flex:none;white-space:nowrap;margin:0;" onclick="vcPayPasteNum()">📋 Paste</button></div><div id="vc-take-clipnote" role="status" style="display:none;font-size:12px;color:#1e7e34;margin-top:4px;"></div></div>'
+    +'<div class="fg"><label for="vc-take-phone">Customer WhatsApp number (optional)</label><div style="display:flex;gap:8px;align-items:stretch;"><input id="vc-take-phone" style="flex:1;min-width:0;" type="tel" inputmode="tel" maxlength="40" autocomplete="off" placeholder="e.g. +91 98765 43210" oninput="vcPayClipNote(\'\');vcTakeAddrSoon()" onkeydown="if(event.key===\'Enter\'){event.preventDefault();var p=document.getElementById(\'vc-take-price\');if(p)p.focus();}"/><button type="button" class="btn btn-o" id="vc-take-paste" style="flex:none;white-space:nowrap;margin:0;" onclick="vcPayPasteNum()">📋 Paste</button></div><div id="vc-take-clipnote" role="status" style="display:none;font-size:12px;color:#1e7e34;margin-top:4px;"></div></div>'
+    +'<div class="fg"><label for="vc-take-addr">Delivery address (optional)</label><textarea id="vc-take-addr" rows="2" maxlength="500" placeholder="House No, Street, City" oninput="_vcTakeAddrTyped=true"></textarea>'
+    +'<input id="vc-take-pin" type="tel" inputmode="numeric" maxlength="6" placeholder="PIN code" style="margin-top:6px;" oninput="_vcTakeAddrTyped=true"/>'
+    +'<div id="vc-take-addrnote" role="status" style="display:none;font-size:12px;color:#636366;margin-top:4px;line-height:1.5;"></div></div>' // v14.66.0
     +'<div class="fg"><label for="vc-take-price">Price agreed with the customer (₹)</label><input id="vc-take-price" type="number" inputmode="decimal" min="2" step="0.01" placeholder="e.g. 1995" onkeydown="if(event.key===\'Enter\')vcPayMakeQr()"/></div>'
     +'<button class="btn btn-p" id="vc-take-make" style="width:100%;" onclick="vcPayMakeQr()">Show QR</button>'
     +'<div id="vc-take-out" style="display:none;text-align:center;margin-top:16px;">'
@@ -19343,7 +19440,8 @@ function vcPayOpenTake(opts){
     +'</div></div>');
   m.classList.add('open');
   const pre=payWaPhone(opts.phone); // v14.53.0: opened from the Dashboard with a copied number
-  if(pre){const ph=document.getElementById('vc-take-phone');if(ph)ph.value=payFullNumber(pre);vcPayClipNote('Number filled from what you copied.');}
+  _vcTakeAddrTyped=false;_vcTakeAddrAuto=''; // v14.66.0
+  if(pre){const ph=document.getElementById('vc-take-phone');if(ph)ph.value=payFullNumber(pre);vcPayClipNote('Number filled from what you copied.');vcTakeAddrCheck();}
   setTimeout(()=>{const ph=document.getElementById('vc-take-phone'),i=document.getElementById(ph&&String(ph.value).trim()?'vc-take-price':'vc-take-phone');if(i)i.focus();},50);
   if(!pre&&!opts.noClip&&_payClipPlat()==='android')vcPayClipAuto();
 }
@@ -19361,7 +19459,7 @@ async function vcPayClipAuto(){
     if(!m||!ph||!m.classList.contains('open')||_vcTakeId)return;
     const d=payClipAutoFill(txt,ph.value,payClaims,Date.now());
     if(!d)return;
-    ph.value=payFullNumber(d);vcPayClipNote('Number filled from what you copied.');
+    ph.value=payFullNumber(d);vcPayClipNote('Number filled from what you copied.');vcTakeAddrCheck(); // v14.66.0
     const p=document.getElementById('vc-take-price');if(p&&(document.activeElement===ph||document.activeElement===document.body))p.focus();
   }catch(e){}
 }
@@ -19373,7 +19471,7 @@ async function vcPayPasteNum(){
   let txt;try{txt=await navigator.clipboard.readText();}catch(e){_payClipFail();return;}
   const r=payClipPaste(txt,ph.value);
   if(!r.ok){toast('⚠️ '+r.msg,5000);return;}
-  ph.value=payFullNumber(r.digits);vcPayClipNote('');
+  ph.value=payFullNumber(r.digits);vcPayClipNote('');vcTakeAddrCheck(); // v14.66.0
   const p=document.getElementById('vc-take-price');if(p)p.focus();
 }
 // Dashboard: iPhone / computer button "Paste number and take payment".
@@ -19433,9 +19531,10 @@ async function vcPayMakeQr(){
   if(_payPicking)return; // v14.62.1: a second tap while checking makes no second sale
   _payPicking=true;
   try{if(!(await _payCheckFresh('vc-take-make')))return;}finally{_payPicking=false;}
-  const amount=payPickAmount(price,payUsedAmounts(payClaims,bankAlerts,Date.now(),PAY_DAYS),Math.random);
+  const amount=payPickAmount(price,payUsedAmounts(payClaims,bankAlerts,Date.now(),PAY_DAYS,vcPayViewNow().waiting),Math.random); // v14.66.0: old unpaid sales keep their amount
   if(amount===null){toast('⚠️ No free amount left below this price. Try again tomorrow or change the price slightly.',6000);return;}
-  const c={id:'C'+uid(),price:Math.round(price*100)/100,amount,createdAt:new Date().toISOString(),by:_payWho(),status:'open',phone};
+  const address=addrTidy(document.getElementById('vc-take-addr')?.value),pin=addrPin(document.getElementById('vc-take-pin')?.value)||(address?addrPinFrom(address,getStateFromPin):''); // v14.66.0
+  const c={id:'C'+uid(),price:Math.round(price*100)/100,amount,createdAt:new Date().toISOString(),by:_payWho(),status:'open',phone,address,pin};
   vcxStore('payc',c);vcxPush();
   _vcTakeId=c.id;
   await vcPayShowQr(c);
@@ -19446,6 +19545,7 @@ function vcPayReopen(id){
   vcPayOpenTake({noClip:true});
   const i=document.getElementById('vc-take-price');if(i)i.value=c.price||'';
   const ph=document.getElementById('vc-take-phone');if(ph)ph.value=payFullNumber(c.phone);
+  const ad=document.getElementById('vc-take-addr'),pn=document.getElementById('vc-take-pin');if(ad)ad.value=c.address||'';if(pn)pn.value=addrPin(c.pin); // v14.66.0
   _vcTakeId=c.id;vcPayShowQr(c);
 }
 async function vcPayShowQr(c){
@@ -20002,8 +20102,9 @@ function _payRowHtml(r){
   const when=(r.pays[0]&&r.pays[0].txnAt)||(r.claim&&(r.claim.paidAt||r.claim.createdAt))||'';
   return'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="min-width:0;flex:1 1 220px;"><div class="list-main">'+esc(_payInr(r.paid))+(r.claim&&_payCents(r.claim.price)!==_payCents(r.paid)?' <span style="font-weight:400;color:#636366;font-size:12px;">price '+esc(_payInr(r.claim.price))+'</span>':'')+'</div>'
     +'<div class="list-sub">'+esc(_payTimeTxt(when))+(r.utrs.length?' · Ref '+esc(r.utrs.join(', ')):'')+(r.pays[0]&&r.pays[0].payer?' · '+esc(r.pays[0].payer):'')+(ph?' · +'+esc(ph):'')+'</div>'
+    +(r.claim?_vcAddrLines(r.claim):'') // v14.66.0
     +(tags.length?'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">'+tags.join('')+'</div>':'')+'</div>'
-    +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+btns.join('')+'</div></div>';
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+btns.join('')+(r.claim?_vcAddrBtns(r.claim):'')+'</div></div>';
 }
 function vcPayRowMenu(key,btn){
   const r=_payRowByKey(key);if(!r)return;
@@ -20019,6 +20120,179 @@ function _payWaitHead(c){
   if(!p.length)return esc(_payInr(c.amount));
   return esc(_payInr(c.price))+' <span style="font-weight:400;color:#636366;font-size:12px;">in '+p.length+' parts: '+p.map(x=>esc(_payInr(x))).join(' + ')+(c._got?' · '+c._got+' of '+c._of+' received':'')+'</span>';
 }
+// ═══ v14.66.0 SAVED ADDRESSES BY PHONE NUMBER, RESELLER TAG, CHECK ADDRESS WITH THE CUSTOMER ═══
+// Calculations live in ADDR CORE. Reseller tags sync through the CustTags sheet (made by Code.gs on first write).
+let custTags=_vcList('vc_cust_tags');
+VCX.cust={sheet:'CustTags',ls:'vc_cust_tags',get:()=>custTags,set:v=>{custTags=v;}};
+_VC_NUM.cust=[];_VC_DATE.cust=[];
+function _vcAddrResellers(){return addrResellers(custTags);}
+function _vcAddrKeyArg(k){return String(k==null?'':k).replace(/[^\d,]/g,'').slice(0,80);}
+function vcAddrReseller(keys,on){
+  const ks=String(keys==null?'':keys).split(',').map(addrKey).filter(Boolean);if(!ks.length)return;
+  ks.forEach(k=>vcxStore('cust',{id:'R'+k,phone:k,reseller:!!on}));
+  vcxPush();
+  try{_vcAddrDismiss='';vcAddrCheck();}catch(e){}
+  try{vcTakeAddrCheck();}catch(e){}
+  toast(on?'Marked as reseller. Their address will not be filled.':'No longer marked as reseller.');
+}
+const _ADDR_NOTE='background:#f2f2f7;border-radius:10px;padding:10px 12px;margin:-4px 0 12px;font-size:13px;color:#636366;line-height:1.5;';
+
+// ── Bill form: offer the saved details for the Shipping Phone / WhatsApp number ──
+let _vcAddrTimer=null,_vcAddrDismiss='';
+function vcAddrSoon(){clearTimeout(_vcAddrTimer);_vcAddrTimer=setTimeout(vcAddrCheck,400);}
+function _vcAddrFormNums(){return[document.getElementById('c-phone')?.value||'',document.getElementById('c-whatsapp')?.value||''];}
+function _vcAddrVal(id){return String(document.getElementById(id)?.value||'');}
+function vcAddrCheck(){
+  const box=document.getElementById('vc-addr-box');if(!box)return;
+  const r=addrLookup(addrBook(invoices),_vcAddrFormNums(),_vcAddrResellers());
+  const hide=()=>{box.style.display='none';box.innerHTML='';};
+  if(r.status==='none'||!r.key||r.key===_vcAddrDismiss)return hide();
+  const k=_vcAddrKeyArg(r.key),x='<button type="button" class="btn btn-plain btn-sm" aria-label="Hide" onclick="vcAddrDismiss()">✕</button>';
+  let h;
+  if(r.status==='one'){
+    const e=r.entry;
+    if(_vcAddrVal('c-name').trim()&&addrSame({address:_vcAddrVal('c-address'),pin:_vcAddrVal('c-pin')},e))return hide(); // already on the form
+    const facts=[e.pin?'PIN '+e.pin:'',e.state,e.invNo?'last bill '+e.invNo+(e.date?', '+fmtDate(e.date):''):''].filter(Boolean);
+    h='<div style="background:#eef5ff;border:1px solid #c9ddf7;border-radius:10px;padding:10px 12px;margin:-4px 0 12px;font-size:13px;line-height:1.5;">'
+      +'<div style="font-weight:600;">📒 Saved customer'+(e.name?': '+esc(e.name):'')+'</div>'
+      +'<div style="white-space:pre-wrap;color:#1c1c1e;">'+esc(e.address)+'</div>'
+      +'<div style="color:#636366;">'+facts.map(esc).join(' · ')+'</div>'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center;"><button type="button" class="btn btn-p btn-sm" onclick="vcAddrUse()">Use these details</button><button type="button" class="btn btn-o btn-sm" onclick="vcAddrReseller(\''+k+'\',true)">Reseller</button>'+x+'</div></div>';
+  }else if(r.status==='many'){
+    h='<div style="'+_ADDR_NOTE+'">This number has '+r.count+' different addresses on past bills (maybe a reseller). Not filled.'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center;"><button type="button" class="btn btn-o btn-sm" onclick="vcAddrReseller(\''+k+'\',true)">Mark as reseller</button>'+x+'</div></div>';
+  }else{
+    h='<div style="'+_ADDR_NOTE+'">Reseller: address not filled.'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center;"><button type="button" class="btn btn-o btn-sm" onclick="vcAddrReseller(\''+k+'\',false)">Not a reseller</button>'+x+'</div></div>';
+  }
+  box.innerHTML=h;box.style.display='block';
+}
+function vcAddrDismiss(){const r=addrLookup(addrBook(invoices),_vcAddrFormNums(),_vcAddrResellers());_vcAddrDismiss=r.key||'';vcAddrCheck();}
+async function vcAddrUse(){
+  const r=addrLookup(addrBook(invoices),_vcAddrFormNums(),_vcAddrResellers());
+  if(r.status!=='one'){vcAddrCheck();return;}
+  const e=r.entry,el=id=>document.getElementById(id);
+  const clash=[];
+  if(_vcAddrVal('c-name').trim()&&e.name&&_vcAddrVal('c-name').trim().toLowerCase()!==e.name.toLowerCase())clash.push('name');
+  if(_vcAddrVal('c-address').trim()&&!addrSame({address:_vcAddrVal('c-address'),pin:_vcAddrVal('c-pin')},e))clash.push('address');
+  if(_vcAddrVal('c-pin').trim()&&e.pin&&_vcAddrVal('c-pin').trim()!==e.pin)clash.push('PIN');
+  let replace=false;
+  if(clash.length)replace=await _payAsk('Replace what is typed?','The '+clash.join(', ')+' already typed '+(clash.length>1?'are':'is')+' different from the saved details. Replace '+(clash.length>1?'them':'it')+'? Cancel fills only the empty boxes.');
+  const put=(id,v)=>{const f=el(id);if(f&&v&&(!String(f.value).trim()||replace))f.value=v;};
+  put('c-name',e.name);put('c-address',e.address);
+  const pinWas=_vcAddrVal('c-pin').trim();put('c-pin',e.pin);
+  const st=el('c-state');
+  if(st&&e.state&&(!st.value||replace)){
+    const m=Array.from(st.options).find(o=>o.value===e.state||o.text===e.state||o.text.startsWith(e.state));
+    if(m){st.value=m.value||m.text;updateTaxType();}
+  }else if(st&&!st.value&&e.pin&&(!pinWas||replace))onPinInput(e.pin);
+  _vcAddrDismiss=r.key;vcAddrCheck();
+  toast('✅ Saved details filled. Check them before billing.');
+}
+// Bill from a received payment: the sale's number and address go into empty boxes, then the saved-customer check runs.
+function _vcAddrFromClaim(c){
+  if(!c)return;const el=id=>document.getElementById(id);
+  const ph=payWaPhone(c.phone),wa=el('c-whatsapp'),ad=el('c-address'),pn=el('c-pin');
+  if(ph&&wa&&!wa.value.trim()&&!_vcAddrFormNums().some(v=>addrKey(v)&&addrKey(v)===addrKey(ph)))wa.value=payFullNumber(ph);
+  if(c.address&&ad&&!ad.value.trim())ad.value=addrTidy(c.address);
+  const p=addrPin(c.pin);if(p&&pn&&!pn.value.trim()){pn.value=p;onPinInput(p);}
+  _vcAddrDismiss='';vcAddrCheck();
+}
+
+// ── Take payment: fill the address box from past bills ──
+let _vcTakeAddrTimer=null,_vcTakeAddrTyped=false,_vcTakeAddrAuto='';
+function vcTakeAddrSoon(){clearTimeout(_vcTakeAddrTimer);_vcTakeAddrTimer=setTimeout(vcTakeAddrCheck,400);}
+function vcTakeAddrCheck(){
+  const ph=document.getElementById('vc-take-phone'),ad=document.getElementById('vc-take-addr'),pn=document.getElementById('vc-take-pin'),note=document.getElementById('vc-take-addrnote');
+  if(!ph||!ad||!note||_vcTakeId)return; // once the QR is made, the sale keeps its own address
+  const r=addrLookup(addrBook(invoices),ph.value,_vcAddrResellers());
+  const say=h=>{note.innerHTML=h||'';note.style.display=h?'block':'none';};
+  const keep=r.status==='one'&&_vcTakeAddrAuto===r.key;
+  if(_vcTakeAddrAuto&&!keep&&!_vcTakeAddrTyped){ad.value='';if(pn)pn.value='';_vcTakeAddrAuto='';} // filled for another number: taken out again
+  const k=_vcAddrKeyArg(r.key);
+  if(r.status==='one'){
+    if(!_vcTakeAddrTyped&&!ad.value.trim()){ad.value=r.entry.address;if(pn)pn.value=r.entry.pin||'';_vcTakeAddrAuto=r.key;}
+    if(_vcTakeAddrAuto===r.key)say('📒 Filled from '+(r.entry.invNo?'bill '+esc(r.entry.invNo):'a past bill')+(r.entry.date?' of '+esc(fmtDate(r.entry.date)):'')+'. Check it with the customer. <button type="button" class="btn btn-plain btn-sm" onclick="vcAddrReseller(\''+k+'\',true)">Reseller?</button>');
+    else say('');
+  }else if(r.status==='many')say('This number has '+r.count+' different addresses on past bills (maybe a reseller). Not filled. <button type="button" class="btn btn-plain btn-sm" onclick="vcAddrReseller(\''+k+'\',true)">Mark as reseller</button>');
+  else if(r.status==='reseller')say('Reseller: address not filled. <button type="button" class="btn btn-plain btn-sm" onclick="vcAddrReseller(\''+k+'\',false)">Not a reseller</button>');
+  else say('');
+}
+
+// ── Payments page: address on a sale, Check address, Address OK, change or paste ──
+function _vcAddrLines(c){
+  if(!c||!c.address)return'';
+  const one=addrOneLine(c.address),p=addrPin(c.pin),short=one.length>140?one.slice(0,139)+'…':one;
+  let h='<div class="list-sub" style="color:#3a3a3c;">📍 '+esc(short)+(p&&!one.endsWith(p)?' · '+esc(p):'')+'</div>';
+  const ok=_payAgo(c.addrOkMs),sent=_payAgo(c.addrSentMs);
+  if(ok)h+='<div class="list-sub" style="color:#1e7e34;">✅ Address confirmed '+esc(ok)+'</div>';
+  else if(sent)h+='<div class="list-sub" style="color:#B26A00;">📍 Address sent '+esc(sent)+'</div>';
+  return h;
+}
+function _vcAddrBtns(c){
+  if(!c||!c.id)return'';
+  const id=_vcIdArg(c.id),has=!!String(c.address||'').trim(),ok=!!_payAgo(c.addrOkMs);
+  let h='';
+  if(has&&!ok&&payWaPhone(c.phone))h+='<button class="btn btn-o btn-sm" onclick="vcAddrSend(\''+id+'\')">📍 Check address</button>';
+  if(has&&!ok)h+='<button class="btn btn-o btn-sm" onclick="vcAddrOk(\''+id+'\')">✅ Address OK</button>';
+  h+='<button class="btn btn-o btn-sm" onclick="vcAddrEdit(\''+id+'\')">'+(has?'✏️ Address':'📍 Add address')+'</button>';
+  return h;
+}
+function vcAddrSend(id){
+  const c=_payClaim(id);if(!c)return;
+  if(!String(c.address||'').trim()){toast('No address saved for this sale. Add it first.');return;}
+  if(!payWaPhone(c.phone)){toast('No WhatsApp number saved for this sale.');return;}
+  if(!window.open(payWaLink(c.phone,addrCheckMsg(c.address,c.pin)),'_blank')){toast('⚠️ Allow pop-ups for this app and try again.',5000);return;}
+  _paySetClaim(id,{addrSentMs:Date.now()});vcxPush();vcPayRefresh();
+}
+function vcAddrOk(id){
+  const c=_payClaim(id);if(!c||!String(c.address||'').trim())return;
+  _paySetClaim(id,{addrOkMs:Date.now()});vcxPush();vcPayRefresh();
+  toast('✅ Address marked as confirmed');
+}
+let _vcAddrId=null;
+function vcAddrClose(){const m=document.getElementById('vc-addr-modal');if(m)m.classList.remove('open');_vcAddrId=null;}
+function _vcAddrNote(t){const n=document.getElementById('vc-addr-note');if(!n)return;n.textContent=t||'';n.style.display=t?'block':'none';}
+function vcAddrEdit(id){
+  const c=_payClaim(id);if(!c)return;_vcAddrId=String(c.id);
+  const ph=payWaPhone(c.phone);
+  const m=_vcEnsureModal('vc-addr-modal','<div class="modal" style="max-width:440px;"><button class="modal-close" onclick="vcAddrClose()">✕</button>'
+    +'<div class="modal-title">📍 Delivery address</div>'
+    +'<div style="font-size:13px;color:#636366;margin-bottom:10px;">Sale '+esc(_payInr(c.amount))+(ph?' · +'+esc(ph):'')+'</div>'
+    +'<button type="button" class="btn btn-o btn-sm" style="margin-bottom:10px;" onclick="vcAddrPaste()">📋 Paste customer\'s message</button>'
+    +'<div class="fg"><label for="vc-addr-text">Address</label><textarea id="vc-addr-text" rows="4" maxlength="500" placeholder="House No, Street, City"></textarea></div>'
+    +'<div class="fg"><label for="vc-addr-pin">PIN code</label><input id="vc-addr-pin" type="tel" inputmode="numeric" maxlength="6" placeholder="6-digit PIN code"/></div>'
+    +'<div id="vc-addr-note" role="status" style="display:none;font-size:12px;color:#636366;margin-bottom:8px;line-height:1.5;"></div>'
+    +'<div class="btn-row"><button type="button" class="btn btn-p" onclick="vcAddrSave()">Save</button><button type="button" class="btn btn-o" onclick="vcAddrClose()">Close</button></div></div>');
+  document.getElementById('vc-addr-text').value=c.address||'';
+  document.getElementById('vc-addr-pin').value=addrPin(c.pin);
+  m.classList.add('open');
+}
+async function vcAddrPaste(){
+  const fail=()=>toast('⚠️ Could not read what you copied. Press and hold in the Address box and choose Paste.',6000);
+  if(!_payClipCan()){fail();return;}
+  let txt;try{txt=await navigator.clipboard.readText();}catch(e){fail();return;}
+  txt=String(txt||'').slice(0,2000);
+  if(!txt.trim()){toast('⚠️ Nothing copied. Copy the customer\'s message in WhatsApp first.',5000);return;}
+  const d=parseDetailsText(txt),pin=addrPin(d.pin);
+  const a=addrTidy(cleanAddressForLabel(d.address,d.name,d.phone,d.whatsapp,d.pin));
+  if(!a){toast('⚠️ No address found in what you copied.',5000);return;}
+  const t=document.getElementById('vc-addr-text'),p=document.getElementById('vc-addr-pin');
+  if(t)t.value=a;if(p&&pin)p.value=pin;
+  _vcAddrNote('Filled from what you copied. Check it, then tap Save.');
+}
+function vcAddrSave(){
+  const c=_payClaim(_vcAddrId);if(!c){vcAddrClose();return;}
+  const address=addrTidy(document.getElementById('vc-addr-text')?.value),pinRaw=String(document.getElementById('vc-addr-pin')?.value||'').trim();
+  let pin=addrPin(pinRaw);
+  if(pinRaw&&!pin){toast('⚠️ The PIN code must be 6 digits.');return;}
+  if(!pin&&address)pin=addrPinFrom(address,getStateFromPin);
+  const changed=!addrSame({address:c.address||'',pin:c.pin||''},{address,pin});
+  const patch={address,pin};
+  if(changed){patch.addrOkMs='';patch.addrSentMs='';}
+  _paySetClaim(c.id,patch);vcxPush();vcAddrClose();vcPayRefresh();
+  toast(!address?'Address removed':changed&&_payAgo(c.addrOkMs)?'✅ Address saved. Check it with the customer again.':'✅ Address saved');
+}
 function buildPaymentsPage(){return'<div id="vc-pay"></div>';}
 function vcPayRender(){
   const el=document.getElementById('vc-pay');if(!el)return;
@@ -20032,8 +20306,8 @@ function vcPayRender(){
     +'<div class="btn-row" style="justify-content:flex-start;flex-wrap:wrap;margin-top:0;"><button class="btn btn-p btn-sm" onclick="vcPayClipboard()">📋 Paste bank SMS</button><button class="btn btn-o btn-sm" onclick="vcPayAddModal()">＋ Add payment (no SMS)</button><button class="btn btn-plain btn-sm" onclick="_payShowBox()">Paste by hand</button></div>'
     +'<div id="vc-pay-paste-box" style="display:none;margin-top:10px;"><div class="fg" style="margin-bottom:8px;"><textarea id="vc-pay-paste" rows="4" maxlength="1000" placeholder="INR … credited A/c no. XX'+esc(vcPayAcct())+' …" aria-label="Bank SMS"></textarea></div><button class="btn btn-o btn-sm" onclick="vcPayPaste()">Add</button></div></div>';
   const dup=payDupAmounts(v); // v14.50.1 fix 10
-  if(dup.length)h+='<div class="card" style="background:#fff8e1;border:1px solid #f5c26b;font-size:13px;color:#7a5200;line-height:1.5;">⚠️ Two waiting sales have the same amount: '+dup.map(x=>esc(_payInr(x))).join(', ')+'. This can happen when both phones make a QR at the same moment. When it is paid, link it by hand, or cancel one sale and make a new QR.</div>';
-  h+='<div class="card">'+head('⏳ Waiting for bank',v.waiting.length)+(v.waiting.length?v.waiting.slice().reverse().map(c=>'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="flex:1 1 200px;"><div class="list-main">'+_payWaitHead(c)+'</div><div class="list-sub">'+esc(_payTimeTxt(c.createdAt))+' · price '+esc(_payInr(c.price))+(payWaPhone(c.phone)?' · +'+esc(payWaPhone(c.phone)):'')+'</div>'+(_payAgo(c.remindedMs)?'<div class="list-sub" style="color:#B26A00;">🔔 Reminded '+esc(_payAgo(c.remindedMs))+'</div>':'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-o btn-sm" onclick="vcPayRemind(\''+_vcIdArg(c.id)+'\')">🔔 Remind</button>'+(payWaPhone(c.phone)?'<button class="btn btn-o btn-sm" onclick="vcPayOpenChat(\''+_vcIdArg(c.id)+'\')">💬 Chat</button>':'')+'<button class="btn btn-o btn-sm" onclick="vcPayReopen(\''+_vcIdArg(c.id)+'\')">QR</button><button class="btn btn-o btn-sm" onclick="vcPayMarkModal(\''+_vcIdArg(c.id)+'\')">Mark paid</button><button class="btn btn-d btn-sm" onclick="vcPayCancelClaim(\''+_vcIdArg(c.id)+'\')">Cancel</button></div></div>').join(''):'<div class="list-sub" style="padding:8px 0;">Nothing waiting.</div>')+'</div>';
+  if(dup.length)h+='<div class="card" style="background:#fff8e1;border:1px solid #f5c26b;font-size:13px;color:#7a5200;line-height:1.5;">⚠️ Two waiting sales have the same amount: '+dup.map(x=>esc(_payInr(x))).join(', ')+'. A payment of this amount will not be linked by itself. When it is paid, link it by hand, or cancel the sale that will not be paid.</div>';
+  h+='<div class="card">'+head('⏳ Waiting for bank',v.waiting.length)+(v.waiting.length?v.waiting.slice().reverse().map(c=>'<div class="list-row" style="flex-wrap:wrap;gap:8px;"><div style="flex:1 1 200px;"><div class="list-main">'+_payWaitHead(c)+'</div><div class="list-sub">'+esc(_payTimeTxt(c.createdAt))+' · price '+esc(_payInr(c.price))+(payWaPhone(c.phone)?' · +'+esc(payWaPhone(c.phone)):'')+'</div>'+(_payAgo(c.remindedMs)?'<div class="list-sub" style="color:#B26A00;">🔔 Reminded '+esc(_payAgo(c.remindedMs))+'</div>':'')+_vcAddrLines(c)+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-o btn-sm" onclick="vcPayRemind(\''+_vcIdArg(c.id)+'\')">🔔 Remind</button>'+(payWaPhone(c.phone)?'<button class="btn btn-o btn-sm" onclick="vcPayOpenChat(\''+_vcIdArg(c.id)+'\')">💬 Chat</button>':'')+'<button class="btn btn-o btn-sm" onclick="vcPayReopen(\''+_vcIdArg(c.id)+'\')">QR</button><button class="btn btn-o btn-sm" onclick="vcPayMarkModal(\''+_vcIdArg(c.id)+'\')">Mark paid</button>'+_vcAddrBtns(c)+'<button class="btn btn-d btn-sm" onclick="vcPayCancelClaim(\''+_vcIdArg(c.id)+'\')">Cancel</button></div></div>').join(''):'<div class="list-sub" style="padding:8px 0;">Nothing waiting.</div>')+'</div>';
   h+='<div class="card">'+head('✅ Received, not billed',v.toBill.length)+(v.toBill.length?v.toBill.slice().reverse().map(_payRowHtml).join(''):'<div class="list-sub" style="padding:8px 0;">Everything received is billed.</div>')+'</div>';
   if(v.notSale.length)h+='<details class="card collapse-card"><summary class="collapse-summary"><span class="card-title" style="margin:0;display:inline;">Not a sale ('+v.notSale.length+')</span><span class="collapse-chevron">▾</span></summary><div style="margin-top:8px;">'+v.notSale.slice().reverse().map(p=>'<div class="list-row"><div><div class="list-main">'+esc(_payInr(p.amount))+'</div><div class="list-sub">'+esc(_payTimeTxt(p.txnAt))+' · Ref '+esc(p.utr)+' · '+esc(PAY_NS[p.nsReason]||'Other')+(p.nsNote?': '+esc(p.nsNote):'')+'</div></div><button class="btn btn-o btn-sm" onclick="vcPayNotSaleUndo(\''+p.utr+'\')">Undo</button></div>').join('')+'</div></details>';
   const recent=v.done.filter(r=>r.date>=new Date(Date.now()-30*86400000).toISOString().slice(0,10));
@@ -20073,6 +20347,7 @@ function vcPayStartBill(key){
   showPage('invoice',document.getElementById('bnav-invoice'));
   const pm=document.getElementById('pay-mode');if(pm)pm.value='Prepaid';
   vcPayLinkCard();recalc();
+  try{_vcAddrFromClaim(r.claim);}catch(e){console.warn(e);} // v14.66.0
   toast('Payment linked. Fill in the customer and items, then generate the bill.',4000);
 }
 function vcPayLinkPick(btn){
