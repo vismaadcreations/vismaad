@@ -3,10 +3,19 @@
 <head>
 <meta charset="UTF-8"/>
 <!--
-APP: Vismaad Creations v14.66.0
+APP: Vismaad Creations v14.66.1
 PURPOSE: Single-file PWA business manager for Indian unstitched suits — invoices, inventory, shipping, tracking, P&L, catalogue
 STACK: HTML/CSS/JS, no frameworks; Google Sheets via Apps Script (JSONP) as backend; GitHub API for photo hosting
-LAST_CHANGE: 26-Nov-2026 - v14.66.0: SAVED ADDRESSES BY PHONE NUMBER, CHECK ADDRESS WITH THE CUSTOMER, RESELLER TAG, OLD UNPAID QR AMOUNT NO LONGER REPEATED. Includes v14.65.1. No Code.gs or print.html change (the CustTags sheet tab is made by Code.gs on first save). Upload index.html only.
+LAST_CHANGE: 26-Nov-2026 - v14.66.1: AUTOMATIC UPDATE ON EVERY PHONE, PRICE FOLLOWS THE PRODUCT NUMBER, FORM CLEARS AFTER GENERATE, NAME SEARCH LIST, SALES DATE RANGE AND DROPSHIP FILTER, RESELLER TAG TYPED IN THE SHEET. Includes v14.66.0. No Code.gs or print.html change. Upload index.html only.
+(B1) BUG FIX (#345 billed at #34's price): Product No. looks up after every key, so typing 345 found #34 first and filled ₹2,495; the price was only filled into an empty box, so #34's price stayed on #345. lookupProduct now remembers what it filled (_autoPrice, _autoDesc, _autoCost): a filled price follows the number; a number with no product (e.g. 340) takes back the name, price and cost it filled; a price typed by hand is never replaced; a product with no sale price clears the old filled price. Linked-stock switch (_switchLine) keeps the price as before (keepPrice). Colour price override counts as filled. The helper fields are stripped before saving (_invCleanItem).
+(B2) FORM CLEARS AFTER GENERATE: once the invoice is saved the whole form is cleared, the same as + New Invoice (customer, address, PIN, GSTIN, state, items, tracking, shipping, discount, dispatch method, courier, sales channel, date to today, payment link removed). The preview and Print / Share / Print Label / Address-only label stay and use the saved bill. A second tap on Generate stops at "Enter customer name". resetInvoiceForm({keepPreview:true}).
+(B3) NAME SEARCH LIST: the phone suggestion list (datalist, 2 or 3 words above the iPhone keyboard) is replaced by the app's own list under the box: every match, "#345 · name · 3 left · ₹850", words in any order, any case, number or name. In stock first; then "Out of stock (dropship)" greyed; picking one fills the row and opens the out-of-stock question (Split / Use linked / Dropship / Keep). Stock is read at each key press and suits already in other rows of this bill count as used. Closes on ✕, Escape or a tap outside. Up to 150 per section. Product No. box has id iprod-<row>.
+(B4) SALES DATE RANGE: From / To under the filters, with Today, This month, Last month, This FY (1 Apr to 31 Mar) and Clear. Works with search, status, religion, dropship and sort; From after To is swapped. Remembered on this phone (vc_sales_range). Dates read by _salesIso: 2026-11-26, 26-Nov-2026, sheet long form, ISO time (phone time zone), and d/m/yyyy as day first (05/11/2026 = 5 Nov). A bill whose date cannot be read is listed in a note, not dropped silently. Range shown as DD-MM-YYYY.
+(B5) DROPSHIP FILTER on Sales: All / 📦 Only dropshipped (full or partial) / Hide dropshipped.
+(B6) AUTOMATIC UPDATE: on opening, on coming back on screen (at most once a minute) and every 30 minutes, the app reads the first 4 KB of the live page (same address, ?vcupd=, no-store) for the APP: version. Newer and nothing in progress -> reloads at ?vcu=<version>-<time> so no cached copy is used; the tag is removed from the address after loading. In progress (popup, choice sheet, More page, bill preview, a box being typed in, anything on the bill form, a linked payment, or a typed box on the page on screen) -> banner "🔄 New version vX ready" with Update now (asks first if something would be cleared) and Later. Same version tried in the last 15 min -> banner, no reload loop. Offline: tries again later. Each phone needs one manual update to this version. To roll back, upload the older file with a HIGHER version number: a lower number is never taken.
+(B7) RESELLER TAG: TRUE typed by hand in the CustTags tab counts in any capitals or with spaces ("TRUE", " True "). Only true counts.
+TESTS: tests.js + tests2.js (jsdom, whole app loaded), 49 passing; update check also run against a local web server.
+PREV_CHANGE: 26-Nov-2026 - v14.66.0: SAVED ADDRESSES BY PHONE NUMBER, CHECK ADDRESS WITH THE CUSTOMER, RESELLER TAG, OLD UNPAID QR AMOUNT NO LONGER REPEATED. Includes v14.65.1. No Code.gs or print.html change (the CustTags sheet tab is made by Code.gs on first save). Upload index.html only.
 (A1) BILL FORM. Typing or pasting a Shipping Phone or WhatsApp number that is on a past bill (in either field) shows "📒 Saved customer" with name, address, PIN, state and last bill: Use these details fills empty boxes; if a typed name, address or PIN differs it asks before replacing. Numbers compared on the last 10 digits (+91, 0, spaces ignored; international kept). ✕ hides it for that number.
 (A2) SKIP. A number with 2 or more different addresses on past bills fills nothing and says so ("maybe a reseller"). Case, spaces, punctuation and the PIN written inside the text are ignored when comparing. Walk-in, by-hand and blank-address bills are not counted.
 (A3) RESELLER TAG. "Reseller" / "Mark as reseller" / "Not a reseller" on the bill form and in Take payment. A tagged number never gets an address filled. Synced to both phones (new CustTags sheet tab, VCX.cust).
@@ -1067,6 +1076,19 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
 }
 
 </style>
+<style>/* v14.66.1 name search list */
+.ns-list{margin-top:6px;border:1.5px solid var(--gold);border-radius:10px;background:#fff;max-height:45vh;overflow-y:auto;-webkit-overflow-scrolling:touch;box-shadow:0 4px 14px rgba(0,0,0,.08);}
+.ns-head{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;font-size:12px;color:#636366;border-bottom:1px solid #eee;position:sticky;top:0;background:#fff;}
+.ns-x{border:none;background:transparent;font-size:16px;padding:4px 8px;cursor:pointer;color:#636366;}
+.ns-item{display:block;width:100%;text-align:left;border:none;border-bottom:1px solid #f1f1f1;background:#fff;padding:11px 12px;font-size:14px;line-height:1.35;cursor:pointer;color:#1c1c1e;font-family:inherit;}
+.ns-item:hover,.ns-item:focus{background:var(--cream);outline:none;}
+.ns-oos{color:#8e8e93;background:#fafafa;}
+.ns-sec{padding:7px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#A65300;background:#fff3e0;}
+.ns-none{padding:10px 12px;font-size:13px;color:#8e8e93;}
+#sales-range-row input[type=date]{padding:9px 10px;border-radius:8px;border:1.5px solid var(--border);font-size:13px;background:var(--warm);min-width:0;width:100%;}
+.sr-chip{padding:5px 11px;border-radius:12px;font-size:11px;font-weight:700;cursor:pointer;border:1.5px solid var(--brown);background:transparent;color:var(--brown);white-space:nowrap;}
+.sr-chip.on{background:var(--brown);color:#fff;}
+</style>
 </head>
 <body>
 
@@ -1655,6 +1677,29 @@ body.ui-bulk-on .toast{bottom:calc(62px + max(10px,env(safe-area-inset-bottom)) 
     <button onclick="toggleSalesReligionFilter('Sikh')" id="rfbtn-Sikh" style="padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;cursor:pointer;border:2px solid #c47b00;background:transparent;color:#c47b00;">Sikh</button>
     <button onclick="toggleSalesReligionFilter('Muslim')" id="rfbtn-Muslim" style="padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;cursor:pointer;border:2px solid #1a7f3c;background:transparent;color:#1a7f3c;">Muslim</button>
     <button onclick="toggleSalesReligionFilter('Unknown')" id="rfbtn-Unknown" style="padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;cursor:pointer;border:2px solid #888;background:transparent;color:#888;">Unknown</button>
+  </div>
+
+  <!-- v14.66.1 Dropship filter -->
+  <div class="ui-scrollrow" style="display:flex;gap:6px;margin-bottom:8px;align-items:center;" id="sales-ds-row">
+    <span style="font-size:11px;color:#888;">Dropship:</span>
+    <button type="button" class="sr-chip on" id="sdsbtn-all" onclick="setSalesDsFilter('all')">All</button>
+    <button type="button" class="sr-chip" id="sdsbtn-only" onclick="setSalesDsFilter('only')">📦 Only dropshipped</button>
+    <button type="button" class="sr-chip" id="sdsbtn-hide" onclick="setSalesDsFilter('hide')">Hide dropshipped</button>
+  </div>
+  <!-- v14.66.1 Date range -->
+  <div id="sales-range-row" style="margin-bottom:8px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div class="fg" style="margin-bottom:0;"><label>From</label><input type="date" id="sales-from" onchange="salesSetRange(this.value,document.getElementById('sales-to').value)"/></div>
+      <div class="fg" style="margin-bottom:0;"><label>To</label><input type="date" id="sales-to" onchange="salesSetRange(document.getElementById('sales-from').value,this.value)"/></div>
+    </div>
+    <div class="ui-scrollrow" style="display:flex;gap:6px;margin-top:8px;overflow-x:auto;padding-bottom:2px;">
+      <button type="button" class="sr-chip" onclick="salesPreset('today')">Today</button>
+      <button type="button" class="sr-chip" onclick="salesPreset('month')">This month</button>
+      <button type="button" class="sr-chip" onclick="salesPreset('lastmonth')">Last month</button>
+      <button type="button" class="sr-chip" onclick="salesPreset('fy')">This FY</button>
+      <button type="button" class="sr-chip" onclick="salesSetRange('','')">Clear</button>
+    </div>
+    <div id="sales-range-lbl" style="font-size:12px;color:#636366;margin-top:6px;"></div>
   </div>
 
   <!-- Sort bar -->
@@ -2968,7 +3013,7 @@ function addrLookup(book,raw,resellers){
 // Numbers tagged as resellers (CustTags sheet rows {phone, reseller}).
 function addrResellers(rows){
   const s=new Set();
-  (Array.isArray(rows)?rows:[]).forEach(r=>{if(r&&(r.reseller===true||String(r.reseller)==='true')){const k=addrKey(r.phone);if(k)s.add(k);}});
+  (Array.isArray(rows)?rows:[]).forEach(r=>{if(r&&(r.reseller===true||String(r.reseller).trim().toLowerCase()==='true')){const k=addrKey(r.phone);if(k)s.add(k);}}); // v14.66.1: TRUE typed by hand in the sheet counts too
   return s;
 }
 function addrOneLine(address){return addrTidy(address).split('\n').map(l=>l.trim().replace(/[,\s]+$/,'')).filter(Boolean).join(', ');}
@@ -5285,18 +5330,20 @@ function renderItems(){
       </div>
       <div class="row2">
         <div class="fg" style="margin-bottom:10px;"><label>Product No. (optional)</label>
-          <input type="number" value="${it.prodNo||''}" placeholder="—" min="1"
+          <input type="number" id="iprod-${it.id}" value="${it.prodNo||''}" placeholder="—" min="1" inputmode="numeric"
             oninput="updateItem(${it.id},'prodNo',this.value);lookupProduct(${it.id},this.value)" style="padding:11px 12px;"/>
         </div>
         <div class="fg" style="margin-bottom:10px;"><label>Qty</label>
           <input type="number" value="${it.qty}" min="1" oninput="updateItem(${it.id},'qty',this.value)" style="padding:11px 12px;"/>
         </div>
       </div>
-      <div class="fg" style="margin-bottom:10px;">
-        <label>Search by Name <span style="font-weight:400;color:#aaa;">(type to filter)</span></label>
-        <input id="iname-${it.id}" list="iname-list-${it.id}" placeholder="e.g. Banarasi, Pink Suit…"
-          oninput="lookupProductByName(${it.id},this.value)" autocomplete="off" style="padding:11px 12px;"/>
-        <datalist id="iname-list-${it.id}">${buildProdNameOptions()}</datalist>
+      <div class="fg ns-wrap" style="margin-bottom:10px;">
+        <label>Search by Name <span style="font-weight:400;color:#aaa;">(name or number)</span></label>
+        <input id="iname-${it.id}" placeholder="e.g. Banarasi, Pink Suit…" type="search"
+          oninput="_nsInput(${it.id},this.value)" onfocus="if(this.value)_nsInput(${it.id},this.value)"
+          onkeydown="if(event.key==='Escape')_nsClose(${it.id})"
+          autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" style="padding:11px 12px;"/>
+        <div id="nsl-${it.id}" class="ns-list" style="display:none;"></div>
       </div>
       <div class="fg" style="margin-bottom:10px;"><label>Description</label>
         <input id="idesc-${it.id}" value="${esc(it.desc)}" placeholder="Unstitched Suit"
@@ -5375,7 +5422,7 @@ function updateItemDS(id,field,val,optText){
 
 function updateItem(id,f,v){
   const it=items.find(i=>i.id===id);if(!it)return;
-  if(f==='qty'||f==='unitPrice'||f==='costPrice')it[f]=parseFloat(v)||0;
+  if(f==='qty'||f==='unitPrice'||f==='costPrice'){it[f]=parseFloat(v)||0;if(f==='unitPrice')it._autoPrice=null;if(f==='costPrice')it._autoCost=null;} // v14.66.1: typed by hand
   else if(f==='prodNo')it[f]=v?parseInt(v)||'':'';
   else if(f==='discType'){it[f]=v==='pct'?'pct':'rs';_clearAfter(it);} // v14.61.0 · v14.65.0 typed discount wins
   else if(f==='discVal'){it[f]=(v===''||v==null)?'':Math.max(0,_discNum(v));_clearAfter(it);}
@@ -5429,7 +5476,7 @@ function _oosCheckNow(rowId){
 function _switchLine(rowId,newNo){
   const it=items.find(i=>i.id===rowId);const np=_prodByNo(newNo);if(!it||!np)return;
   it.prodNo=parseInt(np.prodNo);it._oosKept='';
-  lookupProduct(rowId,String(np.prodNo),true); // keeps the price already typed
+  lookupProduct(rowId,String(np.prodNo),true,true); // keeps the price already typed (v14.66.1: keepPrice)
   if(np.cost)it.costPrice=np.cost;
   renderItems();
 }
@@ -5449,50 +5496,110 @@ function _splitLine(rowId,linkedNo,keepQty){
   renderItems();
   const v=_prodByNo(n.prodNo);if(v)renderVariantDropdown(n.id,v);
 }
-function lookupProduct(rowId,val,quiet){
+// v14.66.1: the price, name and cost this function fills are remembered (_autoPrice, _autoDesc, _autoCost).
+// Typing 345 looks up 3, 34, 345 in turn: an auto-filled value now follows the number, so #34's price can
+// no longer stick to #345. A number with no product takes back what was filled. A price typed by hand is never
+// replaced. keepPrice (linked-stock switch) keeps the current price as before.
+function _lpSetPrice(it,rowId,v){
+  it.unitPrice=v||0;it._autoPrice=v?v:null;
+  const pr=document.getElementById('iprice-'+rowId);if(pr)pr.value=v?v:'';
+}
+function _lpPriceIsAuto(it){return !it.unitPrice||(it._autoPrice!=null&&Number(it.unitPrice)===Number(it._autoPrice));}
+function _lpUndoAuto(it,rowId){
+  if(it._autoPrice!=null&&Number(it.unitPrice)===Number(it._autoPrice))_lpSetPrice(it,rowId,0);
+  if(it._autoCost!=null&&Number(it.costPrice)===Number(it._autoCost)){it.costPrice=0;it._autoCost=null;const cr=document.getElementById('icost-'+rowId);if(cr){cr.value='';cr.style.background='';}}
+  if(it._autoDesc!=null&&it.desc===it._autoDesc){it.desc='Unstitched Suit';it._autoDesc=null;const d=document.getElementById('idesc-'+rowId);if(d){d.value='Unstitched Suit';d.style.background='';}}
+  it.variantId=null;it.variantLabel=null;
+  const tot=document.getElementById('itot-'+rowId);if(tot)tot.textContent=_itemNetTxt(it);
+}
+function _invCleanItem(it){const o=Object.assign({},it);delete o._autoPrice;delete o._autoDesc;delete o._autoCost;return o;}
+function lookupProduct(rowId,val,quiet,keepPrice){
   const num=parseInt(val);const it=items.find(i=>i.id===rowId);if(!it)return;
-  if(!num){it.desc='Unstitched Suit';it.prodNo='';it.variantId=null;it.variantLabel=null;
+  if(!num){
+    _lpUndoAuto(it,rowId);
+    it.desc='Unstitched Suit';it.prodNo='';it.variantId=null;it.variantLabel=null;it._autoDesc=null;
     const d=document.getElementById('idesc-'+rowId);if(d)d.value='Unstitched Suit';
-    renderVariantDropdown(rowId, null); return;}
+    renderVariantDropdown(rowId, null);recalc(); return;}
   const prod=inventory.find(p=>parseInt(p.prodNo)===num);
-  if(prod){
-    it.desc=prod.name;it.prodNo=num;it.variantId=null;it.variantLabel=null;
-    if(prod.hsn){it.hsn=prod.hsn;const hf=document.getElementById('ihsn-'+rowId);if(hf)hf.value=prod.hsn;}
-    if(!it.unitPrice&&prod.sellPrice){it.unitPrice=prod.sellPrice;const pr=document.getElementById('iprice-'+rowId);if(pr)pr.value=prod.sellPrice;}
-    if(prod.cost){it.costPrice=prod.cost;const cr=document.getElementById('icost-'+rowId);if(cr){cr.value=prod.cost;cr.style.background='#f0faf4';}}
-    const d=document.getElementById('idesc-'+rowId);if(d){d.value=prod.name;d.style.background='#f0faf4';}
-    const tot=document.getElementById('itot-'+rowId);if(tot)tot.textContent='₹'+((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN');
-    const nf=document.getElementById('iname-'+rowId);if(nf)nf.value='';
-    renderVariantDropdown(rowId, prod);
-    recalc();if(!quiet)toast('✅ #'+num+': '+prod.name);
-    it._oosKept='';if(!quiet)_oosSchedule(rowId); // v14.65.0
-  }
+  if(!prod){_lpUndoAuto(it,rowId);renderVariantDropdown(rowId,null);recalc();return;}
+  it.desc=prod.name;it._autoDesc=prod.name;it.prodNo=num;it.variantId=null;it.variantLabel=null;
+  if(prod.hsn){it.hsn=prod.hsn;const hf=document.getElementById('ihsn-'+rowId);if(hf)hf.value=prod.hsn;}
+  if(!keepPrice&&_lpPriceIsAuto(it))_lpSetPrice(it,rowId,parseFloat(prod.sellPrice)||0);
+  if(prod.cost){it.costPrice=prod.cost;it._autoCost=prod.cost;const cr=document.getElementById('icost-'+rowId);if(cr){cr.value=prod.cost;cr.style.background='#f0faf4';}}
+  else if(it._autoCost!=null&&Number(it.costPrice)===Number(it._autoCost)){it.costPrice=0;it._autoCost=null;const cr=document.getElementById('icost-'+rowId);if(cr){cr.value='';cr.style.background='';}}
+  const d=document.getElementById('idesc-'+rowId);if(d){d.value=prod.name;d.style.background='#f0faf4';}
+  const tot=document.getElementById('itot-'+rowId);if(tot)tot.textContent=_itemNetTxt(it);
+  const pn=document.getElementById('iprod-'+rowId);if(pn&&String(pn.value)!==String(num))pn.value=num;
+  renderVariantDropdown(rowId, prod);
+  recalc();if(!quiet)toast('✅ #'+num+': '+prod.name);
+  it._oosKept='';if(!quiet)_oosSchedule(rowId); // v14.65.0
 }
 function buildProdNameOptions(){
   return inventory.filter(p=>p.qty>0).sort((a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo))
     .map(p=>`<option value="#${p.prodNo} — ${esc(p.name)}">`).join('');
 }
-function lookupProductByName(rowId,val){
-  if(!val)return;
-  const m=val.match(/^#(\d+)\s*—/);
-  if(!m)return;
-  const num=parseInt(m[1]);
-  const prod=inventory.find(p=>parseInt(p.prodNo)===num);
-  if(!prod)return;
-  const it=items.find(i=>i.id===rowId);if(!it)return;
-  it.prodNo=num;it.desc=prod.name;it.variantId=null;it.variantLabel=null;
-  if(prod.hsn){it.hsn=prod.hsn;const hf=document.getElementById('ihsn-'+rowId);if(hf)hf.value=prod.hsn;}
-  const pnInput=document.querySelector('#irow-'+rowId+' input[type="number"]');
-  if(pnInput)pnInput.value=num;
-  if(!it.unitPrice&&prod.sellPrice){it.unitPrice=prod.sellPrice;const pr=document.getElementById('iprice-'+rowId);if(pr)pr.value=prod.sellPrice;}
-  if(prod.cost){it.costPrice=prod.cost;const cr=document.getElementById('icost-'+rowId);if(cr){cr.value=prod.cost;cr.style.background='#f0faf4';}}
-  const d=document.getElementById('idesc-'+rowId);if(d){d.value=prod.name;d.style.background='#f0faf4';}
-  const tot=document.getElementById('itot-'+rowId);if(tot)tot.textContent='₹'+((it.qty||1)*(it.unitPrice||0)).toLocaleString('en-IN');
-  setTimeout(()=>{const nf=document.getElementById('iname-'+rowId);if(nf)nf.value='';},200);
-  renderVariantDropdown(rowId, prod);
-  recalc();toast('✅ #'+num+': '+prod.name);
-  it._oosKept='';_oosSchedule(rowId); // v14.65.0
+function lookupProductByName(rowId,val){ // kept for old callers; v14.66.1 uses _nsPick
+  const m=String(val||'').match(/^#(\d+)\s*—/);if(m)_nsPick(rowId,parseInt(m[1]));
 }
+
+// ═══ v14.66.1 NAME SEARCH LIST ═══
+// The phone's own suggestion list (datalist) shows 2 or 3 words above the iPhone keyboard, so most matches
+// were never seen. This list opens under the box, shows every match, in stock first. A suit already put in
+// another row of this bill counts as used (_formAvail). Out-of-stock suits are listed apart, for dropship;
+// picking one opens the usual out-of-stock question.
+function _nsMatches(rowId,q){
+  const toks=String(q||'').toLowerCase().replace(/#/g,' ').split(/\s+/).filter(Boolean);
+  const out={inStock:[],oos:[]};if(!toks.length)return out;
+  (Array.isArray(inventory)?inventory:[]).forEach(p=>{
+    if(!p)return;const n=parseInt(p.prodNo);if(!(n>0))return;
+    const hay=('#'+n+' '+String(p.name||'')).toLowerCase();
+    if(!toks.every(t=>hay.includes(t)))return;
+    (_formAvail(p,rowId)>0?out.inStock:out.oos).push(p);
+  });
+  const by=(a,b)=>parseInt(a.prodNo)-parseInt(b.prodNo);out.inStock.sort(by);out.oos.sort(by);
+  return out;
+}
+const _NS_MAX=150;
+function _nsInput(rowId,val){
+  rowId=parseInt(rowId);
+  const box=document.getElementById('nsl-'+rowId);if(!box)return;
+  if(!String(val||'').trim()){box.style.display='none';box.innerHTML='';return;}
+  const r=_nsMatches(rowId,val);
+  const line=(p,oos)=>{
+    const n=parseInt(p.prodNo),left=_formAvail(p,rowId),pr=parseFloat(p.sellPrice)||0;
+    return '<button type="button" class="ns-item'+(oos?' ns-oos':'')+'" onmousedown="event.preventDefault()" onclick="_nsPick('+rowId+','+n+')">'
+      +'<strong>#'+n+'</strong> · '+esc(p.name||'')+' · '+left+' left'+(pr?' · ₹'+pr.toLocaleString('en-IN'):'')+'</button>';
+  };
+  let h='<div class="ns-head"><span>'+(r.inStock.length?r.inStock.length+' in stock':'None in stock')+'</span><button type="button" class="ns-x" onmousedown="event.preventDefault()" onclick="_nsClose('+rowId+')" aria-label="Close list">✕</button></div>';
+  h+=r.inStock.slice(0,_NS_MAX).map(p=>line(p,false)).join('');
+  if(r.oos.length)h+='<div class="ns-sec">Out of stock (dropship)</div>'+r.oos.slice(0,_NS_MAX).map(p=>line(p,true)).join('');
+  if(!r.inStock.length&&!r.oos.length)h+='<div class="ns-none">No product matches</div>';
+  if(r.inStock.length>_NS_MAX||r.oos.length>_NS_MAX)h+='<div class="ns-none">Type more to see the rest</div>';
+  const wasHidden=box.style.display==='none';
+  box.innerHTML=h;box.style.display='block';
+  if(wasHidden){const inp=document.getElementById('iname-'+rowId);try{if(inp)inp.scrollIntoView({block:'start',behavior:'smooth'});}catch(e){}}
+}
+function _nsClose(rowId,clear){
+  const box=document.getElementById('nsl-'+parseInt(rowId));if(box){box.style.display='none';box.innerHTML='';}
+  if(clear){const inp=document.getElementById('iname-'+parseInt(rowId));if(inp)inp.value='';}
+}
+function _nsPick(rowId,prodNo){
+  rowId=parseInt(rowId);const num=parseInt(prodNo);
+  const it=items.find(i=>i.id===rowId);if(!it||!(num>0))return;
+  const prod=inventory.find(p=>parseInt(p.prodNo)===num);if(!prod)return;
+  const oos=_formAvail(prod,rowId)<Math.max(1,parseInt(it.qty)||1);
+  updateItem(rowId,'prodNo',String(num));
+  const pn=document.getElementById('iprod-'+rowId);if(pn)pn.value=num;
+  lookupProduct(rowId,String(num),true);
+  _nsClose(rowId,true);
+  toast('✅ #'+num+': '+prod.name);
+  it._oosKept='';
+  if(oos)_oosCheckNow(rowId);
+}
+document.addEventListener('pointerdown',e=>{
+  const t=e.target;if(t&&t.closest&&t.closest('.ns-wrap'))return;
+  document.querySelectorAll('.ns-list').forEach(b=>{if(b.style.display!=='none'){b.style.display='none';b.innerHTML='';}});
+},true);
 
 // Render variant selector inside an invoice item row
 function renderVariantDropdown(rowId, prod) {
@@ -5540,7 +5647,7 @@ function selectInvoiceVariant(rowId, variantId, variantLabel) {
     if (prod) {
       const v = (prod.variants || []).find(x => x.id === variantId);
       if (v && v.price) {
-        it.unitPrice = v.price;
+        it.unitPrice = v.price; it._autoPrice = v.price; // v14.66.1
         const pr = document.getElementById('iprice-' + rowId);
         if (pr) { pr.value = v.price; pr.style.background = '#f0faf4'; }
         const tot = document.getElementById('itot-' + rowId);
@@ -5856,7 +5963,7 @@ async function generateInvoice(){
   const channel=document.getElementById('sale-channel')?.value||'';
 
   const{grandIncl,gstAmt,taxableExcl,suitsTotal}=calcTotals(items,ship,disc);
-  const validItems=items.filter(i=>i.unitPrice>0);
+  const validItems=items.filter(i=>i.unitPrice>0).map(_invCleanItem); // v14.66.1: helper fields never saved
   validItems.forEach(it=>{it.disc=itemDisc(it);if(it.discType!=='pct')it.discType='rs';}); // v14.61.0: freeze each suit's ₹ discount on the bill
   const itemsCostTotal=parseFloat(validItems.reduce((s,i)=>s+(parseFloat(i.costPrice)||0)*(parseInt(i.qty)||1),0).toFixed(2));
 
@@ -5936,14 +6043,11 @@ async function generateInvoice(){
   }
   lsSet('vc_ctr',invCtr);
 
-  // v14.28.0 BUGFIX: the money fields are now cleared the moment the invoice is committed.
-  // generateInvoice() never reset them — only ↺ / "+ New Invoice" did — so starting the next
-  // invoice without tapping either carried the previous shipping figure straight onto it.
-  // The rest of the form is deliberately left intact so the preview above stays readable.
-  const shEl=document.getElementById('shipping');if(shEl)shEl.value='0';
-  const diEl=document.getElementById('discount');if(diEl)diEl.value='0';
-  const scEl=document.getElementById('shipping-cost');if(scEl)scEl.value='0';
-  _shipManual=false;
+  // v14.66.1: the WHOLE form is cleared once the invoice is saved (was: only shipping, discount and
+  // shipping cost since v14.28.0). The preview and its Print / Share / Label buttons use currentInv, so
+  // they keep working. Old details no longer block Paste Details, and a second tap on Generate stops at
+  // "Enter customer name" instead of making a duplicate bill.
+  try{resetInvoiceForm({keepPreview:true});}catch(e){console.warn('v14.66.1 clear form:',e);}
 
   toast('✅ Invoice '+invNo+' saved!');
   // Scroll to "+ New Invoice" button so it's easy to start another
@@ -5961,7 +6065,8 @@ function printCurrentInvoice(){
   document.getElementById('print-area').innerHTML=`<div class="print-page">${getInvHtml(currentInv)}</div>`;
   vcPrint('Invoice-'+(currentInv.invNo||''),true);
 }
-function resetInvoiceForm(){
+function resetInvoiceForm(opts){
+  const keepPreview=!!(opts&&opts.keepPreview); // v14.66.1: after Generate, the preview stays
   setInvNumber();
   ['c-name','c-phone','c-whatsapp','c-gstin','c-address','c-pin','tracking'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   try{_vcAddrDismiss='';vcAddrCheck();}catch(e){} // v14.66.0
@@ -5978,13 +6083,14 @@ function resetInvoiceForm(){
   selChannel='';
   document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
   items=[];itemId=0;addItem();
-  const ips=document.getElementById('inv-preview-section');if(ips)ips.style.display='none';
+  if(!keepPreview){const ips=document.getElementById('inv-preview-section');if(ips)ips.style.display='none';}
   const sb=document.getElementById('summary-box');if(sb)sb.innerHTML='<div style="color:#aaa;text-align:center;padding:16px;">Add items above</div>';
-  currentInv=null;
+  if(!keepPreview)currentInv=null;
   const t=today();
   const id=document.getElementById('inv-date');if(id)id.value=t;
   const fy=document.getElementById('inv-fy');if(fy)fy.value=getFY(t);
   const dd=document.getElementById('dispatch-date');if(dd)dd.value=nextDispatch(t);
+  if(keepPreview)return;
   const sa=document.getElementById('scroll-area');if(sa)sa.scrollTop=0;
   toast('📋 Ready for new invoice');
 }
@@ -6217,6 +6323,51 @@ function _applySortToList(list){
   });
 }
 let _salesReligionFilter='All';
+// ═══ v14.66.1 SALES DATE RANGE + DROPSHIP FILTER ═══
+// Bills come back from the sheet as 2026-11-26, 26-Nov-2026, the long form, an ISO time, or (older ones)
+// 26/11/2026. _salesIso reads each as a plain date; a slashed date is day/month/year (India), so 05/11/2026
+// is 5 November, not 11 May. An ISO time is read in the phone's own time zone (IST midnight from the sheet
+// arrives as 18:30 the day before in UTC). A date that cannot be read is never compared: it is named in a note.
+function _salesIso(v){
+  if(v==null||v==='')return'';
+  const str=String(v).trim();
+  const m=str.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/);
+  if(m)return _ymdReal(m[3],m[2],m[1]);
+  if(/^\d{4}-\d{2}-\d{2}T/.test(str))return _vcIso(str);
+  return toISODate(str)||'';
+}
+function _salesOkIso(v){return(typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)&&_ymdReal(v.slice(0,4),v.slice(5,7),v.slice(8,10))===v)?v:'';}
+function _salesRangeLoad(){const r=lsGet('vc_sales_range',null)||{};return{from:_salesOkIso(r.from),to:_salesOkIso(r.to)};}
+let _salesRange=_salesRangeLoad();
+let _salesDs='all';
+function _salesPresetRange(name,base){
+  const b=_salesOkIso(base)||today();
+  const y=+b.slice(0,4),mo=+b.slice(5,7);
+  const pad=n=>String(n).padStart(2,'0');
+  const last=(yy,mm)=>new Date(Date.UTC(yy,mm,0)).getUTCDate();
+  if(name==='today')return{from:b,to:b};
+  if(name==='month')return{from:y+'-'+pad(mo)+'-01',to:y+'-'+pad(mo)+'-'+pad(last(y,mo))};
+  if(name==='lastmonth'){const yy=mo===1?y-1:y,mm=mo===1?12:mo-1;return{from:yy+'-'+pad(mm)+'-01',to:yy+'-'+pad(mm)+'-'+pad(last(yy,mm))};}
+  if(name==='fy'){const fy=mo>=4?y:y-1;return{from:fy+'-04-01',to:(fy+1)+'-03-31'};}
+  return{from:'',to:''};
+}
+function salesSetRange(from,to){
+  let f=_salesOkIso(from),t=_salesOkIso(to);
+  if(f&&t&&f>t){const x=f;f=t;t=x;}
+  _salesRange={from:f,to:t};lsSet('vc_sales_range',_salesRange);
+  renderSales();
+}
+function salesPreset(name){const r=_salesPresetRange(name,today());salesSetRange(r.from,r.to);}
+function setSalesDsFilter(v){_salesDs=(v==='only'||v==='hide')?v:'all';renderSales();}
+function _salesFilterUI(){
+  const f=document.getElementById('sales-from'),t=document.getElementById('sales-to');
+  if(f&&f.value!==_salesRange.from)f.value=_salesRange.from;
+  if(t&&t.value!==_salesRange.to)t.value=_salesRange.to;
+  const l=document.getElementById('sales-range-lbl');
+  if(l){const a=_salesRange.from,b=_salesRange.to;
+    l.textContent=a&&b?'Showing '+fmtDate(a)+' to '+fmtDate(b):a?'Showing from '+fmtDate(a):b?'Showing up to '+fmtDate(b):'All dates';}
+  ['all','only','hide'].forEach(k=>{const e=document.getElementById('sdsbtn-'+k);if(e)e.classList.toggle('on',_salesDs===k);});
+}
 function toggleSalesReligionFilter(r){
   _salesReligionFilter=r;
   // Update button styles
@@ -6238,6 +6389,8 @@ function renderSales(){
   // Detect duplicate invNo — keep newest (highest id), flag duplicates for display
   const seen={};const dupNos=new Set();
   const _salesBad=[]; // v14.49.0: damaged rows are skipped and named here, the page still opens
+  const _salesNoDate=[]; // v14.66.1
+  try{_salesFilterUI();}catch(e){}
   invoices.forEach(inv=>{
     if(!inv||typeof inv!=='object'||(!inv.invNo&&(inv.id===undefined||inv.id===null||inv.id===''))){_salesBad.push('(no number)');return;}
     const k=inv.invNo||String(inv.id);
@@ -6259,20 +6412,24 @@ function renderSales(){
       const rel=_phLookup(_religionOverrides,ph)||detectReligion(inv.custName||'');
       if(rel!==_salesReligionFilter)return false;
     }
-    if(!sf)return true; // "All"
-
-    // v14.35.0 C19: the filter no longer re-derives the status — it asks getInvoiceBucket(), the
-    // same function that renders the row badge, so the list you get always matches what the rows
-    // say. Buckets stay mutually exclusive (every invoice resolves to exactly one) and Hand/Walk-in
-    // is now a real, selectable bucket instead of a silent exclusion from No Tracking.
-    return getInvoiceBucket(inv).bucket===sf;
+    // v14.66.1: status, then dropship, then date range, so an unreadable date is noted only for bills that pass the rest
+    if(sf&&getInvoiceBucket(inv).bucket!==sf)return false;
+    if(_salesDs!=='all'){const ds=expandItems(inv.itemsArr||[]).some(isDS);if(_salesDs==='only'?!ds:ds)return false;}
+    if(_salesRange.from||_salesRange.to){
+      const d=_salesIso(inv.invDate);
+      if(!d){_salesNoDate.push(String(inv.invNo||inv.id));return false;}
+      if(_salesRange.from&&d<_salesRange.from)return false;
+      if(_salesRange.to&&d>_salesRange.to)return false;
+    }
+    return true;
   }catch(e){_salesBad.push(String(inv.invNo||inv.id));return false;}}));
   const cnt=document.getElementById('sales-count');
   if(cnt)cnt.textContent=salesFiltered.length+' invoice'+(salesFiltered.length!==1?'s':'');
   updateSelCount();
   const el=document.getElementById('sales-list');if(!el)return;
   const _badNote=()=>_salesBad.length?'<div style="background:#fde8e8;border:1px solid #e6b0aa;border-radius:10px;padding:10px 12px;font-size:13px;color:#c0392b;margin-bottom:10px;line-height:1.5;">⚠️ '+_salesBad.length+' damaged invoice row'+(_salesBad.length>1?'s':'')+' skipped: '+esc([...new Set(_salesBad)].slice(0,10).join(', '))+'. Please check '+(_salesBad.length>1?'them':'it')+' in the Invoices tab of your Google Sheet.</div>':'';
-  if(!salesFiltered.length){el.innerHTML=_badNote()+'<div style="color:#aaa;text-align:center;padding:30px;">No invoices found</div>';return;}
+  const _noDateNote=()=>_salesNoDate.length?'<div style="background:#fff8e1;border:1px solid #f5c26b;border-radius:10px;padding:10px 12px;font-size:13px;color:#7a5200;margin-bottom:10px;line-height:1.5;">📅 '+_salesNoDate.length+' bill'+(_salesNoDate.length>1?'s':'')+' left out because the date could not be read: '+esc(_salesNoDate.slice(0,20).join(', '))+(_salesNoDate.length>20?' and more':'')+'. Check the date on these bills.</div>':''; // v14.66.1
+  if(!salesFiltered.length){el.innerHTML=_badNote()+_noDateNote()+'<div style="color:#aaa;text-align:center;padding:30px;">No invoices found</div>';return;}
   const chIcon={WhatsApp:'💬',Instagram:'📸',Facebook:'👍',Website:'🌐',Offline:'🏪'};
   const _salesRows=salesFiltered.map((inv,idx)=>{try{
     // ── v14.35.0 C19: badge comes from getInvoiceBucket(), the same call the filter above makes ──
@@ -6327,7 +6484,7 @@ function renderSales(){
       </div>
     </div>`;
   }catch(e){_salesBad.push(String(inv.invNo||inv.id));return'';}}).join('');
-  el.innerHTML=_badNote()+_salesRows;
+  el.innerHTML=_badNote()+_noDateNote()+_salesRows;
 
   // Credit notes are now rendered inside each invoice card
   const cnSection=document.getElementById('cn-section');
@@ -20439,6 +20596,109 @@ function vcPaySettingsSave(){
   setInterval(()=>{if(today()!==day){day=today();try{vcPayCard();}catch(e){}}},60000);
   vcPayAutoMatch();vcPayCard();vcPayLinkCard();vcPayClipDashSoon();
 })();
+</script>
+<script>
+'use strict';
+// ═══ v14.66.1 AUTOMATIC UPDATE CHECK ═══
+// The app had no update check: its code loads once when it starts, and Android keeps a home-screen app
+// running for days, so a phone could stay on an old version. Now, when the app opens, comes back on
+// screen, and every 30 minutes, it reads the first 4 KB of the live page to get the APP: version.
+// Newer and nothing in progress (_updBusy) -> reloads onto it. Otherwise a banner: Update now / Later.
+// The reload uses a fresh ?vcu= address so neither the phone nor GitHub's cache can hand back the old file;
+// the tag is removed from the address once loaded. If the same version was tried in the last 15 minutes
+// and the page is still old (a stale cache), it shows the banner instead of reloading again (no loop).
+const _VC_SELF_VER=(function(){const m=document.documentElement.outerHTML.match(/APP:\s*Vismaad Creations\s*(v\d+(?:\.\d+){0,3})/);return m?m[1]:'';})();
+function _updParseVer(txt){const m=String(txt==null?'':txt).slice(0,8192).match(/APP:\s*Vismaad Creations\s*(v\d+(?:\.\d+){0,3})(?![\w.])/);return m?m[1]:'';}
+function _updVerCmp(a,b){
+  const p=v=>{const m=String(v||'').match(/^v(\d+(?:\.\d+){0,3})$/);return m?m[1].split('.').map(Number):null;};
+  const x=p(a),y=p(b);if(!x||!y)return 0;
+  for(let i=0;i<4;i++){const d=(x[i]||0)-(y[i]||0);if(d)return d>0?1:-1;}
+  return 0;
+}
+function _updBase(){return location.href.split('#')[0].split('?')[0];}
+async function _updFetchHead(){
+  const r=await fetch(_updBase()+'?vcupd='+Date.now(),{cache:'no-store',headers:{Range:'bytes=0-4095'}});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  if(r.body&&r.body.getReader){
+    const rd=r.body.getReader(),dec=new TextDecoder();let t='';
+    while(t.length<4096){const c=await rd.read();if(c.done)break;t+=dec.decode(c.value,{stream:true});}
+    try{rd.cancel();}catch(e){}
+    return t;
+  }
+  return (await r.text()).slice(0,4096);
+}
+function _updBusy(){
+  try{
+    const vis=el=>!!el&&el.style.display!=='none'&&getComputedStyle(el).display!=='none';
+    if(document.querySelector('.modal-bg.open'))return true;            // any popup, scanner included
+    if(document.getElementById('ui-sheet-bg'))return true;               // choice sheet
+    if(vis(document.getElementById('sub-page-container')))return true;   // a More page (forms inside)
+    if(vis(document.getElementById('inv-preview-section')))return true;  // a bill just made, not printed yet
+    const a=document.activeElement;
+    if(a&&a!==document.body&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return true; // typing now
+    if(['c-name','c-phone','c-whatsapp','c-gstin','c-address','c-pin','tracking'].some(id=>String(document.getElementById(id)?.value||'').trim()))return true;
+    if(Array.isArray(items)&&items.some(i=>i&&(i.unitPrice>0||i.prodNo||(i.desc&&i.desc!=='Unstitched Suit')||isDS(i))))return true;
+    if(typeof _vcPayLink!=='undefined'&&_vcPayLink)return true;
+    // anything typed on the page now on screen (search and filter boxes and dates do not count)
+    const pg=document.querySelector('.page.active');
+    if(pg)for(const el of pg.querySelectorAll('input,textarea')){
+      const t=(el.type||'').toLowerCase();
+      if(['search','date','checkbox','radio','hidden','button','file'].includes(t))continue;
+      if(/search|filter/i.test(el.id||''))continue;
+      if(el.closest('#page-invoice'))continue; // the bill form is checked above
+      if(el.value!==el.defaultValue)return true;
+    }
+  }catch(e){return true;} // unsure = busy, so nothing is ever lost
+  return false;
+}
+function _updReloadUrl(ver){return _updBase()+'?vcu='+String(ver||'').replace(/[^\w.]/g,'')+'-'+Date.now();}
+function _updReload(ver){
+  try{lsSet('vc_upd_try',{ver:String(ver||''),at:Date.now()});}catch(e){}
+  location.replace(_updReloadUrl(ver));
+}
+function _updCleanUrl(){
+  try{if(/[?&]vcu=/.test(location.search))history.replaceState(history.state,'',_updBase()+location.hash);}catch(e){}
+}
+let _updLive='',_updLastAt=0,_updRunning=false,_updHidden='';
+function _updBar(ver){
+  let b=document.getElementById('vc-upd-bar');
+  if(!b){
+    b=document.createElement('div');b.id='vc-upd-bar';b.setAttribute('role','status');
+    b.style.cssText='position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 8px);z-index:99000;max-width:min(560px,calc(100% - 16px));width:max-content;background:#1c1c1e;color:#fff;border-radius:14px;padding:10px 12px;box-shadow:0 6px 24px rgba(0,0,0,.25);display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:14px;line-height:1.35;';
+    document.body.appendChild(b);
+  }
+  b.innerHTML='<span style="flex:1 1 180px;">🔄 New version '+esc(ver)+' ready</span>'
+    +'<button type="button" class="btn btn-p btn-sm" style="width:auto;" onclick="_updNow()">Update now</button>'
+    +'<button type="button" class="btn btn-plain btn-sm" style="width:auto;color:#fff;" onclick="_updLater()">Later</button>';
+  b.style.display='flex';
+}
+function _updHide(){const b=document.getElementById('vc-upd-bar');if(b)b.style.display='none';}
+function _updLater(){_updHidden=_updLive;_updHide();}
+function _updNow(){
+  const v=_updLive;if(!v)return;
+  if(_updBusy())showConfirmModal('Update now?','The bill or form you are filling in will be cleared. Update anyway?',()=>_updReload(v));
+  else _updReload(v);
+}
+async function vcUpdCheck(force){
+  if(_updRunning)return;
+  if(!force&&Date.now()-_updLastAt<60000)return;
+  if(!/^https?:$/.test(location.protocol)||!_VC_SELF_VER)return;
+  _updRunning=true;_updLastAt=Date.now();
+  try{
+    const live=_updParseVer(await _updFetchHead());
+    if(!live||_updVerCmp(live,_VC_SELF_VER)<=0)return;
+    _updLive=live;
+    const tried=lsGet('vc_upd_try',null);
+    const looped=tried&&tried.ver===live&&Date.now()-(+tried.at||0)<15*60000;
+    if(!looped&&!_updBusy()){_updReload(live);return;}
+    if(force||_updHidden!==live)_updBar(live);
+  }catch(e){/* offline or blocked: try again later */}
+  finally{_updRunning=false;}
+}
+_updCleanUrl();
+setTimeout(()=>vcUpdCheck(true),5000);
+setInterval(()=>vcUpdCheck(true),30*60000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')vcUpdCheck(false);});
 </script>
 <!-- v14.63.2: barcode reader for the iPhone scanner, built in so nothing is downloaded. Run only when the scanner opens (see _ensureBarcodeDetector). -->
 <!-- ZXing for JS (@zxing/library) 0.21.3, MIT licence, https://github.com/zxing-js/library -->
